@@ -91,6 +91,10 @@ export const exportZipSchema = z.object({
     .min(1),
 })
 
+export const exportProjectBackupSchema = z.object({
+  projectId: z.string(),
+})
+
 export const providerProfileCreateSchema = z.object({
   name: z.string().trim().min(1).max(120),
   baseUrl: z.string().trim().min(1).max(300),

@@ -1,8 +1,8 @@
 import { createWriteStream, mkdirSync } from 'node:fs'
-import { writeFile } from 'node:fs/promises'
+import { copyFile, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { ZipArchive } from 'archiver'
-import { exportsDir } from './paths'
+import { getAppDataDir, getExportsDir } from './paths'
 import type { StudioDatabase } from './database'
 
 export async function exportRenderedZip(
@@ -11,6 +11,7 @@ export async function exportRenderedZip(
 ): Promise<{ fileName: string; absolutePath: string; url: string }> {
   const project = db.getProject(input.projectId)
   const exportId = `${project.title.replace(/[^\w\u4e00-\u9fa5-]+/g, '_')}-${Date.now()}`
+  const exportsDir = getExportsDir()
   const exportDir = path.join(exportsDir, exportId)
   mkdirSync(exportDir, { recursive: true })
 
@@ -32,6 +33,53 @@ export async function exportRenderedZip(
   return { fileName: zipName, absolutePath: zipPath, url: `/assets/exports/${zipName}` }
 }
 
+export async function exportProjectBackup(
+  db: StudioDatabase,
+  input: { projectId: string },
+): Promise<{ fileName: string; absolutePath: string; url: string }> {
+  const detail = db.getProjectDetail(input.projectId)
+  const exportId = `${safeExportName(detail.project.title)}-backup-${Date.now()}`
+  const exportsDir = getExportsDir()
+  const backupDir = path.join(exportsDir, exportId)
+  const assetsDir = path.join(backupDir, 'assets')
+  mkdirSync(assetsDir, { recursive: true })
+
+  const assets = []
+  for (const asset of detail.assets) {
+    const sourcePath = path.join(getAppDataDir(), asset.url.replace(/^\/assets\//, ''))
+    const assetName = `${asset.id}${path.extname(sourcePath) || extensionForMime(asset.mimeType)}`
+    const backupRelativePath = path.join('assets', assetName).replaceAll(path.sep, '/')
+    await copyFile(sourcePath, path.join(backupDir, backupRelativePath))
+    assets.push({ ...asset, backupPath: backupRelativePath })
+  }
+
+  const manifest = {
+    format: 'pixiv-to-manga-project-backup',
+    version: 1,
+    exportedAt: new Date().toISOString(),
+    projectId: detail.project.id,
+    title: detail.project.title,
+    assetCount: assets.length,
+    pageCount: detail.pages.length,
+    dialogueCount: detail.dialogues.length,
+  }
+  const databaseSlice = {
+    project: detail.project,
+    pages: detail.pages,
+    assets,
+    characters: detail.characters,
+    dialogues: detail.dialogues,
+  }
+
+  await writeFile(path.join(backupDir, 'manifest.json'), JSON.stringify(manifest, null, 2), 'utf8')
+  await writeFile(path.join(backupDir, 'project-data.json'), JSON.stringify(databaseSlice, null, 2), 'utf8')
+
+  const zipName = `${exportId}.zip`
+  const zipPath = path.join(exportsDir, zipName)
+  await zipDirectory(backupDir, zipPath)
+  return { fileName: zipName, absolutePath: zipPath, url: `/assets/exports/${zipName}` }
+}
+
 function zipDirectory(sourceDir: string, outPath: string): Promise<void> {
   return new Promise((resolve, reject) => {
     const output = createWriteStream(outPath)
@@ -43,4 +91,15 @@ function zipDirectory(sourceDir: string, outPath: string): Promise<void> {
     archive.directory(sourceDir, false)
     archive.finalize().catch(reject)
   })
+}
+
+function safeExportName(value: string): string {
+  return value.replace(/[^\w\u4e00-\u9fa5-]+/g, '_')
+}
+
+function extensionForMime(mimeType: string): string {
+  if (mimeType.includes('png')) return '.png'
+  if (mimeType.includes('webp')) return '.webp'
+  if (mimeType.includes('svg')) return '.svg'
+  return '.jpg'
 }

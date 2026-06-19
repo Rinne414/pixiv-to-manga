@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   createProvider,
   discoverProviderModels,
+  exportProjectBackup,
   testProvider,
   updateModelCapability,
   type ModelCapability,
@@ -123,6 +124,18 @@ describe('Provider Lab API client adapters', () => {
       }),
     ).rejects.toThrow(/Select at least one provider test/)
     expect(fetchMock).not.toHaveBeenCalled()
+  })
+
+  it('posts project backup export requests', async () => {
+    const fetchMock = stubFetch({ fileName: 'backup.zip', absolutePath: 'C:/tmp/backup.zip', url: '/assets/exports/backup.zip' })
+
+    const result = await exportProjectBackup({ projectId: 'project-1' })
+    const [path, requestInit] = fetchMock.mock.calls[0] as Parameters<typeof fetch>
+
+    expect(path).toBe('/api/export/project-backup')
+    expect(requestInit?.method).toBe('POST')
+    expect(JSON.parse(String(requestInit?.body))).toEqual({ projectId: 'project-1' })
+    expect(result.fileName).toBe('backup.zip')
   })
 })
 

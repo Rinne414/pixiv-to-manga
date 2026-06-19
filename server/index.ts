@@ -10,7 +10,7 @@ import { StudioDatabase } from './database'
 import { SecretStore } from './secrets'
 import { JobHub } from './jobs'
 import { analyzeStoryWithAi, generateDialoguesWithAi } from './ai'
-import { exportRenderedZip } from './exporter'
+import { exportProjectBackup, exportRenderedZip } from './exporter'
 import { importLocalImages, importPixivArtwork } from './importers'
 import { registerProviderLabRoutes } from './providers'
 import {
@@ -18,6 +18,7 @@ import {
   createProjectSchema,
   dialogueSchema,
   exportZipSchema,
+  exportProjectBackupSchema,
   generatePageSchema,
   pixivImportSchema,
   secretUpdateSchema,
@@ -141,6 +142,11 @@ server.patch('/api/pages/:pageId/layout', async (request) => {
 server.post('/api/export/zip', async (request) => {
   const input = exportZipSchema.parse(request.body)
   return exportRenderedZip(db, input)
+})
+
+server.post('/api/export/project-backup', async (request) => {
+  const input = exportProjectBackupSchema.parse(request.body)
+  return exportProjectBackup(db, input)
 })
 
 server.get('/api/jobs/:jobId/events', async (request, reply) => {

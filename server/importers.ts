@@ -4,7 +4,7 @@ import path from 'node:path'
 import { pipeline } from 'node:stream/promises'
 import { randomUUID } from 'node:crypto'
 import type { MultipartFile } from '@fastify/multipart'
-import { appDataDir, projectAssetDir } from './paths'
+import { getAppDataDir, projectAssetDir } from './paths'
 import type { StudioDatabase } from './database'
 import type { SecretStore } from './secrets'
 import { assertPixivImageUrl, extractPixivArtworkId } from '../src/shared/pixiv'
@@ -32,7 +32,7 @@ export async function importLocalImages(
 
     const extension = safeExtension(file.filename, file.mimetype)
     const relativePath = path.join('projects', project.id, 'originals', `${String(index + 1).padStart(3, '0')}-${randomUUID()}${extension}`)
-    const absolutePath = path.join(appDataDir, relativePath)
+    const absolutePath = path.join(getAppDataDir(), relativePath)
     mkdirSync(path.dirname(absolutePath), { recursive: true })
 
     let bytes = 0
@@ -93,7 +93,7 @@ export async function importPixivArtwork(
 
     const extension = mimeType.includes('png') ? '.png' : mimeType.includes('webp') ? '.webp' : '.jpg'
     const relativePath = path.join('projects', project.id, 'originals', `pixiv-${artworkId}-${String(index + 1).padStart(3, '0')}${extension}`)
-    const absolutePath = path.join(appDataDir, relativePath)
+    const absolutePath = path.join(getAppDataDir(), relativePath)
     projectAssetDir(project.id, 'originals')
     const buffer = Buffer.from(await response.arrayBuffer())
     if (buffer.byteLength > MAX_IMAGE_BYTES) {

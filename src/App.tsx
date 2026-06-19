@@ -308,6 +308,15 @@ function App() {
     })
   }
 
+  async function handleExportBackup() {
+    if (!detail) return
+    await runTask('Export project backup', async () => {
+      const result = await api.exportProjectBackup({ projectId: detail.project.id })
+      pushLog(`Backup exported ${result.fileName}`, 'success')
+      window.open(result.url, '_blank', 'noopener,noreferrer')
+    })
+  }
+
   async function handleSaveSettings(event: FormEvent) {
     event.preventDefault()
     await runTask('Saving settings', async () => {
@@ -342,6 +351,7 @@ function App() {
           <ToolbarButton icon={Play} label="Generate Page" disabled={!canRun || !activePage} onClick={handleGenerateActivePage} />
           <ToolbarButton icon={Sparkles} label="Generate All" disabled={!canRun} onClick={handleGenerateAll} />
           <ToolbarButton icon={Download} label="Export ZIP" disabled={!canRun || !detail?.pages.length} onClick={handleExportZip} />
+          <ToolbarButton icon={Save} label="Export Backup" disabled={!canRun} onClick={handleExportBackup} />
         </div>
         <div className="status-pill" data-busy={Boolean(busy)}>
           {busy ? <Loader2 size={15} /> : <span />}

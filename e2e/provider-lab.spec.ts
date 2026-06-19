@@ -15,6 +15,9 @@ test('Provider Lab creates a keyed provider, discovers models, tests capabilitie
   await page.goto('/')
   await expect(page).toHaveTitle(/Pixiv-to-Manga Studio/)
   await expect(page.getByRole('heading', { name: 'Pixiv-to-Manga Studio' })).toBeVisible()
+  await page.addInitScript(() => {
+    window.open = () => null
+  })
 
   await page.getByLabel('Project title').fill(`E2E Project ${Date.now()}`)
   await page.getByRole('button', { name: /^Create$/ }).click()
@@ -61,6 +64,13 @@ test('Provider Lab creates a keyed provider, discovers models, tests capabilitie
     }),
   )
   expect(storageDump).not.toContain(dummySecret)
+
+  const backupResponse = page.waitForResponse(
+    (response) => response.url().includes('/api/export/project-backup') && response.status() === 200,
+  )
+  await page.getByRole('button', { name: /Export Backup/ }).click()
+  await backupResponse
+  await expect(page.getByText(/Backup exported/)).toBeVisible()
 
   const clipping = await page.evaluate(() =>
     [

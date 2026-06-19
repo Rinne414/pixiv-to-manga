@@ -13,6 +13,7 @@ Pixiv-to-Manga Studio imports Pixiv or local image sets, asks an AI model to cre
 - Local project persistence in SQLite plus an asset folder.
 - API keys and Pixiv cookies saved through the system credential store with `keytar`.
 - PNG ZIP export with project manifest.
+- Project Backup ZIP export with manifest, database slice, and project assets for migration or future restore flows.
 
 ## Development
 

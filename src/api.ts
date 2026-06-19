@@ -204,6 +204,13 @@ export function exportZip(input: {
   })
 }
 
+export function exportProjectBackup(input: { projectId: string }): Promise<{ fileName: string; absolutePath: string; url: string }> {
+  return request<{ fileName: string; absolutePath: string; url: string }>('/api/export/project-backup', {
+    method: 'POST',
+    body: JSON.stringify(input),
+  })
+}
+
 export function getSecretStatus(): Promise<SecretStatus> {
   return request<SecretStatus>('/api/settings/secrets')
 }

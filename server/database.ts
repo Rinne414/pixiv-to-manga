@@ -3,10 +3,10 @@ import path from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import { randomUUID } from 'node:crypto'
 import {
-  appDataDir,
   assetUrlFromRelativePath,
   databasePath,
   ensureAppDirs,
+  getAppDataDir,
   projectAssetDir,
 } from './paths'
 import type {
@@ -564,7 +564,7 @@ export class StudioDatabase {
 
     for (let index = 0; index < 3; index += 1) {
       const relativePath = path.join('projects', project.id, 'originals', `page-${index + 1}.svg`)
-      const absolutePath = path.join(appDataDir, relativePath)
+      const absolutePath = path.join(getAppDataDir(), relativePath)
       projectAssetDir(project.id, 'originals')
       writeFileSync(absolutePath, sampleMangaSvg(index), 'utf8')
       const asset = this.createAsset({
@@ -584,8 +584,8 @@ export class StudioDatabase {
       })
     }
 
-    if (!existsSync(path.join(appDataDir, 'README.txt'))) {
-      writeFileSync(path.join(appDataDir, 'README.txt'), 'Pixiv-to-Manga Studio local project data.\n')
+    if (!existsSync(path.join(getAppDataDir(), 'README.txt'))) {
+      writeFileSync(path.join(getAppDataDir(), 'README.txt'), 'Pixiv-to-Manga Studio local project data.\n')
     }
   }
 }
