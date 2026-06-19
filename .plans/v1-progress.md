@@ -12,6 +12,7 @@
 - Added frontend `Export Backup` toolbar action.
 - Added frontend `Restore Backup` toolbar action.
 - Updated external AI generation to send local page images as OpenAI-compatible `image_url` content and to require matching vision/adult capability gates.
+- Main AI generation can now use saved Provider Lab provider keys when global generation settings are empty or missing a matching API key.
 - Added one-shot AI JSON repair retry before surfacing invalid model output.
 - Added stable toolbar/input/tab/dialogue test selectors and ARIA state for browser E2E and accessibility.
 - Added tests:

@@ -122,6 +122,76 @@ describe('AI vision generation', () => {
     expect(content.some((part) => JSON.stringify(part).includes('data:image/png;base64,'))).toBe(true)
   })
 
+  it('uses a saved Provider Lab key when global generation settings are empty', async () => {
+    const { db, dataDir } = createDb()
+    const secrets = new TestSecretStore(db, new MemoryKeytar())
+    const provider = db.createProvider({
+      name: 'Provider Lab Target',
+      baseUrl: 'https://provider.example.test/v1',
+      defaultModel: 'gpt-4o-provider',
+      isLocal: false,
+    })
+    await secrets.setProviderApiKey(provider.id, 'provider-only-key')
+    db.upsertModelCapability({
+      providerId: provider.id,
+      modelId: 'gpt-4o-provider',
+      supportsVision: true,
+      allowsAdultInput: false,
+      allowsAdultGeneration: false,
+    })
+
+    const project = db.createProject({ title: 'Provider Target Project', mode: 'story', source: 'local' })
+    const relativePath = path.join('projects', project.id, 'originals', 'page-001.png')
+    const absolutePath = path.join(dataDir, relativePath)
+    mkdirSync(path.dirname(absolutePath), { recursive: true })
+    writeFileSync(absolutePath, Buffer.from('png-bytes'))
+    const asset = db.createAsset({ projectId: project.id, kind: 'original', relativePath, mimeType: 'image/png' })
+    const page = db.createPage({ projectId: project.id, index: 0, originalAssetId: asset.id })
+
+    let authorization = ''
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (_url, init) => {
+        authorization = String((init?.headers as Record<string, string>).Authorization)
+        return new Response(
+          JSON.stringify({
+            choices: [
+              {
+                message: {
+                  content: JSON.stringify({
+                    dialogues: [
+                      {
+                        text: 'Provider Lab key is active.',
+                        characterName: '夏海',
+                        x: 0.5,
+                        y: 0.25,
+                        scale: 1,
+                        rotation: 0,
+                        bubbleStyle: 'speech',
+                        color: '#141414',
+                        locked: false,
+                      },
+                    ],
+                  }),
+                },
+              },
+            ],
+          }),
+          { status: 200 },
+        )
+      }),
+    )
+
+    const result = await generateDialoguesWithAi({ secrets, db }, db.getProjectDetail(project.id), page, {
+      mode: 'story',
+      textDensity: 0.65,
+    })
+
+    expect(result.usedMock).toBe(false)
+    expect(result.dialogues[0].text).toBe('Provider Lab key is active.')
+    expect(authorization).toBe('Bearer provider-only-key')
+  })
+
   it('blocks external image generation until the model is confirmed vision-capable', async () => {
     const { db, dataDir } = createDb()
     const secrets = new TestSecretStore(db, new MemoryKeytar())

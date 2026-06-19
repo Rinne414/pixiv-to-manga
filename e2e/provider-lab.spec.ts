@@ -105,6 +105,7 @@ test('main manga workflow imports local art, generates editable dialogue, export
   })
 
   await openStudio(page)
+  await clearProviderProfiles(page)
   await page.getByLabel('Project title').fill(`Workflow Project ${Date.now()}`)
   await page.getByRole('button', { name: /^Create$/ }).click()
   await expect(page.getByText('Project created.')).toBeVisible()
@@ -196,6 +197,16 @@ async function openStudio(page: Page) {
   await expect(page).toHaveTitle(/Pixiv-to-Manga Studio/)
   await expect(page.getByRole('heading', { name: 'Pixiv-to-Manga Studio' })).toBeVisible()
   await expect(page.getByText('Studio ready. Local database loaded.')).toBeVisible()
+}
+
+async function clearProviderProfiles(page: Page) {
+  const response = await page.request.get('/api/providers')
+  expect(response.ok()).toBe(true)
+  const body = (await response.json()) as { providers: Array<{ id: string }> }
+  for (const provider of body.providers) {
+    const deleted = await page.request.delete(`/api/providers/${provider.id}`)
+    expect(deleted.ok()).toBe(true)
+  }
 }
 
 function workflowSvg(): string {

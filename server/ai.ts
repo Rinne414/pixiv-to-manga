@@ -15,6 +15,11 @@ type ParsedStoryBible = z.infer<typeof storyBibleSchema>
 type ChatContentPart =
   | { type: 'text'; text: string }
   | { type: 'image_url'; image_url: { url: string } }
+interface AiTarget {
+  apiBaseUrl: string
+  modelName: string
+  apiKey: string
+}
 
 export interface AiContext {
   secrets: SecretStore
@@ -26,31 +31,30 @@ export async function analyzeStoryWithAi(
   detail: ProjectDetail,
   input: { userBrief: string; r18Enabled: boolean },
 ): Promise<{ storyBible: StoryBible; raw: string; usedMock: boolean }> {
-  const status = await context.secrets.status()
-  const apiKey = await context.secrets.getApiKey()
+  const target = await resolveAiTarget(context)
 
-  if (!apiKey || !status.apiBaseUrl || !status.modelName) {
+  if (!target) {
     const mock = mockStoryBible(detail, input)
     return { storyBible: mock, raw: JSON.stringify(mock, null, 2), usedMock: true }
   }
 
   const imageParts = await projectImageParts(detail, 6)
   ensureAiGenerationAllowed(context, {
-    apiBaseUrl: status.apiBaseUrl,
-    modelName: status.modelName,
+    apiBaseUrl: target.apiBaseUrl,
+    modelName: target.modelName,
     r18Enabled: input.r18Enabled,
     imagePresent: imageParts.length > 0,
     safetyClass: input.r18Enabled ? 'explicit' : 'safe',
   })
 
   const prompt = `你是漫画编剧。请先观察随后的漫画页面图片，再基于画面、项目页数和用户补充，创建中文 Story Bible。必须只返回 JSON，字段为 synopsis, tone, characters, pageBeats, userBrief, r18Enabled。characters 每项包含 name, description, voice, color, bubbleStyle。pageBeats 每项包含 pageIndex, summary, intent。项目标题：${detail.project.title}。页数：${detail.pages.length}。用户补充：${input.userBrief || '无'}。R18: ${input.r18Enabled ? 'true' : 'false'}。`
-  const raw = await openAiChatJson(status.apiBaseUrl, status.modelName, apiKey, [{ type: 'text', text: prompt }, ...imageParts])
+  const raw = await openAiChatJson(target.apiBaseUrl, target.modelName, target.apiKey, [{ type: 'text', text: prompt }, ...imageParts])
   const repaired = await parseWithOneRepair({
     raw,
     schema: storyBibleSchema,
-    baseUrl: status.apiBaseUrl,
-    model: status.modelName,
-    apiKey,
+    baseUrl: target.apiBaseUrl,
+    model: target.modelName,
+    apiKey: target.apiKey,
     schemaHint: 'StoryBible JSON: synopsis, tone, characters[], pageBeats[], userBrief, r18Enabled',
   })
   return { storyBible: normalizeStoryBible(repaired.parsed, detail.project.id), raw: repaired.raw, usedMock: false }
@@ -62,19 +66,18 @@ export async function generateDialoguesWithAi(
   page: Page,
   input: { mode: 'story' | 'translation'; textDensity: number },
 ): Promise<{ dialogues: Dialogue[]; raw: string; usedMock: boolean }> {
-  const status = await context.secrets.status()
-  const apiKey = await context.secrets.getApiKey()
+  const target = await resolveAiTarget(context)
   const storyBible = detail.project.storyBible || mockStoryBible(detail, { userBrief: '', r18Enabled: false })
 
-  if (!apiKey || !status.apiBaseUrl || !status.modelName) {
+  if (!target) {
     const dialogues = resolveDialogueCollisions(mockDialogues(page, storyBible, input.mode))
     return { dialogues, raw: JSON.stringify({ dialogues }, null, 2), usedMock: true }
   }
 
   const pageImageParts = await pageImagePartsForDetail(detail, page)
   ensureAiGenerationAllowed(context, {
-    apiBaseUrl: status.apiBaseUrl,
-    modelName: status.modelName,
+    apiBaseUrl: target.apiBaseUrl,
+    modelName: target.modelName,
     r18Enabled: storyBible.r18Enabled,
     imagePresent: pageImageParts.length > 0,
     safetyClass: storyBible.r18Enabled ? 'explicit' : 'safe',
@@ -83,13 +86,13 @@ export async function generateDialoguesWithAi(
   const beat = storyBible.pageBeats.find((item) => item.pageIndex === page.index)
   const characters = storyBible.characters.map((character) => `${character.name}: ${character.voice}`).join('\n')
   const prompt = `你是漫画对白创作者。请先观察随后的本页漫画图片，再生成叠字对白。模式：${input.mode === 'translation' ? '视觉翻译/改写，不原创大剧情' : '原创故事对白'}。请为第 ${page.index + 1} 页生成中文漫画对白。故事：${storyBible.synopsis}。本页剧情：${beat?.summary || '未指定'}。角色声音：${characters}。文本密度：${input.textDensity}。必须只返回 JSON：{"dialogues":[{"text":"...","characterName":"...","x":0.5,"y":0.5,"scale":1,"rotation":0,"bubbleStyle":"speech","color":"#141414","locked":false}]}. x/y 是 0-1 画面坐标，避免挡脸、遮住关键画面和互相重叠。`
-  const raw = await openAiChatJson(status.apiBaseUrl, status.modelName, apiKey, [{ type: 'text', text: prompt }, ...pageImageParts])
+  const raw = await openAiChatJson(target.apiBaseUrl, target.modelName, target.apiKey, [{ type: 'text', text: prompt }, ...pageImageParts])
   const repaired = await parseWithOneRepair({
     raw,
     schema: dialogueListSchema,
-    baseUrl: status.apiBaseUrl,
-    model: status.modelName,
-    apiKey,
+    baseUrl: target.apiBaseUrl,
+    model: target.modelName,
+    apiKey: target.apiKey,
     schemaHint: 'Dialogue list JSON: {"dialogues":[{"text","characterName","x","y","scale","rotation","bubbleStyle","color","locked"}]}',
   })
   const parsed = repaired.parsed
@@ -103,6 +106,46 @@ export async function generateDialoguesWithAi(
     })),
   )
   return { dialogues, raw: repaired.raw, usedMock: false }
+}
+
+async function resolveAiTarget(context: AiContext): Promise<AiTarget | null> {
+  const status = await context.secrets.status()
+  const globalApiKey = await context.secrets.getApiKey()
+
+  if (status.apiBaseUrl && status.modelName) {
+    const matchingProvider = context.db
+      ? findMatchingProvider(context.db.listProviders(), status.apiBaseUrl, status.modelName)
+      : undefined
+    const providerApiKey = matchingProvider ? await context.secrets.getProviderApiKey(matchingProvider.id) : null
+    const apiKey = globalApiKey || providerApiKey
+    return apiKey
+      ? {
+          apiBaseUrl: status.apiBaseUrl,
+          modelName: status.modelName,
+          apiKey,
+        }
+      : null
+  }
+
+  if (!context.db) {
+    return null
+  }
+
+  for (const provider of context.db.listProviders()) {
+    if (!provider.baseUrl || !provider.defaultModel) {
+      continue
+    }
+    const apiKey = await context.secrets.getProviderApiKey(provider.id)
+    if (apiKey) {
+      return {
+        apiBaseUrl: provider.baseUrl,
+        modelName: provider.defaultModel,
+        apiKey,
+      }
+    }
+  }
+
+  return null
 }
 
 export function evaluateAiGenerationRoute(input: {
