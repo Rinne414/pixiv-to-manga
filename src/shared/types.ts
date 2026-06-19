@@ -1,0 +1,130 @@
+export type ProjectMode = 'story' | 'translation'
+export type ProjectSource = 'pixiv' | 'local' | 'mixed' | 'sample'
+export type PageStatus = 'ready' | 'analyzing' | 'generating' | 'complete' | 'error'
+export type BubbleStyle = 'speech' | 'soft' | 'thought' | 'caption'
+
+export interface Project {
+  id: string
+  title: string
+  mode: ProjectMode
+  source: ProjectSource
+  createdAt: string
+  updatedAt: string
+  storyBible?: StoryBible
+}
+
+export interface Page {
+  id: string
+  projectId: string
+  index: number
+  originalAssetId: string
+  previewAssetId?: string
+  status: PageStatus
+  width: number
+  height: number
+}
+
+export interface Asset {
+  id: string
+  projectId: string
+  kind: 'original' | 'preview' | 'render' | 'export'
+  url: string
+  mimeType: string
+  sourceUrl?: string
+  width: number
+  height: number
+}
+
+export interface Character {
+  id: string
+  projectId: string
+  name: string
+  description: string
+  voice: string
+  color: string
+  fontFamily?: string
+  bubbleStyle: BubbleStyle
+}
+
+export interface PageBeat {
+  pageIndex: number
+  summary: string
+  intent: string
+}
+
+export interface StoryBible {
+  synopsis: string
+  tone: string
+  characters: Character[]
+  pageBeats: PageBeat[]
+  userBrief?: string
+  r18Enabled: boolean
+}
+
+export interface Dialogue {
+  id: string
+  pageId: string
+  characterId?: string
+  characterName?: string
+  text: string
+  x: number
+  y: number
+  scale: number
+  rotation: number
+  bubbleStyle: BubbleStyle
+  color: string
+  locked: boolean
+  raw?: string
+}
+
+export interface JobEvent {
+  jobId: string
+  type: 'queued' | 'progress' | 'complete' | 'error' | 'cancelled'
+  progress: number
+  message: string
+  payload?: unknown
+  error?: string
+}
+
+export interface ProjectDetail {
+  project: Project
+  pages: Page[]
+  assets: Asset[]
+  characters: Character[]
+  dialogues: Dialogue[]
+}
+
+export interface SecretStatus {
+  keychainAvailable: boolean
+  apiBaseUrl: string
+  modelName: string
+  hasApiKey: boolean
+  hasPixivCookie: boolean
+}
+
+export interface ProviderProfile {
+  id: string
+  name: string
+  baseUrl: string
+  defaultModel: string
+  isLocal: boolean
+  createdAt: string
+  updatedAt: string
+  hasApiKey: boolean
+}
+
+export interface ModelCapability {
+  id: string
+  providerId: string
+  modelId: string
+  supportsVision: boolean
+  supportsStreaming: boolean
+  supportsJsonSchema: boolean
+  allowsAdultInput: boolean
+  allowsAdultGeneration: boolean
+  contextWindow?: number
+  notes: string
+  source: 'discovered' | 'tested' | 'user'
+  createdAt: string
+  updatedAt: string
+}

@@ -1,0 +1,13 @@
+# e2e-tester Progress
+
+## 2026-06-20
+
+- Awaiting testable build.
+- Created `test-provider-lab-flow` plan and findings shell.
+- Confirmed browser verification fallback: Playwright if added; otherwise Chrome headless/CDP.
+- Ran `test-provider-lab-main-thread` independent smoke validation.
+- Result: FAIL due to provider API-key save error and Provider Lab horizontal clipping.
+- Main-thread follow-up fixed the provider API-key save error and Provider Lab clipping issue.
+- Re-ran Provider Lab API smoke with dummy key on restarted current-code backend: PASS.
+- Latest validation gate passed: `npm run lint`, `npm test` (7 files / 37 tests), and `npm run build`.
+- Browser CDP smoke harness remained unstable locally, so generated browser result JSON and Chrome profiles are ignored rather than committed as release evidence.

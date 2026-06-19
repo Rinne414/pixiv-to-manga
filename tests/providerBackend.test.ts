@@ -1,0 +1,400 @@
+import { mkdtempSync } from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
+import fastify from 'fastify'
+import { afterEach, describe, expect, it } from 'vitest'
+import { StudioDatabase } from '../server/database'
+import { registerProviderLabRoutes, parseProviderModels } from '../server/providers'
+import { SecretStore, normalizeKeytarModule, type KeytarModule } from '../server/secrets'
+import { evaluateRouteSafety } from '../src/shared/routeSafety'
+
+class MemoryKeytar implements KeytarModule {
+  values = new Map<string, string>()
+
+  async getPassword(service: string, account: string): Promise<string | null> {
+    return this.values.get(`${service}:${account}`) || null
+  }
+
+  async setPassword(service: string, account: string, password: string): Promise<void> {
+    this.values.set(`${service}:${account}`, password)
+  }
+
+  async deletePassword(service: string, account: string): Promise<boolean> {
+    return this.values.delete(`${service}:${account}`)
+  }
+}
+
+class FailingKeytar extends MemoryKeytar {
+  override async setPassword(): Promise<void> {
+    throw new Error('keytar unavailable')
+  }
+}
+
+class TestSecretStore extends SecretStore {
+  private testKeytar: KeytarModule
+
+  constructor(db: StudioDatabase, keytar: KeytarModule) {
+    super(db)
+    this.testKeytar = keytar
+  }
+
+  override async getKeytar(): Promise<KeytarModule | null> {
+    return this.testKeytar
+  }
+}
+
+function createDb(): StudioDatabase {
+  const dir = mkdtempSync(path.join(os.tmpdir(), 'ptm-provider-test-'))
+  return new StudioDatabase(path.join(dir, 'studio.sqlite'), false)
+}
+
+describe('Provider Lab backend', () => {
+  let db: StudioDatabase | undefined
+
+  afterEach(() => {
+    db = undefined
+  })
+
+  it('stores provider metadata in SQLite and API keys in keytar only', async () => {
+    db = createDb()
+    const secrets = new TestSecretStore(db, new MemoryKeytar())
+    const server = fastify()
+    registerProviderLabRoutes(server, { db, secrets })
+
+    const created = await server.inject({
+      method: 'POST',
+      url: '/api/providers',
+      payload: {
+        name: 'OpenAI compatible',
+        baseUrl: 'https://api.example.test/v1/',
+        defaultModel: 'gpt-4o-mini',
+        apiKey: 'provider-secret-value',
+      },
+    })
+
+    expect(created.statusCode).toBe(200)
+    const createdBody = created.json()
+    expect(createdBody.provider.baseUrl).toBe('https://api.example.test/v1')
+    expect(createdBody.provider.hasApiKey).toBe(true)
+    expect(JSON.stringify(createdBody)).not.toContain('provider-secret-value')
+
+    const listed = await server.inject({ method: 'GET', url: '/api/providers' })
+    const listBody = listed.json()
+    expect(listBody.providers).toHaveLength(1)
+    expect(listBody.providers[0].hasApiKey).toBe(true)
+    expect(JSON.stringify(listBody)).not.toContain('provider-secret-value')
+  })
+
+  it('deletes provider metadata and associated keytar secret', async () => {
+    db = createDb()
+    const keytar = new MemoryKeytar()
+    const secrets = new TestSecretStore(db, keytar)
+    const server = fastify()
+    registerProviderLabRoutes(server, { db, secrets })
+
+    const created = await server.inject({
+      method: 'POST',
+      url: '/api/providers',
+      payload: { name: 'Local', baseUrl: 'http://127.0.0.1:11434/v1', isLocal: true, apiKey: 'local-secret' },
+    })
+    const providerId = created.json().provider.id
+
+    const deleted = await server.inject({ method: 'DELETE', url: `/api/providers/${providerId}` })
+    expect(deleted.statusCode).toBe(200)
+    expect(await secrets.hasProviderApiKey(providerId)).toBe(false)
+    expect(db.listProviders()).toHaveLength(0)
+  })
+
+  it('fails closed without leaving provider metadata when keytar cannot save a new API key', async () => {
+    db = createDb()
+    const secrets = new TestSecretStore(db, new FailingKeytar())
+    const server = fastify()
+    registerProviderLabRoutes(server, { db, secrets })
+
+    const created = await server.inject({
+      method: 'POST',
+      url: '/api/providers',
+      payload: { name: 'Remote', baseUrl: 'https://api.example.test/v1', apiKey: 'provider-secret-should-not-persist' },
+    })
+
+    expect(created.statusCode).toBe(500)
+    expect(db.listProviders()).toHaveLength(0)
+    expect(created.body).not.toContain('provider-secret-should-not-persist')
+  })
+
+  it('requires external providers to use public HTTPS URLs', async () => {
+    db = createDb()
+    const secrets = new TestSecretStore(db, new MemoryKeytar())
+    const server = fastify()
+    registerProviderLabRoutes(server, { db, secrets })
+
+    const response = await server.inject({
+      method: 'POST',
+      url: '/api/providers',
+      payload: {
+        name: 'Misconfigured local',
+        baseUrl: 'http://127.0.0.1:11434/v1',
+        defaultModel: 'llava',
+        isLocal: false,
+      },
+    })
+
+    expect(response.statusCode).not.toBe(200)
+    expect(db.listProviders()).toHaveLength(0)
+  })
+
+  it('parses OpenAI-compatible and simple model discovery responses', () => {
+    expect(parseProviderModels(JSON.stringify({ data: [{ id: 'gpt-4o', owned_by: 'openai' }, { id: 'text-only' }] }))).toEqual([
+      { id: 'gpt-4o', ownedBy: 'openai', rawType: undefined },
+      { id: 'text-only', ownedBy: undefined, rawType: undefined },
+    ])
+    expect(parseProviderModels(JSON.stringify({ models: ['llava', { name: 'qwen-vl' }] }))).toEqual([
+      { id: 'llava' },
+      { id: 'qwen-vl', ownedBy: undefined, rawType: undefined },
+    ])
+  })
+
+  it('discovers models, stores capabilities, and returns a redacted trace', async () => {
+    db = createDb()
+    const secrets = new TestSecretStore(db, new MemoryKeytar())
+    const fetchImpl: typeof fetch = async (_url, init) =>
+      new Response(JSON.stringify({ data: [{ id: 'gpt-4o', owned_by: 'provider' }] }), {
+        status: init?.headers && 'Authorization' in (init.headers as Record<string, string>) ? 200 : 401,
+      })
+    const server = fastify()
+    registerProviderLabRoutes(server, { db, secrets, fetchImpl })
+
+    const created = await server.inject({
+      method: 'POST',
+      url: '/api/providers',
+      payload: { name: 'Remote', baseUrl: 'https://api.example.test/v1', apiKey: 'provider-discover-secret' },
+    })
+    const providerId = created.json().provider.id
+
+    const response = await server.inject({ method: 'POST', url: `/api/providers/${providerId}/models/discover`, payload: {} })
+    const body = response.json()
+
+    expect(response.statusCode).toBe(200)
+    expect(body.models[0].modelId).toBe('gpt-4o')
+    expect(body.models[0].supportsVision).toBe(true)
+    expect(body.trace.request.headers.Authorization).toBe('[redacted]')
+    expect(JSON.stringify(body)).not.toContain('provider-discover-secret')
+  })
+
+  it('rejects absolute model discovery URLs', async () => {
+    db = createDb()
+    const secrets = new TestSecretStore(db, new MemoryKeytar())
+    const fetchImpl = (() => {
+      throw new Error('fetch should not be called')
+    }) as typeof fetch
+    const server = fastify()
+    registerProviderLabRoutes(server, { db, secrets, fetchImpl })
+
+    const created = await server.inject({
+      method: 'POST',
+      url: '/api/providers',
+      payload: { name: 'Local', baseUrl: 'http://127.0.0.1:11434/v1', defaultModel: 'llava', isLocal: true },
+    })
+    const providerId = created.json().provider.id
+
+    const response = await server.inject({
+      method: 'POST',
+      url: `/api/providers/${providerId}/models/discover`,
+      payload: { path: 'https://metadata.example.test/models' },
+    })
+
+    expect(response.statusCode).not.toBe(200)
+  })
+
+  it('provider test redacts authorization and image payloads', async () => {
+    db = createDb()
+    const secrets = new TestSecretStore(db, new MemoryKeytar())
+    const fetchImpl: typeof fetch = async (_url, init) =>
+      new Response(
+        JSON.stringify({
+          echoed: 'provider-vision-secret',
+          imageEcho: 'secret-image-payload',
+          request: JSON.parse(String(init?.body || '{}')),
+        }),
+        { status: 200 },
+      )
+    const server = fastify()
+    registerProviderLabRoutes(server, { db, secrets, fetchImpl })
+
+    const created = await server.inject({
+      method: 'POST',
+      url: '/api/providers',
+      payload: {
+        name: 'Vision',
+        baseUrl: 'https://api.example.test/v1',
+        defaultModel: 'gpt-4o',
+        apiKey: 'provider-vision-secret',
+      },
+    })
+    const providerId = created.json().provider.id
+
+    const response = await server.inject({
+      method: 'POST',
+      url: `/api/providers/${providerId}/test`,
+      payload: {
+        tests: ['vision', 'json', 'streaming'],
+        imageDataUrl: 'data:image/png;base64,secret-image-payload',
+      },
+    })
+    const body = response.json()
+
+    expect(response.statusCode).toBe(200)
+    expect(body.ok).toBe(true)
+    expect(body.inferredCapabilities.supportsVision).toBe(true)
+    expect(body.inferredCapabilities.supportsJsonSchema).toBe(true)
+    expect(body.inferredCapabilities.supportsStreaming).toBe(true)
+    expect(JSON.stringify(body)).not.toContain('provider-vision-secret')
+    expect(JSON.stringify(body)).not.toContain('secret-image-payload')
+    expect(JSON.stringify(body)).toContain('[redacted image payload]')
+  })
+
+  it('allows user updates to model capability records', async () => {
+    db = createDb()
+    const capability = db.createProvider({
+      name: 'Remote',
+      baseUrl: 'https://api.example.test/v1',
+      defaultModel: 'gpt-4o',
+      isLocal: false,
+    })
+    const stored = db.upsertModelCapability({ providerId: capability.id, modelId: 'gpt-4o' })
+    const secrets = new TestSecretStore(db, new MemoryKeytar())
+    const server = fastify()
+    registerProviderLabRoutes(server, { db, secrets })
+
+    const response = await server.inject({
+      method: 'PATCH',
+      url: `/api/model-capabilities/${stored.id}`,
+      payload: { allowsAdultInput: true, allowsAdultGeneration: true, notes: 'User confirmed.' },
+    })
+    const body = response.json()
+
+    expect(response.statusCode).toBe(200)
+    expect(body.capability.allowsAdultInput).toBe(true)
+    expect(body.capability.source).toBe('user')
+  })
+})
+
+describe('SecretStore keytar module normalization', () => {
+  it('accepts CommonJS and ESM default keytar shapes only when credential methods exist', () => {
+    const keytar = new MemoryKeytar()
+
+    expect(normalizeKeytarModule(keytar)).toBe(keytar)
+    expect(normalizeKeytarModule({ default: keytar })).toBe(keytar)
+    expect(normalizeKeytarModule({ default: {} })).toBeNull()
+    expect(normalizeKeytarModule({ setPassword: keytar.setPassword })).toBeNull()
+  })
+})
+
+describe('evaluateRouteSafety', () => {
+  it('fails closed for illegal or unsupported image routes', () => {
+    expect(
+      evaluateRouteSafety({
+        supportsVision: true,
+        allowsAdultInput: true,
+        allowsAdultGeneration: true,
+        r18: true,
+        imagePresent: false,
+        safetyClass: 'illegal',
+      }),
+    ).toEqual({ allow: false, reason: 'illegal_content' })
+
+    expect(
+      evaluateRouteSafety({
+        supportsVision: false,
+        allowsAdultInput: true,
+        allowsAdultGeneration: true,
+        r18: false,
+        imagePresent: true,
+        safetyClass: 'safe',
+      }),
+    ).toEqual({ allow: false, reason: 'vision_required' })
+  })
+
+  it('requires r18 and adult input support for explicit image input', () => {
+    expect(
+      evaluateRouteSafety({
+        supportsVision: true,
+        allowsAdultInput: true,
+        allowsAdultGeneration: true,
+        r18: false,
+        imagePresent: true,
+        safetyClass: 'explicit',
+      }),
+    ).toEqual({ allow: false, reason: 'r18_disabled' })
+
+    expect(
+      evaluateRouteSafety({
+        supportsVision: true,
+        allowsAdultInput: false,
+        allowsAdultGeneration: true,
+        r18: true,
+        imagePresent: true,
+        safetyClass: 'explicit',
+      }),
+    ).toEqual({ allow: false, reason: 'explicit_image_not_allowed' })
+  })
+
+  it('fails closed when image safety classification is unknown or failed', () => {
+    expect(
+      evaluateRouteSafety({
+        supportsVision: true,
+        allowsAdultInput: true,
+        allowsAdultGeneration: true,
+        r18: true,
+        imagePresent: true,
+        safetyClass: 'unknown',
+      }),
+    ).toEqual({ allow: false, reason: 'safety_unknown' })
+
+    expect(
+      evaluateRouteSafety({
+        supportsVision: false,
+        allowsAdultInput: false,
+        allowsAdultGeneration: false,
+        r18: false,
+        imagePresent: false,
+        safetyClass: 'unknown',
+      }),
+    ).toEqual({ allow: false, reason: 'safety_unknown' })
+
+    expect(
+      evaluateRouteSafety({
+        supportsVision: true,
+        allowsAdultInput: true,
+        allowsAdultGeneration: true,
+        r18: true,
+        imagePresent: true,
+        safetyClass: 'failed',
+      }),
+    ).toEqual({ allow: false, reason: 'safety_classification_failed' })
+  })
+
+  it('requires explicit opt-in for suggestive image routes and adult generation', () => {
+    expect(
+      evaluateRouteSafety({
+        supportsVision: true,
+        allowsAdultInput: true,
+        allowsAdultGeneration: true,
+        r18: false,
+        imagePresent: true,
+        safetyClass: 'suggestive',
+      }),
+    ).toEqual({ allow: false, reason: 'r18_disabled' })
+
+    expect(
+      evaluateRouteSafety({
+        supportsVision: true,
+        allowsAdultInput: true,
+        allowsAdultGeneration: false,
+        r18: true,
+        imagePresent: false,
+        safetyClass: 'safe',
+      }),
+    ).toEqual({ allow: false, reason: 'adult_generation_not_allowed' })
+  })
+})
