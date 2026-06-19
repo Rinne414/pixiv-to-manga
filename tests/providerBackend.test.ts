@@ -53,6 +53,7 @@ describe('Provider Lab backend', () => {
 
   afterEach(() => {
     db = undefined
+    delete process.env.PTM_TEST_MEMORY_KEYTAR
   })
 
   it('stores provider metadata in SQLite and API keys in keytar only', async () => {
@@ -287,6 +288,16 @@ describe('SecretStore keytar module normalization', () => {
     expect(normalizeKeytarModule({ default: keytar })).toBe(keytar)
     expect(normalizeKeytarModule({ default: {} })).toBeNull()
     expect(normalizeKeytarModule({ setPassword: keytar.setPassword })).toBeNull()
+  })
+
+  it('can use an explicit in-memory keytar for isolated E2E processes', async () => {
+    process.env.PTM_TEST_MEMORY_KEYTAR = '1'
+    const db = createDb()
+    const secrets = new SecretStore(db)
+
+    await secrets.setProviderApiKey('provider-1', 'provider-e2e-secret')
+
+    await expect(secrets.getProviderApiKey('provider-1')).resolves.toBe('provider-e2e-secret')
   })
 })
 

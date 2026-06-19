@@ -22,3 +22,7 @@
   - `node .plans/provider-lab/e2e-tester/test-provider-lab-main-thread/api-smoke.mjs` passed with a dummy API key after restarting the backend on current code.
   - Latest gate passed: `npm run lint`, `npm test` (7 files / 37 tests), and `npm run build`.
 - Raw CDP browser smoke remains unstable locally; generated JSON/profile/artifacts are ignored and should not be committed.
+- Added and passed first-class Playwright E2E:
+  - `playwright.config.ts` manages mock provider, backend, and client services.
+  - `e2e/provider-lab.spec.ts` validates the Provider Lab browser flow with an isolated data directory and in-memory test keytar.
+  - `npm run e2e` passed with 1 Chromium test.

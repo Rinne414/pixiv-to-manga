@@ -29,7 +29,10 @@ Open [http://localhost:5173](http://localhost:5173).
 npm run lint
 npm test
 npm run build
+npm run e2e
 ```
+
+`npm run e2e` starts isolated local services with a mock OpenAI-compatible provider, a temporary data directory, and an in-memory keytar test store.
 
 ## License
 

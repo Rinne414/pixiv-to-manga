@@ -12,6 +12,22 @@ export interface KeytarModule {
   deletePassword(service: string, account: string): Promise<boolean>
 }
 
+class MemoryKeytar implements KeytarModule {
+  private values = new Map<string, string>()
+
+  async getPassword(service: string, account: string): Promise<string | null> {
+    return this.values.get(`${service}:${account}`) || null
+  }
+
+  async setPassword(service: string, account: string, password: string): Promise<void> {
+    this.values.set(`${service}:${account}`, password)
+  }
+
+  async deletePassword(service: string, account: string): Promise<boolean> {
+    return this.values.delete(`${service}:${account}`)
+  }
+}
+
 export class SecretStore {
   private keytar: KeytarModule | null | undefined
   private db: StudioDatabase
@@ -93,7 +109,7 @@ export class SecretStore {
     }
 
     try {
-      this.keytar = normalizeKeytarModule(await import('keytar'))
+      this.keytar = process.env.PTM_TEST_MEMORY_KEYTAR === '1' ? new MemoryKeytar() : normalizeKeytarModule(await import('keytar'))
     } catch {
       this.keytar = null
     }

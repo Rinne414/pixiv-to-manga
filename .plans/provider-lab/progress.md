@@ -78,4 +78,20 @@
   - Browser smoke generated JSON/profiles/artifacts and temporary run logs are ignored.
   - API smoke scripts and mock provider scripts remain committed as repeatable diagnostics.
 - Remaining note:
-  - Raw CDP browser smoke harness is unstable locally; future release gate should add a maintained Playwright suite.
+  - Raw CDP browser smoke harness is unstable locally and is kept only as a diagnostic artifact; the maintained browser gate is now Playwright.
+
+## 2026-06-20 E2E hardening pass
+
+- Added first-class Playwright E2E:
+  - `playwright.config.ts`
+  - `e2e/provider-lab.spec.ts`
+  - `npm run e2e`
+- Added isolated E2E secret/data handling:
+  - `PTM_TEST_MEMORY_KEYTAR=1` enables an in-memory keytar only for explicit test processes.
+  - Playwright backend uses a unique temporary `PTM_DATA_DIR`.
+- Updated CI script and README verification commands to include `npm run e2e`.
+- Final validation after E2E hardening:
+  - `npm run lint` passed.
+  - `npm test` passed: 7 files / 38 tests.
+  - `npm run build` passed with Vite chunk-size warning only.
+  - `npm run e2e` passed: 1 Chromium test.

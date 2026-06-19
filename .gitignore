@@ -14,6 +14,8 @@ dist-ssr
 .ptm-data
 .vite-screenshots
 .tmp-run
+.playwright-results
+playwright-report
 .plans/**/.chrome-profile*/
 .plans/**/artifacts/
 .plans/**/browser-smoke-result*.json

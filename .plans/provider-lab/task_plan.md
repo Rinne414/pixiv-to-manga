@@ -53,7 +53,7 @@ Build the next development slice for Pixiv-to-Manga Studio: Provider Lab, Model 
 - Reviewer re-review verdict: `[OK]`.
 - Provider Lab API smoke with dummy API key passed against local mock provider.
 - E2E-reported keytar runtime bug and Provider Lab horizontal clipping were fixed.
-- Raw CDP browser smoke harness remains unstable locally; future E2E hardening should add first-class Playwright config.
+- First-class Playwright Chromium E2E now covers Provider Lab keyed provider creation, model discovery/test, redaction, and clipping checks.
 
 ## Active Decisions
 

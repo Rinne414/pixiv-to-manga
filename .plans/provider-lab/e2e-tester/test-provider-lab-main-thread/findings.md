@@ -1,20 +1,20 @@
 # test-provider-lab-main-thread Findings
 
-Status: PASS_WITH_NOTE
+Status: PASS
 
 Date: 2026-06-20
 
 ## Summary
 
-Main-thread validation now passes for the Provider Lab backend/API path and the UI clipping regression that previously failed.
+Main-thread validation now passes for the Provider Lab backend/API path, the UI clipping regression that previously failed, and a first-class Playwright browser E2E path.
 
 - App services: PASS
 - Provider Lab API smoke with dummy API key: PASS
 - Provider Lab secret redaction: PASS
 - Model discovery/test/capability patch: PASS
-- Unit/lint/build gate: PASS
+- Unit/lint/build/e2e gate: PASS
 - Provider Lab horizontal clipping fix: implemented in CSS
-- Browser/CDP full smoke script: TOOLING NOTE, unstable in this local run
+- Browser Playwright E2E: PASS
 
 ## Current Verified Results
 
@@ -26,13 +26,15 @@ Commands:
 npm run lint
 npm test
 npm run build
+npm run e2e
 ```
 
 Result:
 
 - `npm run lint`: passed.
-- `npm test`: passed, 7 files / 37 tests.
+- `npm test`: passed, 7 files / 38 tests.
 - `npm run build`: passed with Vite chunk-size warning only.
+- `npm run e2e`: passed, 1 Chromium browser test.
 
 ### PASS: Provider API Smoke With Dummy Key
 
@@ -89,18 +91,17 @@ Fix:
   - Provider action buttons use `minmax(0, 1fr)`.
   - Provider Lab containers explicitly allow shrinking with `min-width: 0`.
 
-## Browser Validation Note
+## Browser Validation
 
-The checked-in CDP browser smoke script is still useful as a diagnostic artifact, but repeated local runs through raw Chrome DevTools Protocol timed out or returned unstable `Uncaught`/CDP timeout results. Those failures were in the test harness path, not in the API/backend path.
+The project now has a first-class Playwright E2E test:
 
-Current recommendation:
+- `playwright.config.ts` starts the mock provider, backend, and Vite client.
+- Backend E2E runs with a temporary `PTM_DATA_DIR` and `PTM_TEST_MEMORY_KEYTAR=1`, so browser tests do not write provider secrets into the user's real keychain or local project database.
+- `e2e/provider-lab.spec.ts` covers project creation, Provider Lab provider creation with a dummy API key, model discovery, provider capability tests, trace redaction, browser storage secret checks, no direct browser calls to the mock provider, and horizontal clipping checks.
 
-- Do not commit generated browser result JSON or Chrome profiles.
-- Keep API smoke scripts and mock provider scripts.
-- Add a first-class Playwright dependency/config in a future E2E hardening slice if browser flow automation becomes a release gate.
+The older raw CDP browser smoke script remains only as a diagnostic artifact.
 
 ## Remaining Risk
 
-- Full browser interaction E2E is not yet a stable committed test suite.
 - Vite reports one chunk-size warning after production build.
-- The local app currently stores test provider rows in the user's local app database during manual smoke runs; this is acceptable for local testing but should be isolated in future automated E2E.
+- Playwright currently covers Chromium desktop only; mobile/narrow viewport coverage remains future work.

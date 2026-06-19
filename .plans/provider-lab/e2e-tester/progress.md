@@ -11,3 +11,7 @@
 - Re-ran Provider Lab API smoke with dummy key on restarted current-code backend: PASS.
 - Latest validation gate passed: `npm run lint`, `npm test` (7 files / 37 tests), and `npm run build`.
 - Browser CDP smoke harness remained unstable locally, so generated browser result JSON and Chrome profiles are ignored rather than committed as release evidence.
+- Added first-class Playwright E2E coverage:
+  - `npm run e2e` passed with 1 Chromium test.
+  - Test services use isolated `PTM_DATA_DIR` and `PTM_TEST_MEMORY_KEYTAR=1`.
+  - Flow covers Provider Lab keyed provider creation, model discovery, provider test, trace redaction, browser storage secret checks, direct-provider-call blocking, and horizontal clipping.
