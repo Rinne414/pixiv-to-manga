@@ -39,7 +39,7 @@
   - Expanded `tests/providerBackend.test.ts`
 - Main-thread verification after this pass:
   - `npm run lint` passed.
-  - `npm test` passed during targeted runs; full run pending after final doc sync.
+  - `npm test` passed during targeted runs; full run completed in the final completion pass.
   - `npm run build` passed with Vite chunk-size warning only.
 
 ## 2026-06-20 Review follow-up
@@ -95,3 +95,25 @@
   - `npm test` passed: 7 files / 38 tests.
   - `npm run build` passed with Vite chunk-size warning only.
   - `npm run e2e` passed: 1 Chromium test.
+
+## 2026-06-20 Final completion pass
+
+- Completed a final "all done" audit against `.plans/provider-lab/`.
+- Closed stale planning statuses for frontend, reviewer, and E2E execution.
+- Expanded E2E from Provider Lab-only smoke to a core manga workflow regression:
+  - local image import;
+  - Analyze Story mock generation;
+  - Generate Page mock dialogue generation;
+  - editable dialogue persistence and lock toggle;
+  - layout adjustment;
+  - rendered PNG ZIP export;
+  - Project Backup export and restore.
+- Fixed final verification blockers:
+  - removed an unused `Dialogue` type import in `server/importers.ts`;
+  - tightened backup restore typing so restored story bible characters receive safe IDs;
+  - waited for Provider Lab readiness in E2E before filling the provider form.
+- Final validation:
+  - `npm run lint` passed.
+  - `npm test` passed: 9 files / 43 tests.
+  - `npm run build` passed with Vite chunk-size warning only.
+  - `npm run e2e` passed: 2 Chromium tests.

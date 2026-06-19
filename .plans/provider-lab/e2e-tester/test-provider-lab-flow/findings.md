@@ -1,17 +1,17 @@
 # test-provider-lab-flow Findings
 
-Status: planned - not executed.
+Status: PASS.
 
 ## Summary
 
-No E2E validation has run yet. The plan is ready and waiting for team-lead to provide a testable Provider Lab build.
+E2E validation has run on the maintained Playwright path and passed.
 
 ## Current Findings
 
-- `package.json` currently has no Playwright or Puppeteer dependency.
-- There is no dedicated `test:e2e` script.
-- Browser validation will use Playwright if added before execution; otherwise it will use installed Chrome/Chromium headless with Chrome DevTools Protocol.
-- Secret and NSFW invariants are part of the blocking acceptance criteria, not optional checks.
+- `package.json` has `@playwright/test` and `npm run e2e`.
+- `playwright.config.ts` starts a mock OpenAI-compatible provider, backend, and Vite client.
+- Backend E2E uses isolated `PTM_DATA_DIR` and `PTM_TEST_MEMORY_KEYTAR=1`.
+- Secret and NSFW invariants are checked as blocking acceptance criteria where covered by the automated flow.
 
 ## Planned Pass Criteria
 
@@ -30,10 +30,12 @@ No E2E validation has run yet. The plan is ready and waiting for team-lead to pr
 - Explicit/R-18 image route proceeds without explicit opt-in and compatible provider/model capability flags.
 - Provider Lab breaks the existing manga workflow.
 
-## Artifacts
+## Executed Evidence
 
-Pending execution.
+- `npm run e2e`: passed, 2 Chromium tests.
+- Provider Lab flow passed: keyed local provider creation, model discovery, provider test, redacted trace, browser storage secret scan, no direct browser calls to mock provider, clipping check.
+- Manga workflow regression passed: local SVG import, Analyze Story mock, Generate Page mock, dialogue edit persistence, lock toggle, layout adjustment, rendered PNG ZIP export, backup export, and backup restore.
 
 ## Recommended Next Action
 
-Team-lead should notify e2e-tester when a deterministic build and mock provider path are ready.
+Keep this Playwright path as the maintained E2E gate.

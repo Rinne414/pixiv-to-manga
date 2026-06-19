@@ -48,12 +48,13 @@ Build the next development slice for Pixiv-to-Manga Studio: Provider Lab, Model 
 
 ### Phase 4: Review and E2E
 
-- Status: complete_with_note
+- Status: complete
 - Run CI, review security, verify browser flows.
 - Reviewer re-review verdict: `[OK]`.
 - Provider Lab API smoke with dummy API key passed against local mock provider.
 - E2E-reported keytar runtime bug and Provider Lab horizontal clipping were fixed.
 - First-class Playwright Chromium E2E now covers Provider Lab keyed provider creation, model discovery/test, redaction, and clipping checks.
+- First-class Playwright Chromium E2E now also covers local image import, Analyze Story, Generate Page, dialogue editing, layout adjustment, rendered ZIP export, backup export, and backup restore.
 
 ## Active Decisions
 

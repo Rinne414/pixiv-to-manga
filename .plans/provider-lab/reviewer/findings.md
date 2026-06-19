@@ -1,11 +1,11 @@
 # reviewer Findings Index
 
 ## review-provider-lab
-- Status: gate prepared
+- Status: complete
 - Report: [review-provider-lab/findings.md](review-provider-lab/findings.md)
-- Verdict: pending
+- Verdict: superseded by main-thread targeted review `[OK]`
 - Progress: [review-provider-lab/progress.md](review-provider-lab/progress.md)
-- Summary: Review checklist prepared from invariants; awaiting backend-dev/frontend-dev completion for full review.
+- Summary: Initial checklist was prepared; final review evidence is recorded in `review-provider-lab-main-thread` with verdict `[OK]`.
 
 ## review-provider-lab-main-thread
 - Status: complete

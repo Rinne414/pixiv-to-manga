@@ -1,14 +1,20 @@
 import { randomUUID } from 'node:crypto'
-import type { Dialogue, ModelCapability, Page, ProjectDetail, ProviderProfile, StoryBible } from '../src/shared/types'
+import { readFile } from 'node:fs/promises'
+import path from 'node:path'
+import type { Asset, Dialogue, ModelCapability, Page, ProjectDetail, ProviderProfile, StoryBible } from '../src/shared/types'
 import { dialogueListSchema, storyBibleSchema } from '../src/shared/schemas'
-import type { z } from 'zod'
+import { type ZodType, type z } from 'zod'
 import { parsePossiblyWrappedJson } from '../src/shared/jsonRepair'
 import { resolveDialogueCollisions } from '../src/shared/layout'
 import { evaluateRouteSafety, type RouteSafetyResult, type SafetyClass } from '../src/shared/routeSafety'
 import type { StudioDatabase } from './database'
 import type { SecretStore } from './secrets'
+import { getAppDataDir } from './paths'
 
 type ParsedStoryBible = z.infer<typeof storyBibleSchema>
+type ChatContentPart =
+  | { type: 'text'; text: string }
+  | { type: 'image_url'; image_url: { url: string } }
 
 export interface AiContext {
   secrets: SecretStore
@@ -28,18 +34,26 @@ export async function analyzeStoryWithAi(
     return { storyBible: mock, raw: JSON.stringify(mock, null, 2), usedMock: true }
   }
 
+  const imageParts = await projectImageParts(detail, 6)
   ensureAiGenerationAllowed(context, {
     apiBaseUrl: status.apiBaseUrl,
     modelName: status.modelName,
     r18Enabled: input.r18Enabled,
-    imagePresent: false,
-    safetyClass: 'safe',
+    imagePresent: imageParts.length > 0,
+    safetyClass: input.r18Enabled ? 'explicit' : 'safe',
   })
 
-  const prompt = `你是漫画编剧。请基于项目页数和用户补充，创建中文 Story Bible。必须只返回 JSON，字段为 synopsis, tone, characters, pageBeats, userBrief, r18Enabled。characters 每项包含 name, description, voice, color, bubbleStyle。pageBeats 每项包含 pageIndex, summary, intent。项目标题：${detail.project.title}。页数：${detail.pages.length}。用户补充：${input.userBrief || '无'}。R18: ${input.r18Enabled ? 'true' : 'false'}。`
-  const raw = await openAiChatJson(status.apiBaseUrl, status.modelName, apiKey, [{ type: 'text', text: prompt }])
-  const parsed = storyBibleSchema.parse(parsePossiblyWrappedJson(raw))
-  return { storyBible: normalizeStoryBible(parsed, detail.project.id), raw, usedMock: false }
+  const prompt = `你是漫画编剧。请先观察随后的漫画页面图片，再基于画面、项目页数和用户补充，创建中文 Story Bible。必须只返回 JSON，字段为 synopsis, tone, characters, pageBeats, userBrief, r18Enabled。characters 每项包含 name, description, voice, color, bubbleStyle。pageBeats 每项包含 pageIndex, summary, intent。项目标题：${detail.project.title}。页数：${detail.pages.length}。用户补充：${input.userBrief || '无'}。R18: ${input.r18Enabled ? 'true' : 'false'}。`
+  const raw = await openAiChatJson(status.apiBaseUrl, status.modelName, apiKey, [{ type: 'text', text: prompt }, ...imageParts])
+  const repaired = await parseWithOneRepair({
+    raw,
+    schema: storyBibleSchema,
+    baseUrl: status.apiBaseUrl,
+    model: status.modelName,
+    apiKey,
+    schemaHint: 'StoryBible JSON: synopsis, tone, characters[], pageBeats[], userBrief, r18Enabled',
+  })
+  return { storyBible: normalizeStoryBible(repaired.parsed, detail.project.id), raw: repaired.raw, usedMock: false }
 }
 
 export async function generateDialoguesWithAi(
@@ -57,29 +71,38 @@ export async function generateDialoguesWithAi(
     return { dialogues, raw: JSON.stringify({ dialogues }, null, 2), usedMock: true }
   }
 
+  const pageImageParts = await pageImagePartsForDetail(detail, page)
   ensureAiGenerationAllowed(context, {
     apiBaseUrl: status.apiBaseUrl,
     modelName: status.modelName,
     r18Enabled: storyBible.r18Enabled,
-    imagePresent: false,
-    safetyClass: 'safe',
+    imagePresent: pageImageParts.length > 0,
+    safetyClass: storyBible.r18Enabled ? 'explicit' : 'safe',
   })
 
   const beat = storyBible.pageBeats.find((item) => item.pageIndex === page.index)
   const characters = storyBible.characters.map((character) => `${character.name}: ${character.voice}`).join('\n')
-  const prompt = `你是漫画对白创作者。模式：${input.mode === 'translation' ? '视觉翻译，不原创大剧情' : '原创故事对白'}。请为第 ${page.index + 1} 页生成中文漫画对白。故事：${storyBible.synopsis}。本页剧情：${beat?.summary || '未指定'}。角色声音：${characters}。文本密度：${input.textDensity}。必须只返回 JSON：{"dialogues":[{"text":"...","characterName":"...","x":0.5,"y":0.5,"scale":1,"rotation":0,"bubbleStyle":"speech","color":"#141414","locked":false}]}. x/y 是 0-1 画面坐标，避免挡脸和重叠。`
-  const raw = await openAiChatJson(status.apiBaseUrl, status.modelName, apiKey, [{ type: 'text', text: prompt }])
-  const parsed = dialogueListSchema.parse(parsePossiblyWrappedJson(raw))
+  const prompt = `你是漫画对白创作者。请先观察随后的本页漫画图片，再生成叠字对白。模式：${input.mode === 'translation' ? '视觉翻译/改写，不原创大剧情' : '原创故事对白'}。请为第 ${page.index + 1} 页生成中文漫画对白。故事：${storyBible.synopsis}。本页剧情：${beat?.summary || '未指定'}。角色声音：${characters}。文本密度：${input.textDensity}。必须只返回 JSON：{"dialogues":[{"text":"...","characterName":"...","x":0.5,"y":0.5,"scale":1,"rotation":0,"bubbleStyle":"speech","color":"#141414","locked":false}]}. x/y 是 0-1 画面坐标，避免挡脸、遮住关键画面和互相重叠。`
+  const raw = await openAiChatJson(status.apiBaseUrl, status.modelName, apiKey, [{ type: 'text', text: prompt }, ...pageImageParts])
+  const repaired = await parseWithOneRepair({
+    raw,
+    schema: dialogueListSchema,
+    baseUrl: status.apiBaseUrl,
+    model: status.modelName,
+    apiKey,
+    schemaHint: 'Dialogue list JSON: {"dialogues":[{"text","characterName","x","y","scale","rotation","bubbleStyle","color","locked"}]}',
+  })
+  const parsed = repaired.parsed
   const dialogues = resolveDialogueCollisions(
     parsed.dialogues.map((dialogue) => ({
       ...dialogue,
       id: dialogue.id || randomUUID(),
       pageId: page.id,
       color: dialogue.color || '#141414',
-      raw,
+      raw: repaired.raw,
     })),
   )
-  return { dialogues, raw, usedMock: false }
+  return { dialogues, raw: repaired.raw, usedMock: false }
 }
 
 export function evaluateAiGenerationRoute(input: {
@@ -163,7 +186,7 @@ async function openAiChatJson(
   baseUrl: string,
   model: string,
   apiKey: string,
-  content: Array<{ type: 'text'; text: string }>,
+  content: ChatContentPart[],
 ): Promise<string> {
   const response = await fetch(`${baseUrl.replace(/\/+$/, '')}/chat/completions`, {
     method: 'POST',
@@ -191,6 +214,60 @@ async function openAiChatJson(
     throw new Error('AI returned an empty response')
   }
   return contentText
+}
+
+async function parseWithOneRepair<T>(input: {
+  raw: string
+  schema: ZodType<T>
+  baseUrl: string
+  model: string
+  apiKey: string
+  schemaHint: string
+}): Promise<{ parsed: T; raw: string }> {
+  try {
+    return { parsed: input.schema.parse(parsePossiblyWrappedJson(input.raw)), raw: input.raw }
+  } catch (error) {
+    const repairPrompt = `上一次模型输出不是有效 JSON 或不符合 schema。请只返回修正后的 JSON，不要解释。\nSchema: ${input.schemaHint}\n错误: ${error instanceof Error ? error.message : 'unknown'}\n原始输出:\n${input.raw.slice(0, 12000)}`
+    const repairedRaw = await openAiChatJson(input.baseUrl, input.model, input.apiKey, [{ type: 'text', text: repairPrompt }])
+    return { parsed: input.schema.parse(parsePossiblyWrappedJson(repairedRaw)), raw: repairedRaw }
+  }
+}
+
+async function projectImageParts(detail: ProjectDetail, maxImages: number): Promise<ChatContentPart[]> {
+  const assetsById = new Map(detail.assets.map((asset) => [asset.id, asset]))
+  const parts: ChatContentPart[] = []
+  for (const page of detail.pages.slice(0, maxImages)) {
+    const asset = assetsById.get(page.originalAssetId)
+    if (!asset) continue
+    parts.push({ type: 'text', text: `Page ${page.index + 1}` })
+    parts.push(await assetToImagePart(asset))
+  }
+  return parts
+}
+
+async function pageImagePartsForDetail(detail: ProjectDetail, page: Page): Promise<ChatContentPart[]> {
+  const asset = detail.assets.find((item) => item.id === page.originalAssetId)
+  return asset ? [await assetToImagePart(asset)] : []
+}
+
+async function assetToImagePart(asset: Asset): Promise<ChatContentPart> {
+  const data = await readFile(assetAbsolutePath(asset))
+  return {
+    type: 'image_url',
+    image_url: {
+      url: `data:${asset.mimeType};base64,${data.toString('base64')}`,
+    },
+  }
+}
+
+function assetAbsolutePath(asset: Asset): string {
+  const appDataDir = path.resolve(getAppDataDir())
+  const relativePath = asset.url.replace(/^\/assets\//, '')
+  const absolutePath = path.resolve(appDataDir, relativePath)
+  if (!absolutePath.startsWith(appDataDir + path.sep) && absolutePath !== appDataDir) {
+    throw new Error('Asset path escaped the app data directory')
+  }
+  return absolutePath
 }
 
 function normalizeStoryBible(storyBible: ParsedStoryBible, projectId: string): StoryBible {

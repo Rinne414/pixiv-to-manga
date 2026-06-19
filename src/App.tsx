@@ -3,6 +3,7 @@ import type { ChangeEvent, ComponentType, FormEvent } from 'react'
 import {
   BookOpen,
   Download,
+  ArchiveRestore,
   ImagePlus,
   Images,
   Loader2,
@@ -49,6 +50,7 @@ const bubbleStyles: BubbleStyle[] = ['speech', 'soft', 'thought', 'caption']
 
 function App() {
   const fileInputRef = useRef<HTMLInputElement | null>(null)
+  const backupInputRef = useRef<HTMLInputElement | null>(null)
   const [projects, setProjects] = useState<Project[]>([])
   const [detail, setDetail] = useState<ProjectDetail | null>(null)
   const [selectedProjectId, setSelectedProjectId] = useState<string>('')
@@ -216,6 +218,18 @@ function App() {
     })
   }
 
+  async function handleBackupFile(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.currentTarget.files?.[0]
+    event.currentTarget.value = ''
+    if (!file) return
+
+    await runTask('Restoring project backup', async () => {
+      const next = await api.importProjectBackup(file)
+      acceptDetail(next)
+      pushLog(`Backup restored: ${next.project.title}`, 'success')
+    })
+  }
+
   async function handlePixivImport(event: FormEvent) {
     event.preventDefault()
     if (!pixivUrl.trim()) {
@@ -345,19 +359,40 @@ function App() {
           </div>
         </div>
         <div className="toolbar">
-          <ToolbarButton icon={ImagePlus} label="Import Pixiv" disabled={!canRun} onClick={() => setActiveTab('story')} />
-          <ToolbarButton icon={Upload} label="Local Images" disabled={Boolean(busy)} onClick={() => fileInputRef.current?.click()} />
-          <ToolbarButton icon={WandSparkles} label="Analyze Story" disabled={!canRun} onClick={handleAnalyzeStory} />
-          <ToolbarButton icon={Play} label="Generate Page" disabled={!canRun || !activePage} onClick={handleGenerateActivePage} />
-          <ToolbarButton icon={Sparkles} label="Generate All" disabled={!canRun} onClick={handleGenerateAll} />
-          <ToolbarButton icon={Download} label="Export ZIP" disabled={!canRun || !detail?.pages.length} onClick={handleExportZip} />
-          <ToolbarButton icon={Save} label="Export Backup" disabled={!canRun} onClick={handleExportBackup} />
+          <ToolbarButton icon={ImagePlus} label="Import Pixiv" testId="toolbar-import-pixiv" disabled={!canRun} onClick={() => setActiveTab('story')} />
+          <ToolbarButton icon={Upload} label="Local Images" testId="toolbar-import-local" disabled={Boolean(busy)} onClick={() => fileInputRef.current?.click()} />
+          <ToolbarButton icon={WandSparkles} label="Analyze Story" testId="toolbar-analyze-story" disabled={!canRun} onClick={handleAnalyzeStory} />
+          <ToolbarButton icon={Play} label="Generate Page" testId="toolbar-generate-page" disabled={!canRun || !activePage} onClick={handleGenerateActivePage} />
+          <ToolbarButton icon={Sparkles} label="Generate All" testId="toolbar-generate-all" disabled={!canRun} onClick={handleGenerateAll} />
+          <ToolbarButton icon={Download} label="Export ZIP" testId="toolbar-export-zip" disabled={!canRun || !detail?.pages.length} onClick={handleExportZip} />
+          <ToolbarButton icon={Save} label="Export Backup" testId="toolbar-export-backup" disabled={!canRun} onClick={handleExportBackup} />
+          <ToolbarButton icon={ArchiveRestore} label="Restore Backup" testId="toolbar-restore-backup" disabled={Boolean(busy)} onClick={() => backupInputRef.current?.click()} />
         </div>
-        <div className="status-pill" data-busy={Boolean(busy)}>
+        <div className="status-pill" data-busy={Boolean(busy)} data-testid="studio-status" role="status" aria-live="polite">
           {busy ? <Loader2 size={15} /> : <span />}
           {busy || 'Ready'}
         </div>
-        <input ref={fileInputRef} className="hidden-input" type="file" accept="image/png,image/jpeg,image/webp,image/svg+xml" multiple onChange={handleLocalFiles} />
+        <input
+          ref={fileInputRef}
+          id="local-image-input"
+          className="hidden-input"
+          type="file"
+          accept="image/png,image/jpeg,image/webp,image/svg+xml"
+          multiple
+          aria-label="Local image files"
+          data-testid="local-image-input"
+          onChange={handleLocalFiles}
+        />
+        <input
+          ref={backupInputRef}
+          id="project-backup-input"
+          className="hidden-input"
+          type="file"
+          accept="application/zip,.zip"
+          aria-label="Project backup ZIP"
+          data-testid="project-backup-input"
+          onChange={handleBackupFile}
+        />
       </header>
 
       <main className="workspace-grid">
@@ -434,13 +469,16 @@ function App() {
         </section>
 
         <aside className="right-rail panel">
-          <div className="inspector-tabs">
+          <div className="inspector-tabs" role="tablist" aria-label="Inspector panels">
             {tabItems.map((item) => {
               const Icon = item.icon
               return (
                 <button
                   key={item.id}
                   type="button"
+                  role="tab"
+                  aria-selected={activeTab === item.id}
+                  data-testid={`tab-${item.id}`}
                   className={activeTab === item.id ? 'active' : ''}
                   onClick={() => setActiveTab(item.id)}
                   title={item.label}
@@ -529,12 +567,21 @@ function App() {
 function ToolbarButton(props: {
   icon: ComponentType<IconProps>
   label: string
+  testId: string
   disabled?: boolean
   onClick: () => void
 }) {
   const Icon = props.icon
   return (
-    <button type="button" className="toolbar-button" disabled={props.disabled} onClick={props.onClick} title={props.label}>
+    <button
+      type="button"
+      className="toolbar-button"
+      disabled={props.disabled}
+      onClick={props.onClick}
+      title={props.label}
+      aria-label={props.label}
+      data-testid={props.testId}
+    >
       <Icon size={16} />
       <span>{props.label}</span>
     </button>
@@ -549,7 +596,7 @@ function PageThumb(props: {
   onClick: () => void
 }) {
   return (
-    <button type="button" className={`page-thumb ${props.active ? 'active' : ''}`} onClick={props.onClick}>
+    <button type="button" className={`page-thumb ${props.active ? 'active' : ''}`} data-testid="page-thumb" onClick={props.onClick}>
       <div className="thumb-image">{props.asset ? <img src={props.asset.url} alt={`Page ${props.page.index + 1}`} /> : null}</div>
       <div>
         <strong>Page {props.page.index + 1}</strong>
@@ -591,7 +638,7 @@ function CanvasWorkspace(props: {
         <span>Page {props.page.index + 1}</span>
         <span>{props.page.width}x{props.page.height}</span>
       </div>
-      <div className="stage-shell">
+      <div className="stage-shell" data-testid="manga-stage">
         <Stage width={stageWidth} height={stageHeight}>
           <Layer>
             {image ? <KonvaImage image={image} width={stageWidth} height={stageHeight} /> : <Rect width={stageWidth} height={stageHeight} fill="#ffffff" />}
@@ -791,6 +838,7 @@ function DialoguePanel(props: {
             key={item.id}
             type="button"
             className={`dialogue-chip ${item.id === dialogue?.id ? 'active' : ''}`}
+            data-testid="dialogue-chip"
             onClick={() => props.onSelect(item.id)}
           >
             <span style={{ borderColor: item.color }} />
@@ -851,6 +899,8 @@ function DialoguePanel(props: {
           <button
             type="button"
             className="secondary-button"
+            aria-pressed={dialogue.locked}
+            data-testid="dialogue-lock-toggle"
             onClick={() => props.onCommit(dialogue.id, dialogue.locked ? { locked: false } : { locked: true })}
           >
             {dialogue.locked ? <Unlock size={15} /> : <Lock size={15} />}

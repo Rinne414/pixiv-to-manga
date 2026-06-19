@@ -2,7 +2,7 @@
 
 ## Status
 
-planned - awaiting testable Provider Lab build from team-lead.
+PASS - executed through the maintained Playwright Chromium E2E path.
 
 ## Scope
 
@@ -30,8 +30,8 @@ Validate Provider Lab browser/API behavior and original manga workflow regressio
    - Capture trace/screenshot/video only on failure.
    - Assert network requests through local backend only.
 2. Current dependency scan result:
-   - `package.json` has no Playwright or Puppeteer dependency.
-   - No `test:e2e` script exists.
+   - `package.json` has `@playwright/test`.
+   - `npm run e2e` is the maintained E2E command.
 3. Fallback if Playwright is still absent:
    - Launch installed Chrome/Chromium in headless mode with remote debugging enabled.
    - Drive the app through Chrome DevTools Protocol.
@@ -79,6 +79,4 @@ Validate Provider Lab browser/API behavior and original manga workflow regressio
 
 ## Open Dependencies
 
-- Final UI routes/selectors for Provider Lab.
-- Backend mock/stub mechanism for provider discovery and provider test endpoints.
-- Deterministic fixture for existing Analyze Story/Generate Page/Export ZIP regression.
+- None for the maintained Chromium E2E gate.

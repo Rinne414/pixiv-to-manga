@@ -9,4 +9,4 @@
 - Verification:
   - `npm run lint` passes.
   - `npm run build` passed once after the frontend implementation.
-  - A later `npm run build` is blocked by TypeScript errors in `server/providers.ts`, which is outside frontend-dev scope.
+  - Final main-thread validation passes: `npm run lint`, `npm test`, `npm run build`, and `npm run e2e`.

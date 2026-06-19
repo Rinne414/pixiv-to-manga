@@ -9,6 +9,6 @@
 
 ## Deliverables
 
-- [ ] Source-backed findings with links.
-- [ ] Risks and implementation notes.
-- [ ] Recommended provider profile and model capability fields.
+- [x] Source-backed findings with links.
+- [x] Risks and implementation notes.
+- [x] Recommended provider profile and model capability fields.

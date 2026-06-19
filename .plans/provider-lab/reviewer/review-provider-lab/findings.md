@@ -2,9 +2,11 @@
 
 ## Status
 
-- Review gate: prepared
-- Full review: waiting for backend-dev/frontend-dev completion message
-- Verdict: pending
+- Review gate: superseded
+- Full review: completed in `review-provider-lab-main-thread`
+- Verdict: superseded by targeted re-review `[OK]`
+
+This file is the initial checklist prepared before implementation completion. The final review evidence is recorded in `../review-provider-lab-main-thread/findings.md`.
 
 ## Review Checklist
 
@@ -72,5 +74,4 @@
 ## Pre-Review Notes
 
 - No source review has been performed yet. Current gate is based on `docs/invariants.md`, `docs/api-contracts.md`, `docs/architecture.md`, and team task plans.
-- Full review is blocked until backend-dev/frontend-dev publish completion details or changed file list.
-
+- Superseded by the completed main-thread review and targeted re-review.

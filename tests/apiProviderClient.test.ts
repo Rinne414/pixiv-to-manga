@@ -3,6 +3,7 @@ import {
   createProvider,
   discoverProviderModels,
   exportProjectBackup,
+  importProjectBackup,
   testProvider,
   updateModelCapability,
   type ModelCapability,
@@ -136,6 +137,23 @@ describe('Provider Lab API client adapters', () => {
     expect(requestInit?.method).toBe('POST')
     expect(JSON.parse(String(requestInit?.body))).toEqual({ projectId: 'project-1' })
     expect(result.fileName).toBe('backup.zip')
+  })
+
+  it('posts project backup restore requests as multipart form data', async () => {
+    const fetchMock = stubFetch({
+      project: { id: 'restored-project', title: 'Restored', mode: 'story', source: 'local' },
+      pages: [],
+      assets: [],
+      characters: [],
+      dialogues: [],
+    })
+
+    await importProjectBackup(new File(['zip'], 'backup.zip', { type: 'application/zip' }))
+    const [path, requestInit] = fetchMock.mock.calls[0] as Parameters<typeof fetch>
+
+    expect(path).toBe('/api/import/project-backup')
+    expect(requestInit?.method).toBe('POST')
+    expect(requestInit?.body).toBeInstanceOf(FormData)
   })
 })
 

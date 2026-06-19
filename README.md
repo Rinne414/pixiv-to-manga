@@ -8,12 +8,12 @@ Pixiv-to-Manga Studio imports Pixiv or local image sets, asks an AI model to cre
 
 - Local web service with React, Vite, TypeScript, Fastify, and SQLite.
 - Pixiv artwork import and local image import.
-- Two-stage AI workflow: story analysis, then page dialogue generation.
+- Two-stage AI workflow: vision-assisted story analysis, then page dialogue generation.
 - Editable vertical manga dialogue bubbles with drag, scale, rotation, lock, and style controls.
 - Local project persistence in SQLite plus an asset folder.
 - API keys and Pixiv cookies saved through the system credential store with `keytar`.
 - PNG ZIP export with project manifest.
-- Project Backup ZIP export with manifest, database slice, and project assets for migration or future restore flows.
+- Project Backup ZIP export/restore with manifest, database slice, and project assets for migration.
 
 ## Development
 

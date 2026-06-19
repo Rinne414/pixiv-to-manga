@@ -163,6 +163,16 @@ export function importLocal(files: File[], projectId?: string): Promise<ProjectD
   })
 }
 
+export function importProjectBackup(file: File): Promise<ProjectDetail> {
+  const form = new FormData()
+  form.append('file', file)
+
+  return request<ProjectDetail>('/api/import/project-backup', {
+    method: 'POST',
+    body: form,
+  })
+}
+
 export function analyzeStory(input: AnalyzeStoryInput): Promise<ProjectResponse> {
   return request<ProjectResponse>('/api/story/analyze', {
     method: 'POST',

@@ -11,7 +11,7 @@ import { SecretStore } from './secrets'
 import { JobHub } from './jobs'
 import { analyzeStoryWithAi, generateDialoguesWithAi } from './ai'
 import { exportProjectBackup, exportRenderedZip } from './exporter'
-import { importLocalImages, importPixivArtwork } from './importers'
+import { importLocalImages, importPixivArtwork, importProjectBackup } from './importers'
 import { registerProviderLabRoutes } from './providers'
 import {
   analyzeStorySchema,
@@ -38,7 +38,7 @@ const server = fastify({
 
 await server.register(multipart, {
   limits: {
-    fileSize: 30 * 1024 * 1024,
+    fileSize: 256 * 1024 * 1024,
     files: 200,
   },
 })
@@ -80,6 +80,14 @@ server.get('/api/projects/:id', async (request) => {
 server.post('/api/import/local', async (request) => {
   const projectId = typeof request.headers['x-project-id'] === 'string' ? request.headers['x-project-id'] : undefined
   return importLocalImages(db, request.files(), { projectId })
+})
+
+server.post('/api/import/project-backup', async (request) => {
+  const file = await request.file()
+  if (!file) {
+    throw new Error('Project backup ZIP is required')
+  }
+  return importProjectBackup(db, file)
 })
 
 server.post('/api/import/pixiv', async (request) => {

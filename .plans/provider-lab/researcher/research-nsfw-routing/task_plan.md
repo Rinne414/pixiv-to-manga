@@ -8,6 +8,6 @@
 
 ## Deliverables
 
-- [ ] Source-backed findings with links.
-- [ ] Risks and implementation notes.
-- [ ] Recommended route decision tree.
+- [x] Source-backed findings with links.
+- [x] Risks and implementation notes.
+- [x] Recommended route decision tree.

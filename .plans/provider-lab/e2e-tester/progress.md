@@ -15,3 +15,10 @@
   - `npm run e2e` passed with 1 Chromium test.
   - Test services use isolated `PTM_DATA_DIR` and `PTM_TEST_MEMORY_KEYTAR=1`.
   - Flow covers Provider Lab keyed provider creation, model discovery, provider test, trace redaction, browser storage secret checks, direct-provider-call blocking, and horizontal clipping.
+
+## 2026-06-20 Final execution
+
+- Completed `test-provider-lab-flow` execution on the maintained Playwright path.
+- Expanded E2E coverage to include local image import, Analyze Story mock generation, Generate Page mock dialogue generation, dialogue edit persistence, lock toggle, layout adjustment, rendered PNG ZIP export, Project Backup export, and Project Backup restore.
+- Final E2E validation passed:
+  - `npm run e2e`: 2 Chromium tests passed.
