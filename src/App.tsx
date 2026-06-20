@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import type { ChangeEvent, ComponentType, FormEvent } from 'react'
 import {
   BookOpen,
+  CircleStop,
   Download,
   ArchiveRestore,
   ImagePlus,
@@ -22,7 +23,7 @@ import {
   Unlock,
 } from 'lucide-react'
 import { Circle, Ellipse, Group, Image as KonvaImage, Layer, Line, Rect, Stage, Text } from 'react-konva'
-import type { Asset, BubbleStyle, Character, Dialogue, Page, Project, ProjectDetail, SecretStatus } from './shared/types'
+import type { Asset, BubbleStyle, Character, Dialogue, JobEvent, Page, Project, ProjectDetail, SecretStatus } from './shared/types'
 import { estimateVerticalTextBox, resolveDialogueCollisions } from './shared/layout'
 import { renderProjectPages } from './canvasExport'
 import { ProviderLabPanel } from './ProviderLabPanel'
@@ -58,6 +59,7 @@ function App() {
   const [selectedDialogueId, setSelectedDialogueId] = useState<string>('')
   const [activeTab, setActiveTab] = useState<InspectorTab>('story')
   const [busy, setBusy] = useState<string>('')
+  const [currentJobId, setCurrentJobId] = useState<string>('')
   const [logs, setLogs] = useState<LogEntry[]>([])
   const [createTitle, setCreateTitle] = useState('Untitled Manga')
   const [createMode, setCreateMode] = useState<'story' | 'translation'>('story')
@@ -161,14 +163,23 @@ function App() {
 
   async function runTask(label: string, task: () => Promise<void>) {
     if (busy) return
+    setCurrentJobId('')
     setBusy(label)
     pushLog(label)
     try {
       await task()
     } catch (error) {
-      pushLog(errorMessage(error), 'error')
+      const message = errorMessage(error)
+      pushLog(message === 'Job cancelled' ? 'Job cancelled.' : message, message === 'Job cancelled' ? 'info' : 'error')
     } finally {
+      setCurrentJobId('')
       setBusy('')
+    }
+  }
+
+  function handleJobEvent(event: JobEvent) {
+    if (event.type === 'queued' || event.type === 'progress') {
+      pushLog(event.message)
     }
   }
 
@@ -252,7 +263,10 @@ function App() {
   async function handleAnalyzeStory() {
     if (!detail) return
     await runTask('Analyze Story', async () => {
-      const next = await api.analyzeStory({ projectId: detail.project.id, userBrief, r18Enabled })
+      const next = await api.analyzeStory(
+        { projectId: detail.project.id, userBrief, r18Enabled },
+        { onJobId: setCurrentJobId, onEvent: handleJobEvent },
+      )
       acceptDetail(next)
       pushLog(next.usedMock ? 'Story Bible generated with local mock engine.' : 'Story Bible generated.', 'success')
     })
@@ -261,7 +275,7 @@ function App() {
   async function handleGenerateActivePage() {
     if (!activePage) return
     await runTask(`Generate Page ${activePage.index + 1}`, async () => {
-      const next = await api.generatePage(activePage.id, { mode: generateMode, textDensity })
+      const next = await api.generatePage(activePage.id, { mode: generateMode, textDensity }, { onJobId: setCurrentJobId, onEvent: handleJobEvent })
       acceptDetail(next)
       pushLog(`Page ${activePage.index + 1} dialogue generated.`, 'success')
     })
@@ -272,11 +286,21 @@ function App() {
     await runTask('Generate All', async () => {
       for (const page of detail.pages) {
         pushLog(`Generating page ${page.index + 1}`)
-        const next = await api.generatePage(page.id, { mode: generateMode, textDensity })
+        const next = await api.generatePage(page.id, { mode: generateMode, textDensity }, { onJobId: setCurrentJobId, onEvent: handleJobEvent })
         acceptDetail(next)
       }
       pushLog('All pages generated.', 'success')
     })
+  }
+
+  async function handleCancelCurrentJob() {
+    if (!currentJobId) return
+    try {
+      await api.cancelJob(currentJobId)
+      pushLog('Cancellation requested.')
+    } catch (error) {
+      pushLog(errorMessage(error), 'error')
+    }
   }
 
   async function handleAvoidOverlap() {
@@ -364,6 +388,7 @@ function App() {
           <ToolbarButton icon={WandSparkles} label="Analyze Story" testId="toolbar-analyze-story" disabled={!canRun} onClick={handleAnalyzeStory} />
           <ToolbarButton icon={Play} label="Generate Page" testId="toolbar-generate-page" disabled={!canRun || !activePage} onClick={handleGenerateActivePage} />
           <ToolbarButton icon={Sparkles} label="Generate All" testId="toolbar-generate-all" disabled={!canRun} onClick={handleGenerateAll} />
+          <ToolbarButton icon={CircleStop} label="Cancel" testId="toolbar-cancel-job" disabled={!currentJobId} onClick={handleCancelCurrentJob} />
           <ToolbarButton icon={Download} label="Export ZIP" testId="toolbar-export-zip" disabled={!canRun || !detail?.pages.length} onClick={handleExportZip} />
           <ToolbarButton icon={Save} label="Export Backup" testId="toolbar-export-backup" disabled={!canRun} onClick={handleExportBackup} />
           <ToolbarButton icon={ArchiveRestore} label="Restore Backup" testId="toolbar-restore-backup" disabled={Boolean(busy)} onClick={() => backupInputRef.current?.click()} />

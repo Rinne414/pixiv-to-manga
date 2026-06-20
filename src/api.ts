@@ -1,4 +1,4 @@
-import type { Dialogue, Project, ProjectDetail, SecretStatus } from './shared/types'
+import type { Dialogue, JobEvent, Project, ProjectDetail, SecretStatus } from './shared/types'
 
 export interface ProviderProfile {
   id: string
@@ -123,6 +123,12 @@ export type ProjectResponse = ProjectDetail & {
   usedMock?: boolean
 }
 
+export interface JobRequestOptions {
+  onJobId?: (jobId: string) => void
+  onEvent?: (event: JobEvent) => void
+  timeoutMs?: number
+}
+
 export async function listProjects(): Promise<Project[]> {
   const payload = await request<{ projects: Project[] }>('/api/projects')
   return payload.projects
@@ -173,18 +179,22 @@ export function importProjectBackup(file: File): Promise<ProjectDetail> {
   })
 }
 
-export function analyzeStory(input: AnalyzeStoryInput): Promise<ProjectResponse> {
-  return request<ProjectResponse>('/api/story/analyze', {
+export async function analyzeStory(input: AnalyzeStoryInput, options: JobRequestOptions = {}): Promise<ProjectResponse> {
+  const { jobId } = await request<{ jobId: string }>('/api/story/analyze', {
     method: 'POST',
     body: JSON.stringify(input),
   })
+  options.onJobId?.(jobId)
+  return waitForProjectJob(jobId, options)
 }
 
-export function generatePage(pageId: string, input: GeneratePageInput): Promise<ProjectResponse> {
-  return request<ProjectResponse>(`/api/pages/${pageId}/generate`, {
+export async function generatePage(pageId: string, input: GeneratePageInput, options: JobRequestOptions = {}): Promise<ProjectResponse> {
+  const { jobId } = await request<{ jobId: string }>(`/api/pages/${pageId}/generate`, {
     method: 'POST',
     body: JSON.stringify(input),
   })
+  options.onJobId?.(jobId)
+  return waitForProjectJob(jobId, options)
 }
 
 export function patchDialogue(id: string, patch: Partial<Dialogue>): Promise<Dialogue> {
@@ -229,6 +239,12 @@ export function saveSecrets(input: SecretUpdateInput): Promise<SecretStatus> {
   return request<SecretStatus>('/api/settings/secrets', {
     method: 'PUT',
     body: JSON.stringify(input),
+  })
+}
+
+export function cancelJob(jobId: string): Promise<{ ok: boolean }> {
+  return request<{ ok: boolean }>(`/api/jobs/${jobId}/cancel`, {
+    method: 'POST',
   })
 }
 
@@ -320,6 +336,56 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   }
 
   return (await response.json()) as T
+}
+
+function waitForProjectJob(jobId: string, options: JobRequestOptions): Promise<ProjectResponse> {
+  return new Promise((resolve, reject) => {
+    const events = new EventSource(`/api/jobs/${jobId}/events`)
+    const timeout = setTimeout(() => {
+      settle(() => reject(new Error('Job timed out')))
+    }, options.timeoutMs ?? 30 * 60 * 1000)
+    let settled = false
+
+    function settle(action: () => void) {
+      if (settled) return
+      settled = true
+      clearTimeout(timeout)
+      events.close()
+      action()
+    }
+
+    events.onmessage = (message) => {
+      try {
+        const event = JSON.parse(message.data) as JobEvent
+        options.onEvent?.(event)
+
+        if (event.type === 'complete') {
+          settle(() => resolve(projectResponseFromJobEvent(jobId, event)))
+        }
+
+        if (event.type === 'error') {
+          settle(() => reject(new Error(event.error || event.message || 'Job failed')))
+        }
+
+        if (event.type === 'cancelled') {
+          settle(() => reject(new Error('Job cancelled')))
+        }
+      } catch (error) {
+        settle(() => reject(error instanceof Error ? error : new Error('Invalid job event')))
+      }
+    }
+
+    events.onerror = () => {
+      settle(() => reject(new Error('Job event stream failed')))
+    }
+  })
+}
+
+function projectResponseFromJobEvent(jobId: string, event: JobEvent): ProjectResponse {
+  if (!event.payload || typeof event.payload !== 'object' || !('project' in event.payload)) {
+    throw new Error('Job completed without project payload')
+  }
+  return { ...(event.payload as ProjectResponse), jobId }
 }
 
 function capabilityToDiscoveredModel(capability: ModelCapability): DiscoveredModel {

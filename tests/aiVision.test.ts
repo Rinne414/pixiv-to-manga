@@ -219,4 +219,70 @@ describe('AI vision generation', () => {
     ).rejects.toThrow(/vision_required/)
     expect(fetchMock).not.toHaveBeenCalled()
   })
+
+  it('passes abort signals to initial and repair AI requests', async () => {
+    const { db, dataDir } = createDb()
+    const secrets = new TestSecretStore(db, new MemoryKeytar())
+    await secrets.save({
+      apiBaseUrl: 'https://api.example.test/v1',
+      modelName: 'gpt-4o',
+      apiKey: 'test-api-key',
+    })
+    const provider = db.createProvider({
+      name: 'Vision Provider',
+      baseUrl: 'https://api.example.test/v1',
+      defaultModel: 'gpt-4o',
+      isLocal: false,
+    })
+    db.upsertModelCapability({
+      providerId: provider.id,
+      modelId: 'gpt-4o',
+      supportsVision: true,
+      allowsAdultInput: false,
+      allowsAdultGeneration: false,
+    })
+
+    const project = db.createProject({ title: 'Abort Signal Project', mode: 'story', source: 'local' })
+    const relativePath = path.join('projects', project.id, 'originals', 'page-001.png')
+    const absolutePath = path.join(dataDir, relativePath)
+    mkdirSync(path.dirname(absolutePath), { recursive: true })
+    writeFileSync(absolutePath, Buffer.from('png-bytes'))
+    const asset = db.createAsset({ projectId: project.id, kind: 'original', relativePath, mimeType: 'image/png' })
+    const page = db.createPage({ projectId: project.id, index: 0, originalAssetId: asset.id })
+    const controller = new AbortController()
+    const requestSignals: Array<AbortSignal | null> = []
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (_url, init) => {
+        requestSignals.push(init?.signal || null)
+        const content =
+          requestSignals.length === 1
+            ? 'not json'
+            : JSON.stringify({
+                dialogues: [
+                  {
+                    text: '修复后的对白。',
+                    characterName: '夏海',
+                    x: 0.5,
+                    y: 0.25,
+                    scale: 1,
+                    rotation: 0,
+                    bubbleStyle: 'speech',
+                    color: '#141414',
+                    locked: false,
+                  },
+                ],
+              })
+        return new Response(JSON.stringify({ choices: [{ message: { content } }] }), { status: 200 })
+      }),
+    )
+
+    const result = await generateDialoguesWithAi({ secrets, db, signal: controller.signal }, db.getProjectDetail(project.id), page, {
+      mode: 'story',
+      textDensity: 0.65,
+    })
+
+    expect(result.dialogues[0].text).toBe('修复后的对白。')
+    expect(requestSignals).toEqual([controller.signal, controller.signal])
+  })
 })

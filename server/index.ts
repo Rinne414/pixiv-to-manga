@@ -98,37 +98,68 @@ server.post('/api/import/pixiv', async (request) => {
 server.post('/api/story/analyze', async (request) => {
   const input = analyzeStorySchema.parse(request.body)
   const jobId = jobs.create('story.analyze', 'Analyzing project story')
-  try {
-    const detail = db.getProjectDetail(input.projectId)
-    jobs.progress(jobId, 0.35, 'Building Story Bible')
-    const result = await analyzeStoryWithAi({ secrets, db }, detail, input)
-    db.saveStoryBible(input.projectId, result.storyBible)
-    jobs.complete(jobId, result.usedMock ? 'Story Bible generated with mock engine' : 'Story Bible generated')
-    return { jobId, ...db.getProjectDetail(input.projectId), raw: result.raw, usedMock: result.usedMock }
-  } catch (error) {
-    jobs.fail(jobId, error instanceof Error ? error.message : 'Story analysis failed')
-    throw error
-  }
+  const signal = jobs.signal(jobId)
+  void (async () => {
+    try {
+      const detail = db.getProjectDetail(input.projectId)
+      jobs.progress(jobId, 0.35, 'Building Story Bible')
+      const result = await analyzeStoryWithAi({ secrets, db, signal }, detail, input)
+      if (jobs.isCancelled(jobId)) return
+      db.saveStoryBible(input.projectId, result.storyBible)
+      jobs.complete(jobId, result.usedMock ? 'Story Bible generated with mock engine' : 'Story Bible generated', {
+        ...db.getProjectDetail(input.projectId),
+        raw: result.raw,
+        usedMock: result.usedMock,
+      })
+    } catch (error) {
+      if (jobs.isCancelled(jobId)) return
+      jobs.fail(jobId, error instanceof Error ? error.message : 'Story analysis failed')
+    }
+  })()
+  return { jobId }
 })
 
 server.post('/api/pages/:pageId/generate', async (request) => {
   const { pageId } = request.params as { pageId: string }
   const input = generatePageSchema.parse({ ...(request.body as object), pageId })
   const jobId = jobs.create('page.generate', 'Generating page dialogue')
-  try {
-    const page = db.getPage(input.pageId)
-    db.updatePageStatus(page.id, 'generating')
-    const detail = db.getProjectDetail(page.projectId)
-    jobs.progress(jobId, 0.45, `Generating Page ${page.index + 1}`)
-    const result = await generateDialoguesWithAi({ secrets, db }, detail, page, input)
-    db.replaceDialogues(page.id, result.dialogues)
-    jobs.complete(jobId, result.usedMock ? 'Dialogue generated with mock engine' : 'Dialogue generated')
-    return { jobId, ...db.getProjectDetail(page.projectId), raw: result.raw, usedMock: result.usedMock }
-  } catch (error) {
-    db.updatePageStatus(input.pageId, 'error')
-    jobs.fail(jobId, error instanceof Error ? error.message : 'Page generation failed')
-    throw error
-  }
+  const signal = jobs.signal(jobId)
+  void (async () => {
+    let pageProjectId = ''
+    try {
+      const page = db.getPage(input.pageId)
+      pageProjectId = page.projectId
+      db.updatePageStatus(page.id, 'generating')
+      const detail = db.getProjectDetail(page.projectId)
+      jobs.progress(jobId, 0.45, `Generating Page ${page.index + 1}`)
+      const result = await generateDialoguesWithAi({ secrets, db, signal }, detail, page, input)
+      if (jobs.isCancelled(jobId)) {
+        db.updatePageStatus(page.id, 'ready')
+        return
+      }
+      db.replaceDialogues(page.id, result.dialogues)
+      jobs.complete(jobId, result.usedMock ? 'Dialogue generated with mock engine' : 'Dialogue generated', {
+        ...db.getProjectDetail(page.projectId),
+        raw: result.raw,
+        usedMock: result.usedMock,
+      })
+    } catch (error) {
+      if (jobs.isCancelled(jobId)) {
+        if (pageProjectId) {
+          db.updatePageStatus(input.pageId, 'ready')
+        }
+        return
+      }
+      if (pageProjectId) {
+        db.updatePageStatus(input.pageId, 'error')
+      }
+      jobs.fail(jobId, error instanceof Error ? error.message : 'Page generation failed')
+      if (pageProjectId) {
+        server.log.error({ projectId: pageProjectId }, 'Page generation failed')
+      }
+    }
+  })()
+  return { jobId }
 })
 
 server.patch('/api/dialogues/:id', async (request) => {
@@ -159,6 +190,7 @@ server.post('/api/export/project-backup', async (request) => {
 
 server.get('/api/jobs/:jobId/events', async (request, reply) => {
   const { jobId } = request.params as { jobId: string }
+  reply.hijack()
   reply.raw.writeHead(200, {
     'Content-Type': 'text/event-stream',
     'Cache-Control': 'no-cache',

@@ -1,5 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
+  analyzeStory,
+  cancelJob,
   createProvider,
   discoverProviderModels,
   exportProjectBackup,
@@ -8,6 +10,7 @@ import {
   updateModelCapability,
   type ModelCapability,
 } from '../src/api'
+import type { JobEvent, ProjectDetail } from '../src/shared/types'
 
 const capability: ModelCapability = {
   id: 'cap-1',
@@ -24,6 +27,7 @@ const capability: ModelCapability = {
 
 describe('Provider Lab API client adapters', () => {
   afterEach(() => {
+    MockEventSource.instances = []
     vi.unstubAllGlobals()
   })
 
@@ -155,6 +159,44 @@ describe('Provider Lab API client adapters', () => {
     expect(requestInit?.method).toBe('POST')
     expect(requestInit?.body).toBeInstanceOf(FormData)
   })
+
+  it('waits for story analysis completion over job events', async () => {
+    const fetchMock = stubFetch({ jobId: 'job-1' })
+    vi.stubGlobal('EventSource', MockEventSource)
+    const jobIds: string[] = []
+
+    const pending = analyzeStory(
+      { projectId: 'project-1', userBrief: '海边重逢', r18Enabled: false },
+      { onJobId: (jobId) => jobIds.push(jobId) },
+    )
+    await waitForEventSource()
+    MockEventSource.instances[0].emit({
+      jobId: 'job-1',
+      type: 'complete',
+      progress: 1,
+      message: 'Done',
+      payload: projectDetail,
+    })
+    const result = await pending
+    const [path, requestInit] = fetchMock.mock.calls[0] as Parameters<typeof fetch>
+
+    expect(path).toBe('/api/story/analyze')
+    expect(JSON.parse(String(requestInit?.body))).toEqual({ projectId: 'project-1', userBrief: '海边重逢', r18Enabled: false })
+    expect(jobIds).toEqual(['job-1'])
+    expect(result.jobId).toBe('job-1')
+    expect(result.project.id).toBe('project-1')
+    expect(MockEventSource.instances[0].closed).toBe(true)
+  })
+
+  it('posts job cancellation requests', async () => {
+    const fetchMock = stubFetch({ ok: true })
+
+    await cancelJob('job-1')
+    const [path, requestInit] = fetchMock.mock.calls[0] as Parameters<typeof fetch>
+
+    expect(path).toBe('/api/jobs/job-1/cancel')
+    expect(requestInit?.method).toBe('POST')
+  })
 })
 
 function stubFetch(payload: unknown) {
@@ -163,4 +205,47 @@ function stubFetch(payload: unknown) {
   )
   vi.stubGlobal('fetch', fetchMock)
   return fetchMock
+}
+
+const projectDetail: ProjectDetail = {
+  project: {
+    id: 'project-1',
+    title: 'Async Project',
+    mode: 'story',
+    source: 'local',
+    createdAt: '2026-06-20T00:00:00.000Z',
+    updatedAt: '2026-06-20T00:00:00.000Z',
+  },
+  pages: [],
+  assets: [],
+  characters: [],
+  dialogues: [],
+}
+
+class MockEventSource {
+  static instances: MockEventSource[] = []
+  readonly url: string
+  onmessage: ((event: { data: string }) => void) | null = null
+  onerror: (() => void) | null = null
+  closed = false
+
+  constructor(url: string) {
+    this.url = url
+    MockEventSource.instances.push(this)
+  }
+
+  close() {
+    this.closed = true
+  }
+
+  emit(event: JobEvent) {
+    this.onmessage?.({ data: JSON.stringify(event) })
+  }
+}
+
+async function waitForEventSource(): Promise<void> {
+  for (let index = 0; index < 5; index += 1) {
+    if (MockEventSource.instances.length) return
+    await Promise.resolve()
+  }
 }

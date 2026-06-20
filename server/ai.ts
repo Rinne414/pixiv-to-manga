@@ -24,6 +24,7 @@ interface AiTarget {
 export interface AiContext {
   secrets: SecretStore
   db?: StudioDatabase
+  signal?: AbortSignal
 }
 
 export async function analyzeStoryWithAi(
@@ -48,7 +49,9 @@ export async function analyzeStoryWithAi(
   })
 
   const prompt = `你是漫画编剧。请先观察随后的漫画页面图片，再基于画面、项目页数和用户补充，创建中文 Story Bible。必须只返回 JSON，字段为 synopsis, tone, characters, pageBeats, userBrief, r18Enabled。characters 每项包含 name, description, voice, color, bubbleStyle。pageBeats 每项包含 pageIndex, summary, intent。项目标题：${detail.project.title}。页数：${detail.pages.length}。用户补充：${input.userBrief || '无'}。R18: ${input.r18Enabled ? 'true' : 'false'}。`
-  const raw = await openAiChatJson(target.apiBaseUrl, target.modelName, target.apiKey, [{ type: 'text', text: prompt }, ...imageParts])
+  const raw = await openAiChatJson(target.apiBaseUrl, target.modelName, target.apiKey, [{ type: 'text', text: prompt }, ...imageParts], {
+    signal: context.signal,
+  })
   const repaired = await parseWithOneRepair({
     raw,
     schema: storyBibleSchema,
@@ -56,6 +59,7 @@ export async function analyzeStoryWithAi(
     model: target.modelName,
     apiKey: target.apiKey,
     schemaHint: 'StoryBible JSON: synopsis, tone, characters[], pageBeats[], userBrief, r18Enabled',
+    signal: context.signal,
   })
   return { storyBible: normalizeStoryBible(repaired.parsed, detail.project.id), raw: repaired.raw, usedMock: false }
 }
@@ -86,7 +90,9 @@ export async function generateDialoguesWithAi(
   const beat = storyBible.pageBeats.find((item) => item.pageIndex === page.index)
   const characters = storyBible.characters.map((character) => `${character.name}: ${character.voice}`).join('\n')
   const prompt = `你是漫画对白创作者。请先观察随后的本页漫画图片，再生成叠字对白。模式：${input.mode === 'translation' ? '视觉翻译/改写，不原创大剧情' : '原创故事对白'}。请为第 ${page.index + 1} 页生成中文漫画对白。故事：${storyBible.synopsis}。本页剧情：${beat?.summary || '未指定'}。角色声音：${characters}。文本密度：${input.textDensity}。必须只返回 JSON：{"dialogues":[{"text":"...","characterName":"...","x":0.5,"y":0.5,"scale":1,"rotation":0,"bubbleStyle":"speech","color":"#141414","locked":false}]}. x/y 是 0-1 画面坐标，避免挡脸、遮住关键画面和互相重叠。`
-  const raw = await openAiChatJson(target.apiBaseUrl, target.modelName, target.apiKey, [{ type: 'text', text: prompt }, ...pageImageParts])
+  const raw = await openAiChatJson(target.apiBaseUrl, target.modelName, target.apiKey, [{ type: 'text', text: prompt }, ...pageImageParts], {
+    signal: context.signal,
+  })
   const repaired = await parseWithOneRepair({
     raw,
     schema: dialogueListSchema,
@@ -94,6 +100,7 @@ export async function generateDialoguesWithAi(
     model: target.modelName,
     apiKey: target.apiKey,
     schemaHint: 'Dialogue list JSON: {"dialogues":[{"text","characterName","x","y","scale","rotation","bubbleStyle","color","locked"}]}',
+    signal: context.signal,
   })
   const parsed = repaired.parsed
   const dialogues = resolveDialogueCollisions(
@@ -230,9 +237,11 @@ async function openAiChatJson(
   model: string,
   apiKey: string,
   content: ChatContentPart[],
+  options: { signal?: AbortSignal } = {},
 ): Promise<string> {
   const response = await fetch(`${baseUrl.replace(/\/+$/, '')}/chat/completions`, {
     method: 'POST',
+    signal: options.signal,
     headers: {
       Authorization: `Bearer ${apiKey}`,
       'Content-Type': 'application/json',
@@ -266,12 +275,15 @@ async function parseWithOneRepair<T>(input: {
   model: string
   apiKey: string
   schemaHint: string
+  signal?: AbortSignal
 }): Promise<{ parsed: T; raw: string }> {
   try {
     return { parsed: input.schema.parse(parsePossiblyWrappedJson(input.raw)), raw: input.raw }
   } catch (error) {
     const repairPrompt = `上一次模型输出不是有效 JSON 或不符合 schema。请只返回修正后的 JSON，不要解释。\nSchema: ${input.schemaHint}\n错误: ${error instanceof Error ? error.message : 'unknown'}\n原始输出:\n${input.raw.slice(0, 12000)}`
-    const repairedRaw = await openAiChatJson(input.baseUrl, input.model, input.apiKey, [{ type: 'text', text: repairPrompt }])
+    const repairedRaw = await openAiChatJson(input.baseUrl, input.model, input.apiKey, [{ type: 'text', text: repairPrompt }], {
+      signal: input.signal,
+    })
     return { parsed: input.schema.parse(parsePossiblyWrappedJson(repairedRaw)), raw: repairedRaw }
   }
 }
