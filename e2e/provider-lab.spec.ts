@@ -278,13 +278,16 @@ test('workspace remains usable without page-level horizontal overflow on narrow 
     (response) => response.url().includes('/api/import/local') && response.status() === 200,
   )
   await page.getByTestId('local-image-input').setInputFiles({
-    name: 'narrow-page.svg',
+    name: 'large-narrow-page.svg',
     mimeType: 'image/svg+xml',
-    buffer: Buffer.from(workflowSvg()),
+    buffer: Buffer.from(workflowSvg(2400, 3200)),
   })
   await localImportResponse
   await expect(page.getByTestId('toolbar-import-local')).toBeVisible()
   await expect(page.getByTestId('page-thumb')).toHaveCount(1)
+  await expect(page.locator('.canvas-meta')).toContainText('2400x3200')
+  const stageBox = await page.getByTestId('manga-stage').boundingBox()
+  expect(stageBox?.height).toBeLessThanOrEqual(704)
   await page.getByTestId('tab-layout').click()
   await expect(page.getByText('Canvas zoom')).toBeVisible()
 
@@ -427,6 +430,12 @@ test('main manga workflow imports local art, generates editable dialogue, export
   await page.getByTestId('tab-dialogue').click()
   await expect(page.getByTestId('dialogue-chip').filter({ hasText: '测试对白已经手动改过。' })).toBeVisible()
 
+  await page.reload()
+  await expect(page.getByText('Studio ready. Local database loaded.')).toBeVisible()
+  await expect(page.getByTestId('page-thumb')).toHaveCount(2)
+  await page.getByTestId('tab-dialogue').click()
+  await expect(page.getByTestId('dialogue-chip').filter({ hasText: '测试对白已经手动改过。' })).toBeVisible()
+
   expect(directProviderRequests).toEqual([])
 })
 
@@ -487,9 +496,9 @@ async function zipTextCorpus(zipPath: string): Promise<string> {
   return parts.join('\n')
 }
 
-function workflowSvg(): string {
-  return `<svg xmlns="http://www.w3.org/2000/svg" width="800" height="1000" viewBox="0 0 800 1000">
-  <rect width="800" height="1000" fill="#ffffff"/>
+function workflowSvg(width = 800, height = 1000): string {
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">
+  <rect width="${width}" height="${height}" fill="#ffffff"/>
   <rect x="48" y="48" width="704" height="360" fill="#f6f6f6" stroke="#111111" stroke-width="6"/>
   <rect x="48" y="452" width="332" height="232" fill="#ffffff" stroke="#111111" stroke-width="6"/>
   <rect x="420" y="452" width="332" height="232" fill="#ffffff" stroke="#111111" stroke-width="6"/>
