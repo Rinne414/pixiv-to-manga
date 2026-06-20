@@ -1,4 +1,4 @@
-import type { Dialogue, JobEvent, Project, ProjectDetail, SecretStatus } from './shared/types'
+import type { Dialogue, JobEvent, Project, ProjectDetail, SecretStatus, StoryBible } from './shared/types'
 
 export interface ProviderProfile {
   id: string
@@ -146,6 +146,13 @@ export function createProject(input: {
   return request<ProjectDetail>('/api/projects', {
     method: 'POST',
     body: JSON.stringify({ source: 'local', ...input }),
+  })
+}
+
+export function saveStoryBible(projectId: string, storyBible: StoryBible): Promise<ProjectDetail> {
+  return request<ProjectDetail>(`/api/projects/${projectId}/story-bible`, {
+    method: 'PUT',
+    body: JSON.stringify(storyBible),
   })
 }
 

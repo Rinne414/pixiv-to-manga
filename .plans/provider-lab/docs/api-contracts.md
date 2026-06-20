@@ -5,6 +5,7 @@
 - `GET /api/settings/secrets`
 - `PUT /api/settings/secrets`
 - `POST /api/story/analyze`
+- `PUT /api/projects/:projectId/story-bible`
 - `POST /api/pages/:pageId/generate`
 - `GET /api/jobs/:jobId/events`
 - `POST /api/jobs/:jobId/cancel`
@@ -239,6 +240,10 @@ Response: `{ "capability": ModelCapability }`. If `source` is omitted, backend s
 ## Story/Page Generation Safety Gate
 
 `POST /api/story/analyze` and `POST /api/pages/:pageId/generate` still use the global OpenAI-compatible settings from `PUT /api/settings/secrets`, but the server checks Provider Lab metadata before external R-18 or image-capable routes.
+
+`PUT /api/projects/:projectId/story-bible` saves user-edited AI output. The request body is a full `StoryBible` object validated by schema. Backend normalizes character `projectId` and fills any missing character IDs before persisting.
+
+Response: updated `ProjectDetail`.
 
 Both endpoints are asynchronous local jobs. The POST response returns immediately:
 

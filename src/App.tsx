@@ -23,7 +23,7 @@ import {
   Unlock,
 } from 'lucide-react'
 import { Circle, Ellipse, Group, Image as KonvaImage, Layer, Line, Rect, Stage, Text } from 'react-konva'
-import type { Asset, BubbleStyle, Character, Dialogue, JobEvent, Page, Project, ProjectDetail, SecretStatus } from './shared/types'
+import type { Asset, BubbleStyle, Character, Dialogue, JobEvent, Page, Project, ProjectDetail, SecretStatus, StoryBible } from './shared/types'
 import { estimateVerticalTextBox, resolveDialogueCollisions } from './shared/layout'
 import { renderProjectPages } from './canvasExport'
 import { ProviderLabPanel } from './ProviderLabPanel'
@@ -192,6 +192,31 @@ function App() {
           }
         : current,
     )
+  }
+
+  function updateStoryBibleLocal(storyBible: StoryBible) {
+    setDetail((current) =>
+      current
+        ? {
+            ...current,
+            project: { ...current.project, storyBible },
+            characters: storyBible.characters,
+          }
+        : current,
+    )
+  }
+
+  async function commitStoryBible(storyBible: StoryBible) {
+    if (!detail) return
+    updateStoryBibleLocal(storyBible)
+    try {
+      const next = await api.saveStoryBible(detail.project.id, storyBible)
+      acceptDetail(next)
+      pushLog('Story Bible saved.', 'success')
+    } catch (error) {
+      pushLog(errorMessage(error), 'error')
+      acceptDetail(await api.getProject(detail.project.id))
+    }
   }
 
   async function commitDialogue(id: string, patch: Partial<Dialogue>) {
@@ -525,10 +550,18 @@ function App() {
               pixivUrl={pixivUrl}
               setPixivUrl={setPixivUrl}
               onPixivImport={handlePixivImport}
+              onStoryBibleChange={updateStoryBibleLocal}
+              onStoryBibleCommit={commitStoryBible}
               disabled={Boolean(busy)}
             />
           )}
-          {activeTab === 'characters' && <CharactersPanel characters={detail?.characters || []} />}
+          {activeTab === 'characters' && (
+            <CharactersPanel
+              storyBible={detail?.project.storyBible}
+              onStoryBibleChange={updateStoryBibleLocal}
+              onStoryBibleCommit={commitStoryBible}
+            />
+          )}
           {activeTab === 'dialogue' && (
             <DialoguePanel
               dialogues={activeDialogues}
@@ -780,9 +813,34 @@ function StoryPanel(props: {
   pixivUrl: string
   setPixivUrl: (value: string) => void
   onPixivImport: (event: FormEvent) => void
+  onStoryBibleChange: (storyBible: StoryBible) => void
+  onStoryBibleCommit: (storyBible: StoryBible) => void
   disabled: boolean
 }) {
   const story = props.detail?.project.storyBible
+  const updateStory = (patch: Partial<StoryBible>) => {
+    if (!story) return
+    props.onStoryBibleChange({ ...story, ...patch })
+  }
+  const commitStory = (patch: Partial<StoryBible>) => {
+    if (!story) return
+    props.onStoryBibleCommit({ ...story, ...patch })
+  }
+  const updateBeat = (pageIndex: number, patch: Partial<StoryBible['pageBeats'][number]>) => {
+    if (!story) return
+    props.onStoryBibleChange({
+      ...story,
+      pageBeats: story.pageBeats.map((beat) => (beat.pageIndex === pageIndex ? { ...beat, ...patch } : beat)),
+    })
+  }
+  const commitBeat = (pageIndex: number, patch: Partial<StoryBible['pageBeats'][number]>) => {
+    if (!story) return
+    props.onStoryBibleCommit({
+      ...story,
+      pageBeats: story.pageBeats.map((beat) => (beat.pageIndex === pageIndex ? { ...beat, ...patch } : beat)),
+    })
+  }
+
   return (
     <div className="inspector-body">
       <form className="pixiv-form" onSubmit={props.onPixivImport}>
@@ -807,14 +865,62 @@ function StoryPanel(props: {
       </label>
 
       {story ? (
-        <div className="story-readout">
-          <h2>{story.synopsis}</h2>
-          <p>{story.tone}</p>
+        <div className="edit-form story-editor">
+          <label>
+            Synopsis
+            <textarea
+              value={story.synopsis}
+              rows={4}
+              data-testid="story-synopsis-input"
+              onChange={(event) => updateStory({ synopsis: event.target.value })}
+              onBlur={(event) => commitStory({ synopsis: event.target.value })}
+            />
+          </label>
+          <label>
+            Tone
+            <textarea
+              value={story.tone}
+              rows={3}
+              data-testid="story-tone-input"
+              onChange={(event) => updateStory({ tone: event.target.value })}
+              onBlur={(event) => commitStory({ tone: event.target.value })}
+            />
+          </label>
+          <label className="toggle-row danger">
+            <input
+              type="checkbox"
+              checked={story.r18Enabled}
+              onChange={(event) => {
+                const next = { ...story, r18Enabled: event.target.checked }
+                props.onStoryBibleChange(next)
+                props.onStoryBibleCommit(next)
+              }}
+            />
+            <span>Story Bible R-18</span>
+          </label>
           <div className="beat-list">
             {story.pageBeats.map((beat) => (
               <div key={`${beat.pageIndex}-${beat.summary}`} className="beat-row">
                 <strong>P{beat.pageIndex + 1}</strong>
-                <span>{beat.summary}</span>
+                <label>
+                  Summary
+                  <textarea
+                    value={beat.summary}
+                    rows={3}
+                    data-testid="story-beat-summary-input"
+                    onChange={(event) => updateBeat(beat.pageIndex, { summary: event.target.value })}
+                    onBlur={(event) => commitBeat(beat.pageIndex, { summary: event.target.value })}
+                  />
+                </label>
+                <label>
+                  Intent
+                  <textarea
+                    value={beat.intent}
+                    rows={2}
+                    onChange={(event) => updateBeat(beat.pageIndex, { intent: event.target.value })}
+                    onBlur={(event) => commitBeat(beat.pageIndex, { intent: event.target.value })}
+                  />
+                </label>
               </div>
             ))}
           </div>
@@ -826,17 +932,83 @@ function StoryPanel(props: {
   )
 }
 
-function CharactersPanel(props: { characters: Character[] }) {
+function CharactersPanel(props: {
+  storyBible?: StoryBible
+  onStoryBibleChange: (storyBible: StoryBible) => void
+  onStoryBibleCommit: (storyBible: StoryBible) => void
+}) {
+  const characters = props.storyBible?.characters || []
+  const updateCharacter = (characterId: string, patch: Partial<Character>, commit = false) => {
+    const storyBible = props.storyBible
+    if (!storyBible) return
+    const next = {
+      ...storyBible,
+      characters: storyBible.characters.map((character) => (character.id === characterId ? { ...character, ...patch } : character)),
+    }
+    props.onStoryBibleChange(next)
+    if (commit) {
+      props.onStoryBibleCommit(next)
+    }
+  }
+
   return (
     <div className="inspector-body">
-      {props.characters.length ? (
-        props.characters.map((character) => (
-          <div key={character.id} className="character-row">
+      {characters.length ? (
+        characters.map((character) => (
+          <div key={character.id} className="character-row character-editor">
             <span className="swatch" style={{ background: character.color }} />
             <div>
-              <strong>{character.name}</strong>
-              <p>{character.description}</p>
-              <small>{character.voice}</small>
+              <label>
+                Name
+                <input
+                  value={character.name}
+                  data-testid="character-name-input"
+                  onChange={(event) => updateCharacter(character.id, { name: event.target.value })}
+                  onBlur={(event) => updateCharacter(character.id, { name: event.target.value }, true)}
+                />
+              </label>
+              <label>
+                Description
+                <textarea
+                  value={character.description}
+                  rows={3}
+                  onChange={(event) => updateCharacter(character.id, { description: event.target.value })}
+                  onBlur={(event) => updateCharacter(character.id, { description: event.target.value }, true)}
+                />
+              </label>
+              <label>
+                Voice
+                <textarea
+                  value={character.voice}
+                  rows={3}
+                  onChange={(event) => updateCharacter(character.id, { voice: event.target.value })}
+                  onBlur={(event) => updateCharacter(character.id, { voice: event.target.value }, true)}
+                />
+              </label>
+              <div className="two-col">
+                <label>
+                  Color
+                  <input
+                    type="color"
+                    value={character.color}
+                    onChange={(event) => updateCharacter(character.id, { color: event.target.value })}
+                    onBlur={(event) => updateCharacter(character.id, { color: event.target.value }, true)}
+                  />
+                </label>
+                <label>
+                  Bubble
+                  <select
+                    value={character.bubbleStyle}
+                    onChange={(event) => updateCharacter(character.id, { bubbleStyle: event.target.value as BubbleStyle }, true)}
+                  >
+                    {bubbleStyles.map((style) => (
+                      <option key={style} value={style}>
+                        {style}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              </div>
             </div>
           </div>
         ))

@@ -124,7 +124,24 @@ test('main manga workflow imports local art, generates editable dialogue, export
 
   await page.getByTestId('toolbar-analyze-story').click()
   await expect(page.getByText('Story Bible generated with local mock engine.')).toBeVisible()
-  await expect(page.locator('.story-readout')).toBeVisible()
+  await expect(page.getByTestId('story-synopsis-input')).toBeVisible()
+
+  const storySaveResponse = page.waitForResponse(
+    (response) => response.url().includes('/api/projects/') && response.url().includes('/story-bible') && response.status() === 200,
+  )
+  await page.getByTestId('story-synopsis-input').fill('手动修改后的故事圣经。')
+  await page.getByTestId('story-synopsis-input').blur()
+  await storySaveResponse
+  await expect(page.getByText('Story Bible saved.').first()).toBeVisible()
+
+  await page.getByTestId('tab-characters').click()
+  const characterSaveResponse = page.waitForResponse(
+    (response) => response.url().includes('/api/projects/') && response.url().includes('/story-bible') && response.status() === 200,
+  )
+  await page.getByTestId('character-name-input').first().fill('手动夏海')
+  await page.getByTestId('character-name-input').first().blur()
+  await characterSaveResponse
+  await expect(page.getByText('Story Bible saved.').first()).toBeVisible()
 
   await page.getByTestId('toolbar-generate-page').click()
   await expect(page.getByText('Page 1 dialogue generated.')).toBeVisible()

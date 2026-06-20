@@ -4,6 +4,7 @@ import fastifyStatic from '@fastify/static'
 import { existsSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import path from 'node:path'
+import { randomUUID } from 'node:crypto'
 import open from 'open'
 import { appDataDir } from './paths'
 import { StudioDatabase } from './database'
@@ -22,6 +23,7 @@ import {
   generatePageSchema,
   pixivImportSchema,
   secretUpdateSchema,
+  storyBibleSchema,
 } from '../src/shared/schemas'
 
 const PORT = Number(process.env.PTM_SERVER_PORT || 4174)
@@ -74,6 +76,20 @@ server.post('/api/projects', async (request) => {
 
 server.get('/api/projects/:id', async (request) => {
   const { id } = request.params as { id: string }
+  return db.getProjectDetail(id)
+})
+
+server.put('/api/projects/:id/story-bible', async (request) => {
+  const { id } = request.params as { id: string }
+  const storyBible = storyBibleSchema.parse(request.body)
+  db.saveStoryBible(id, {
+    ...storyBible,
+    characters: storyBible.characters.map((character) => ({
+      ...character,
+      id: character.id || randomUUID(),
+      projectId: id,
+    })),
+  })
   return db.getProjectDetail(id)
 })
 

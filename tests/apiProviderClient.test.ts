@@ -6,6 +6,7 @@ import {
   discoverProviderModels,
   exportProjectBackup,
   importProjectBackup,
+  saveStoryBible,
   testProvider,
   updateModelCapability,
   type ModelCapability,
@@ -196,6 +197,36 @@ describe('Provider Lab API client adapters', () => {
 
     expect(path).toBe('/api/jobs/job-1/cancel')
     expect(requestInit?.method).toBe('POST')
+  })
+
+  it('saves editable Story Bible output', async () => {
+    const storyBible = {
+      synopsis: '手动修改后的故事。',
+      tone: '温柔、克制。',
+      userBrief: 'brief',
+      r18Enabled: false,
+      characters: [
+        {
+          id: 'character-1',
+          projectId: 'project-1',
+          name: '夏海',
+          description: '外向。',
+          voice: '短句。',
+          color: '#c9282d',
+          bubbleStyle: 'speech' as const,
+        },
+      ],
+      pageBeats: [{ pageIndex: 0, summary: '第一页修改。', intent: '建立关系。' }],
+    }
+    const fetchMock = stubFetch({ ...projectDetail, project: { ...projectDetail.project, storyBible }, characters: storyBible.characters })
+
+    const result = await saveStoryBible('project-1', storyBible)
+    const [path, requestInit] = fetchMock.mock.calls[0] as Parameters<typeof fetch>
+
+    expect(path).toBe('/api/projects/project-1/story-bible')
+    expect(requestInit?.method).toBe('PUT')
+    expect(JSON.parse(String(requestInit?.body))).toEqual(storyBible)
+    expect(result.project.storyBible?.synopsis).toBe('手动修改后的故事。')
   })
 })
 

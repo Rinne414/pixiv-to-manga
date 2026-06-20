@@ -19,14 +19,18 @@
   - `GET /api/jobs/:jobId/events` streams queued/progress/complete/error/cancelled events with history replay for fast jobs.
   - `POST /api/jobs/:jobId/cancel` aborts pending AI requests through `AbortSignal`.
   - The Studio toolbar now exposes a Cancel action for active generation jobs.
+- Added editable Story Bible and character output:
+  - `PUT /api/projects/:projectId/story-bible` validates and saves user-edited Story Bible JSON.
+  - Story inspector supports editing synopsis, tone, page beats, and Story Bible R-18 flag.
+  - Characters inspector supports editing name, description, voice, color, and default bubble style.
 - Added stable toolbar/input/tab/dialogue test selectors and ARIA state for browser E2E and accessibility.
 - Added tests:
   - `tests/aiVision.test.ts` verifies local images are sent to vision-capable models and blocked for unconfirmed image routes.
   - `tests/aiVision.test.ts` verifies abort signals are passed to initial and repair AI calls.
   - `tests/jobs.test.ts` verifies job history replay, cancel signal handling, and terminal-state protection.
   - `tests/exporter.test.ts` verifies backup ZIP contents and restore round-trip.
-  - `tests/apiProviderClient.test.ts` verifies backup export/restore API client request shape and job event completion.
-  - `e2e/provider-lab.spec.ts` verifies Provider Lab plus the full local manga workflow.
+  - `tests/apiProviderClient.test.ts` verifies backup export/restore API client request shape, Story Bible save requests, and job event completion.
+  - `e2e/provider-lab.spec.ts` verifies Provider Lab plus the full local manga workflow, including manual Story Bible and character edits.
 - Added Vite/Rolldown code splitting for React, Konva, icons, and ZIP-heavy dependencies; production build no longer emits the chunk-size warning.
 
 Remaining v1 audit items to keep checking:

@@ -54,6 +54,11 @@
   - Cancelled controllers stay available briefly so workers that start right after cancellation still receive an already-aborted signal, then are cleaned up.
   - `server/ai.ts` passes the job `AbortSignal` into both initial OpenAI-compatible calls and one-shot JSON repair calls.
 
+- Editable AI Output
+  - Story Bible and character edits are saved through `PUT /api/projects/:projectId/story-bible`.
+  - The backend validates the full Story Bible with zod, normalizes character project IDs, fills missing character IDs, and reuses `StudioDatabase.saveStoryBible`.
+  - The frontend edits synopsis, tone, page beats, R-18 flag, character name, description, voice, color, and bubble style in the inspector.
+
 ## Provider Lab Backend Data Flow
 
 1. `server/index.ts` registers `registerProviderLabRoutes(server, { db, secrets })`.
@@ -65,6 +70,7 @@
 7. Capability edits patch SQLite records and default `source` to `user`.
 8. Story/page generation checks legacy global settings against provider/capability rows before R-18 external calls.
 9. Generation jobs pass `AbortSignal` through the AI service before provider fetches, so cancel requests can stop external calls when supported by the runtime/provider.
+10. User edits to Story Bible or characters are validated and persisted as a full Story Bible replacement.
 
 ## Provider Lab Frontend Data Flow
 
@@ -80,3 +86,4 @@
    - external provider without adult-input flag blocks R-18 image input;
    - missing adult-generation flag blocks R-18 generation.
 7. Analyze Story, Generate Page, and Generate All call local POST endpoints, store the returned `jobId`, subscribe to SSE until a terminal event, and expose a toolbar Cancel action for the active job.
+8. Story and Characters inspector tabs update local state immediately and save the edited Story Bible back to the backend on commit.
