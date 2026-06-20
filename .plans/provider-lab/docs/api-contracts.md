@@ -6,6 +6,8 @@
 - `PUT /api/settings/secrets`
 - `POST /api/story/analyze`
 - `POST /api/pages/:pageId/generate`
+- `GET /api/jobs/:jobId/events`
+- `POST /api/jobs/:jobId/cancel`
 
 ## Provider Lab API
 
@@ -237,6 +239,53 @@ Response: `{ "capability": ModelCapability }`. If `source` is omitted, backend s
 ## Story/Page Generation Safety Gate
 
 `POST /api/story/analyze` and `POST /api/pages/:pageId/generate` still use the global OpenAI-compatible settings from `PUT /api/settings/secrets`, but the server checks Provider Lab metadata before external R-18 or image-capable routes.
+
+Both endpoints are asynchronous local jobs. The POST response returns immediately:
+
+```json
+{
+  "jobId": "job-id"
+}
+```
+
+Clients then subscribe to `GET /api/jobs/:jobId/events`, which is a local Server-Sent Events stream. Each event is sent as a `data:` JSON payload:
+
+```json
+{
+  "jobId": "job-id",
+  "type": "progress",
+  "progress": 0.45,
+  "message": "Generating Page 1"
+}
+```
+
+Terminal event types are `complete`, `error`, and `cancelled`. On `complete`, `payload` contains the updated `ProjectDetail` plus optional `raw` and `usedMock` fields:
+
+```json
+{
+  "jobId": "job-id",
+  "type": "complete",
+  "progress": 1,
+  "message": "Dialogue generated",
+  "payload": {
+    "project": {},
+    "pages": [],
+    "assets": [],
+    "characters": [],
+    "dialogues": [],
+    "raw": "{}",
+    "usedMock": false
+  }
+}
+```
+
+`POST /api/jobs/:jobId/cancel` aborts the active job and returns:
+
+```json
+{ "ok": true }
+```
+
+The backend keeps recent job events in memory so fast mock jobs can be replayed to clients that connect after the job already completed. Browser clients wait for the SSE terminal event and do not call external providers directly.
 
 Current v1 behavior:
 

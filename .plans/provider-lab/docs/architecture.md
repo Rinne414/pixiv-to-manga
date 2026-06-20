@@ -46,6 +46,14 @@
   - `server/ai.ts` also exposes `evaluateAiGenerationRoute`, which matches legacy global AI settings against Provider Lab provider/model metadata before external R-18 or image-capable routes.
   - `POST /api/story/analyze` and `POST /api/pages/:pageId/generate` pass `db` into the AI service; R-18 generation now fails closed unless the matching Provider Lab capability record allows adult generation.
 
+- Generation Job Hub
+  - Implemented in `server/jobs.ts`.
+  - Story analysis and page dialogue generation create local jobs and return `jobId` immediately.
+  - `GET /api/jobs/:jobId/events` streams Server-Sent Events and replays recent in-memory history for clients that connect after a fast job completes.
+  - `POST /api/jobs/:jobId/cancel` marks the job terminal, aborts the active `AbortController`, and prevents later progress/complete/fail calls from overwriting `cancelled`.
+  - Cancelled controllers stay available briefly so workers that start right after cancellation still receive an already-aborted signal, then are cleaned up.
+  - `server/ai.ts` passes the job `AbortSignal` into both initial OpenAI-compatible calls and one-shot JSON repair calls.
+
 ## Provider Lab Backend Data Flow
 
 1. `server/index.ts` registers `registerProviderLabRoutes(server, { db, secrets })`.
@@ -56,6 +64,7 @@
 6. Test calls provider `/chat/completions` with selected capability probes, upserts tested capability records, and returns redacted traces.
 7. Capability edits patch SQLite records and default `source` to `user`.
 8. Story/page generation checks legacy global settings against provider/capability rows before R-18 external calls.
+9. Generation jobs pass `AbortSignal` through the AI service before provider fetches, so cancel requests can stop external calls when supported by the runtime/provider.
 
 ## Provider Lab Frontend Data Flow
 
@@ -70,3 +79,4 @@
    - no vision means image payloads are blocked;
    - external provider without adult-input flag blocks R-18 image input;
    - missing adult-generation flag blocks R-18 generation.
+7. Analyze Story, Generate Page, and Generate All call local POST endpoints, store the returned `jobId`, subscribe to SSE until a terminal event, and expose a toolbar Cancel action for the active job.
