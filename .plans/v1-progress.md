@@ -35,7 +35,7 @@
   - `tests/pixivImport.test.ts` verifies mock Pixiv import, loopback-only Pixiv mock routing, R-18 cookie forwarding, source URL capture, and imported image dimensions.
   - `tests/apiProviderClient.test.ts` verifies backup export/restore API client request shape, Story Bible save requests, and job event completion.
   - `tests/imageDimensions.test.ts` verifies PNG/JPEG/WebP/SVG dimension parsing and local import persistence.
-  - `e2e/provider-lab.spec.ts` verifies Provider Lab, Pixiv UI import with cookie forwarding through a loopback mock, backup exports excluding saved secrets, raw AI output display after JSON repair failure, toolbar job cancellation, narrow-screen layout, large-page canvas scaling, and the full multi-page local manga workflow including Generate Page, Generate All, manual Story Bible/character/dialogue edits, two-page PNG ZIP export, backup restore, and reload persistence.
+  - `e2e/provider-lab.spec.ts` verifies Provider Lab, Pixiv UI import with cookie forwarding through a loopback mock, backup exports excluding saved secrets, raw AI output display after JSON repair failure, toolbar job cancellation, narrow-screen layout, large-page canvas scaling, long page-list scrolling, and the full multi-page local manga workflow including Generate Page, Generate All, manual Story Bible/character/dialogue edits, two-page PNG ZIP export, backup restore, and reload persistence.
 - Added Vite/Rolldown code splitting for React, Konva, icons, and ZIP-heavy dependencies; production build no longer emits the chunk-size warning.
 
 Remaining v1 audit items to keep checking:

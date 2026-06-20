@@ -309,6 +309,39 @@ test('workspace remains usable without page-level horizontal overflow on narrow 
   expect(clipping).toEqual([])
 })
 
+test('long page lists remain scrollable without horizontal clipping', async ({ page }) => {
+  await openStudio(page)
+  await page.getByLabel('Project title').fill(`Long Project ${Date.now()}`)
+  await page.getByRole('button', { name: /^Create$/ }).click()
+  await expect(page.getByText('Project created.')).toBeVisible()
+
+  const files = Array.from({ length: 16 }, (_, index) => ({
+    name: `long-page-${String(index + 1).padStart(2, '0')}.svg`,
+    mimeType: 'image/svg+xml',
+    buffer: Buffer.from(workflowSvg()),
+  }))
+  const localImportResponse = page.waitForResponse(
+    (response) => response.url().includes('/api/import/local') && response.status() === 200,
+  )
+  await page.getByTestId('local-image-input').setInputFiles(files)
+  await localImportResponse
+  await expect(page.getByText('16 image(s) imported.')).toBeVisible()
+  await expect(page.getByTestId('page-thumb')).toHaveCount(16)
+
+  const railMetrics = await page.locator('.left-rail').evaluate((element) => ({
+    scrollHeight: element.scrollHeight,
+    clientHeight: element.clientHeight,
+    scrollWidth: element.scrollWidth,
+    clientWidth: element.clientWidth,
+  }))
+  expect(railMetrics.scrollHeight).toBeGreaterThan(railMetrics.clientHeight)
+  expect(railMetrics.scrollWidth).toBeLessThanOrEqual(railMetrics.clientWidth + 2)
+
+  await page.getByTestId('page-thumb').nth(15).scrollIntoViewIfNeeded()
+  await page.getByTestId('page-thumb').nth(15).click()
+  await expect(page.locator('.canvas-meta')).toContainText('Page 16')
+})
+
 test('main manga workflow imports local art, generates editable dialogue, exports PNG ZIP, and restores backup', async ({
   page,
 }) => {
