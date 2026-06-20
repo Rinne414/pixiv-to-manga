@@ -117,11 +117,12 @@ export async function importPixivArtwork(
   const cookie = input.r18Enabled ? await secrets.getPixivCookie() : null
 
   const pages = await fetchPixivPages(artworkId, cookie)
+  const mockBaseUrl = getLoopbackPixivMockBaseUrl()
   const existingPages = db.listPages(project.id)
   let index = existingPages.length
 
   for (const page of pages) {
-    const imageUrl = assertPixivImageUrl(page)
+    const imageUrl = assertPixivDownloadUrl(page, mockBaseUrl)
     const response = await fetch(imageUrl, {
       headers: pixivHeaders(cookie, `https://www.pixiv.net/artworks/${artworkId}`),
     })
@@ -261,7 +262,12 @@ export async function importProjectBackup(db: StudioDatabase, file: MultipartFil
 }
 
 async function fetchPixivPages(artworkId: string, cookie: string | null): Promise<string[]> {
-  const response = await fetch(`https://www.pixiv.net/ajax/illust/${artworkId}/pages?lang=en`, {
+  const mockBaseUrl = getLoopbackPixivMockBaseUrl()
+  const pagesUrl = mockBaseUrl
+    ? new URL(`/ajax/illust/${artworkId}/pages?lang=en`, mockBaseUrl)
+    : new URL(`https://www.pixiv.net/ajax/illust/${artworkId}/pages?lang=en`)
+
+  const response = await fetch(pagesUrl, {
     headers: pixivHeaders(cookie, `https://www.pixiv.net/artworks/${artworkId}`),
   })
 
@@ -289,6 +295,32 @@ async function fetchPixivPages(artworkId: string, cookie: string | null): Promis
   }
 
   return urls
+}
+
+function assertPixivDownloadUrl(rawUrl: string, mockBaseUrl: URL | null): URL {
+  const url = new URL(rawUrl)
+  if (mockBaseUrl && url.origin === mockBaseUrl.origin) {
+    return url
+  }
+  return assertPixivImageUrl(rawUrl)
+}
+
+function getLoopbackPixivMockBaseUrl(): URL | null {
+  const raw = process.env.PTM_PIXIV_MOCK_BASE_URL?.trim()
+  if (!raw) {
+    return null
+  }
+
+  const url = new URL(raw)
+  if (!['http:', 'https:'].includes(url.protocol) || !isLoopbackHost(url.hostname)) {
+    throw new Error('PTM_PIXIV_MOCK_BASE_URL must point to a loopback HTTP(S) server')
+  }
+  return url
+}
+
+function isLoopbackHost(hostname: string): boolean {
+  const host = hostname.toLowerCase()
+  return host === 'localhost' || host === '127.0.0.1' || host === '::1' || host === '[::1]'
 }
 
 function pixivHeaders(cookie: string | null, referer: string): Record<string, string> {

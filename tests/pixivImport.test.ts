@@ -19,6 +19,7 @@ describe('importPixivArtwork', () => {
     vi.unstubAllGlobals()
     delete process.env.PTM_DATA_DIR
     delete process.env.PTM_TEST_MEMORY_KEYTAR
+    delete process.env.PTM_PIXIV_MOCK_BASE_URL
   })
 
   it('downloads Pixiv pages with the saved R-18 cookie and stores real image dimensions', async () => {
@@ -58,6 +59,55 @@ describe('importPixivArtwork', () => {
       height: 480,
     })
     expect(detail.pages[0]).toMatchObject({ width: 320, height: 480 })
+  })
+
+  it('allows loopback Pixiv mock imports without allowing arbitrary external image proxying', async () => {
+    const { db, secrets } = createDb()
+    process.env.PTM_PIXIV_MOCK_BASE_URL = 'http://127.0.0.1:5199'
+    await secrets.save({ pixivCookie: 'PHPSESSID=mock-cookie' })
+    const fetchMock = vi.fn<typeof fetch>(async (url, init) => {
+      const requestUrl = String(url)
+      const headers = init?.headers as Record<string, string> | undefined
+      if (requestUrl === 'http://127.0.0.1:5199/ajax/illust/123456789/pages?lang=en') {
+        expect(headers?.Cookie).toBe('PHPSESSID=mock-cookie')
+        return new Response(
+          JSON.stringify({
+            error: false,
+            body: [{ urls: { original: 'http://127.0.0.1:5199/pixiv-assets/123456789_p0.png' } }],
+          }),
+          { status: 200, headers: { 'content-type': 'application/json' } },
+        )
+      }
+
+      expect(requestUrl).toBe('http://127.0.0.1:5199/pixiv-assets/123456789_p0.png')
+      expect(headers?.Cookie).toBe('PHPSESSID=mock-cookie')
+      return new Response(pngWithDimensions(640, 960), { status: 200, headers: { 'content-type': 'image/png' } })
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    const detail = await importPixivArtwork(db, secrets, {
+      url: '123456789',
+      r18Enabled: true,
+    })
+
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    expect(detail.assets[0]).toMatchObject({
+      sourceUrl: 'http://127.0.0.1:5199/pixiv-assets/123456789_p0.png',
+      width: 640,
+      height: 960,
+    })
+  })
+
+  it('rejects non-loopback Pixiv mock bases', async () => {
+    const { db, secrets } = createDb()
+    process.env.PTM_PIXIV_MOCK_BASE_URL = 'https://example.com'
+
+    await expect(
+      importPixivArtwork(db, secrets, {
+        url: '123456789',
+        r18Enabled: false,
+      }),
+    ).rejects.toThrow(/loopback/)
   })
 })
 

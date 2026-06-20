@@ -8,6 +8,7 @@
 - Storage: SQLite via `node:sqlite`, project assets on disk.
 - Secrets: `keytar`; no plaintext fallback.
 - Image import: local and Pixiv imports parse PNG, JPEG, WebP, and SVG dimensions before creating asset/page records.
+- Pixiv E2E tests can set `PTM_PIXIV_MOCK_BASE_URL` to a loopback HTTP(S) server. Production/default imports still call Pixiv directly and still reject non-Pixiv image hosts.
 
 ## Provider Lab Components
 

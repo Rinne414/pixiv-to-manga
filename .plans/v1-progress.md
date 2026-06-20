@@ -32,10 +32,10 @@
   - `tests/aiVision.test.ts` verifies raw model output is kept when JSON repair still fails.
   - `tests/jobs.test.ts` verifies job history replay, cancel signal handling, and terminal-state protection.
   - `tests/exporter.test.ts` verifies backup ZIP contents and restore round-trip.
-  - `tests/pixivImport.test.ts` verifies mock Pixiv import, R-18 cookie forwarding, source URL capture, and imported image dimensions.
+  - `tests/pixivImport.test.ts` verifies mock Pixiv import, loopback-only Pixiv mock routing, R-18 cookie forwarding, source URL capture, and imported image dimensions.
   - `tests/apiProviderClient.test.ts` verifies backup export/restore API client request shape, Story Bible save requests, and job event completion.
   - `tests/imageDimensions.test.ts` verifies PNG/JPEG/WebP/SVG dimension parsing and local import persistence.
-  - `e2e/provider-lab.spec.ts` verifies Provider Lab, raw AI output display after JSON repair failure, toolbar job cancellation, and the full local manga workflow including manual Story Bible and character edits.
+  - `e2e/provider-lab.spec.ts` verifies Provider Lab, Pixiv UI import with cookie forwarding through a loopback mock, backup exports excluding saved secrets, raw AI output display after JSON repair failure, toolbar job cancellation, narrow-screen layout, and the full multi-page local manga workflow including Generate Page, Generate All, manual Story Bible/character/dialogue edits, two-page PNG ZIP export, and backup restore.
 - Added Vite/Rolldown code splitting for React, Konva, icons, and ZIP-heavy dependencies; production build no longer emits the chunk-size warning.
 
 Remaining v1 audit items to keep checking:

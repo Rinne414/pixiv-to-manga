@@ -73,8 +73,9 @@ test('Provider Lab creates a keyed provider, discovers models, tests capabilitie
     (response) => response.url().includes('/api/export/project-backup') && response.status() === 200,
   )
   await page.getByTestId('toolbar-export-backup').click()
-  await backupResponse
+  const backupZip = (await (await backupResponse).json()) as { absolutePath: string }
   await expect(page.getByText(/Backup exported/)).toBeVisible()
+  expect(await zipTextCorpus(backupZip.absolutePath)).not.toContain(dummySecret)
 
   const clipping = await page.evaluate(() =>
     [
@@ -92,6 +93,60 @@ test('Provider Lab creates a keyed provider, discovers models, tests capabilitie
   expect(clipping).toEqual([])
 
   expect(directProviderRequests).toEqual([])
+})
+
+test('Pixiv import form downloads mocked artwork with saved cookie and keeps secrets out of backup', async ({ page }) => {
+  const pixivCookie = 'PHPSESSID=e2e-pixiv-cookie'
+  const directMockRequests: string[] = []
+  page.on('request', (request) => {
+    if (request.url().includes('127.0.0.1:5199')) {
+      directMockRequests.push(request.url())
+    }
+  })
+
+  await resetMockRequests(page)
+  await openStudio(page)
+  await page.getByLabel('Project title').fill(`Pixiv UI Project ${Date.now()}`)
+  await page.getByRole('button', { name: /^Create$/ }).click()
+  await expect(page.getByText('Project created.')).toBeVisible()
+
+  await page.getByTestId('tab-settings').click()
+  await page.getByLabel('Pixiv Cookie').fill(pixivCookie)
+  await page.getByRole('button', { name: /Save Settings/ }).click()
+  await expect(page.getByText('Settings saved to system credential store.')).toBeVisible()
+  await expect(page.getByLabel('Pixiv Cookie')).toHaveValue('')
+  await expect(page.getByText(pixivCookie)).toHaveCount(0)
+
+  await page.getByTestId('tab-story').click()
+  await page.getByLabel('Pixiv Artwork URL / ID').fill('https://www.pixiv.net/artworks/123456789')
+  await page.locator('.toggle-row').filter({ hasText: 'R-18 enabled locally' }).getByRole('checkbox').check()
+  const pixivImportResponse = page.waitForResponse(
+    (response) => response.url().includes('/api/import/pixiv') && response.status() === 200,
+  )
+  await page.locator('.pixiv-form').getByRole('button', { name: /^Import Pixiv$/ }).click()
+  await pixivImportResponse
+  await expect(page.getByText('Pixiv artwork imported.')).toBeVisible()
+  await expect(page.getByTestId('page-thumb')).toHaveCount(1)
+  await expect(page.locator('.canvas-meta')).toContainText('320x480')
+
+  const mockRequests = await getMockRequests(page)
+  const pageApiRequest = mockRequests.find((request) => request.url.includes('/ajax/illust/123456789/pages'))
+  const imageRequest = mockRequests.find((request) => request.url.includes('/pixiv-assets/123456789_p0.png'))
+  expect(pageApiRequest?.headers.cookie).toBe(pixivCookie)
+  expect(imageRequest?.headers.cookie).toBe(pixivCookie)
+  expect(imageRequest?.headers.referer).toBe('https://www.pixiv.net/artworks/123456789')
+
+  const storageDump = await browserStorageDump(page)
+  expect(storageDump).not.toContain(pixivCookie)
+
+  const backupResponse = page.waitForResponse(
+    (response) => response.url().includes('/api/export/project-backup') && response.status() === 200,
+  )
+  await page.getByTestId('toolbar-export-backup').click()
+  const backupZip = (await (await backupResponse).json()) as { absolutePath: string }
+  await expect(page.getByText(/Backup exported/)).toBeVisible()
+  expect(await zipTextCorpus(backupZip.absolutePath)).not.toContain(pixivCookie)
+  expect(directMockRequests).toEqual([])
 })
 
 test('raw AI output is shown when model JSON repair fails', async ({ page }) => {
@@ -212,6 +267,45 @@ test('active generation jobs can be cancelled from the toolbar', async ({ page }
   expect(directProviderRequests).toEqual([])
 })
 
+test('workspace remains usable without page-level horizontal overflow on narrow screens', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 })
+  await openStudio(page)
+  await page.getByLabel('Project title').fill(`Narrow Project ${Date.now()}`)
+  await page.getByRole('button', { name: /^Create$/ }).click()
+  await expect(page.getByText('Project created.')).toBeVisible()
+
+  const localImportResponse = page.waitForResponse(
+    (response) => response.url().includes('/api/import/local') && response.status() === 200,
+  )
+  await page.getByTestId('local-image-input').setInputFiles({
+    name: 'narrow-page.svg',
+    mimeType: 'image/svg+xml',
+    buffer: Buffer.from(workflowSvg()),
+  })
+  await localImportResponse
+  await expect(page.getByTestId('toolbar-import-local')).toBeVisible()
+  await expect(page.getByTestId('page-thumb')).toHaveCount(1)
+  await page.getByTestId('tab-layout').click()
+  await expect(page.getByText('Canvas zoom')).toBeVisible()
+
+  const clipping = await page.evaluate(() =>
+    ['body', '.studio-shell', '.topbar', '.toolbar', '.workspace-grid', '.left-rail', '.right-rail']
+      .map((selector) => {
+        const element = document.querySelector(selector)
+        return element
+          ? {
+              selector,
+              scrollWidth: element.scrollWidth,
+              clientWidth: element.clientWidth,
+            }
+          : null
+      })
+      .filter((item): item is { selector: string; scrollWidth: number; clientWidth: number } => Boolean(item))
+      .filter((item) => item.scrollWidth > item.clientWidth + 2),
+  )
+  expect(clipping).toEqual([])
+})
+
 test('main manga workflow imports local art, generates editable dialogue, exports PNG ZIP, and restores backup', async ({
   page,
 }) => {
@@ -231,14 +325,21 @@ test('main manga workflow imports local art, generates editable dialogue, export
   const localImportResponse = page.waitForResponse(
     (response) => response.url().includes('/api/import/local') && response.status() === 200,
   )
-  await page.getByTestId('local-image-input').setInputFiles({
-    name: 'workflow-page.svg',
-    mimeType: 'image/svg+xml',
-    buffer: Buffer.from(workflowSvg()),
-  })
+  await page.getByTestId('local-image-input').setInputFiles([
+    {
+      name: 'workflow-page-1.svg',
+      mimeType: 'image/svg+xml',
+      buffer: Buffer.from(workflowSvg()),
+    },
+    {
+      name: 'workflow-page-2.svg',
+      mimeType: 'image/svg+xml',
+      buffer: Buffer.from(workflowSvg()),
+    },
+  ])
   await localImportResponse
-  await expect(page.getByText('1 image(s) imported.')).toBeVisible()
-  await expect(page.getByTestId('page-thumb')).toHaveCount(1)
+  await expect(page.getByText('2 image(s) imported.')).toBeVisible()
+  await expect(page.getByTestId('page-thumb')).toHaveCount(2)
   await expect(page.locator('.canvas-meta')).toContainText('800x1000')
 
   await page.getByTestId('toolbar-analyze-story').click()
@@ -264,9 +365,12 @@ test('main manga workflow imports local art, generates editable dialogue, export
 
   await page.getByTestId('toolbar-generate-page').click()
   await expect(page.getByText('Page 1 dialogue generated.')).toBeVisible()
+  await expect(page.getByTestId('page-thumb').first()).toContainText('3 lines / complete')
+  await page.getByTestId('toolbar-generate-all').click()
+  await expect(page.getByText('All pages generated.')).toBeVisible()
+  await expect(page.getByTestId('page-thumb').filter({ hasText: '3 lines / complete' })).toHaveCount(2)
   await page.getByTestId('tab-dialogue').click()
   await expect(page.getByTestId('dialogue-chip')).toHaveCount(3)
-  await expect(page.getByTestId('page-thumb').first()).toContainText('3 lines / complete')
 
   const rightRail = page.locator('.right-rail')
   const dialoguePatchResponse = page.waitForResponse(
@@ -302,6 +406,7 @@ test('main manga workflow imports local art, generates editable dialogue, export
   expect(zip.file('manifest.json')).toBeTruthy()
   const renderedPage = zip.file('page_001.png')
   expect(renderedPage).toBeTruthy()
+  expect(zip.file('page_002.png')).toBeTruthy()
   const pngHeader = (await renderedPage!.async('nodebuffer')).subarray(0, 8).toString('hex')
   expect(pngHeader).toBe('89504e470d0a1a0a')
 
@@ -318,7 +423,7 @@ test('main manga workflow imports local art, generates editable dialogue, export
   await page.getByTestId('project-backup-input').setInputFiles(backupZip.absolutePath)
   await restoreResponse
   await expect(page.getByText(/Backup restored:/)).toBeVisible()
-  await expect(page.getByTestId('page-thumb')).toHaveCount(1)
+  await expect(page.getByTestId('page-thumb')).toHaveCount(2)
   await page.getByTestId('tab-dialogue').click()
   await expect(page.getByTestId('dialogue-chip').filter({ hasText: '测试对白已经手动改过。' })).toBeVisible()
 
@@ -343,6 +448,43 @@ async function clearProviderProfiles(page: Page) {
     const deleted = await page.request.delete(`/api/providers/${provider.id}`)
     expect(deleted.ok()).toBe(true)
   }
+}
+
+async function resetMockRequests(page: Page) {
+  const response = await page.request.post('http://127.0.0.1:5199/requests/reset')
+  expect(response.ok()).toBe(true)
+}
+
+async function getMockRequests(page: Page): Promise<
+  Array<{ method: string; url: string; headers: Record<string, string>; body: string }>
+> {
+  const response = await page.request.get('http://127.0.0.1:5199/requests')
+  expect(response.ok()).toBe(true)
+  const body = (await response.json()) as {
+    requests: Array<{ method: string; url: string; headers: Record<string, string>; body: string }>
+  }
+  return body.requests
+}
+
+async function browserStorageDump(page: Page): Promise<string> {
+  return page.evaluate(() =>
+    JSON.stringify({
+      localStorage: Object.entries(localStorage),
+      sessionStorage: Object.entries(sessionStorage),
+    }),
+  )
+}
+
+async function zipTextCorpus(zipPath: string): Promise<string> {
+  const zip = await JSZip.loadAsync(await readFile(zipPath))
+  const parts: string[] = []
+  for (const [name, entry] of Object.entries(zip.files)) {
+    if (!entry.dir) {
+      parts.push(name)
+      parts.push((await entry.async('nodebuffer')).toString('utf8'))
+    }
+  }
+  return parts.join('\n')
 }
 
 function workflowSvg(): string {
