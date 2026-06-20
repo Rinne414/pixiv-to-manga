@@ -39,6 +39,11 @@ interface LogEntry {
   message: string
 }
 
+interface RawOutputState {
+  title: string
+  text: string
+}
+
 const tabItems: Array<{ id: InspectorTab; label: string; icon: ComponentType<IconProps> }> = [
   { id: 'story', label: 'Story Bible', icon: BookOpen },
   { id: 'characters', label: 'Characters', icon: Users },
@@ -61,6 +66,7 @@ function App() {
   const [busy, setBusy] = useState<string>('')
   const [currentJobId, setCurrentJobId] = useState<string>('')
   const [logs, setLogs] = useState<LogEntry[]>([])
+  const [rawOutput, setRawOutput] = useState<RawOutputState | null>(null)
   const [createTitle, setCreateTitle] = useState('Untitled Manga')
   const [createMode, setCreateMode] = useState<'story' | 'translation'>('story')
   const [pixivUrl, setPixivUrl] = useState('')
@@ -170,6 +176,10 @@ function App() {
       await task()
     } catch (error) {
       const message = errorMessage(error)
+      const raw = rawOutputFromError(error)
+      if (raw) {
+        setRawOutput(raw)
+      }
       pushLog(message === 'Job cancelled' ? 'Job cancelled.' : message, message === 'Job cancelled' ? 'info' : 'error')
     } finally {
       setCurrentJobId('')
@@ -293,6 +303,9 @@ function App() {
         { onJobId: setCurrentJobId, onEvent: handleJobEvent },
       )
       acceptDetail(next)
+      if (next.raw) {
+        setRawOutput({ title: 'Story Bible Raw Output', text: next.raw })
+      }
       pushLog(next.usedMock ? 'Story Bible generated with local mock engine.' : 'Story Bible generated.', 'success')
     })
   }
@@ -302,6 +315,9 @@ function App() {
     await runTask(`Generate Page ${activePage.index + 1}`, async () => {
       const next = await api.generatePage(activePage.id, { mode: generateMode, textDensity }, { onJobId: setCurrentJobId, onEvent: handleJobEvent })
       acceptDetail(next)
+      if (next.raw) {
+        setRawOutput({ title: `Page ${activePage.index + 1} Raw Output`, text: next.raw })
+      }
       pushLog(`Page ${activePage.index + 1} dialogue generated.`, 'success')
     })
   }
@@ -313,6 +329,9 @@ function App() {
         pushLog(`Generating page ${page.index + 1}`)
         const next = await api.generatePage(page.id, { mode: generateMode, textDensity }, { onJobId: setCurrentJobId, onEvent: handleJobEvent })
         acceptDetail(next)
+        if (next.raw) {
+          setRawOutput({ title: `Page ${page.index + 1} Raw Output`, text: next.raw })
+        }
       }
       pushLog('All pages generated.', 'success')
     })
@@ -617,6 +636,12 @@ function App() {
             ))
           )}
         </div>
+        {rawOutput ? (
+          <details className="raw-output-panel">
+            <summary>{rawOutput.title}</summary>
+            <textarea readOnly value={rawOutput.text} data-testid="raw-ai-output" />
+          </details>
+        ) : null}
       </footer>
     </div>
   )
@@ -1271,6 +1296,28 @@ function clamp(value: number, min: number, max: number): number {
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : 'Unknown error'
+}
+
+function rawOutputFromError(error: unknown): RawOutputState | null {
+  if (!(error instanceof api.JobFailedError)) {
+    return null
+  }
+  const payload = error.payload
+  if (!payload || typeof payload !== 'object') {
+    return null
+  }
+  const record = payload as { raw?: unknown; repairedRaw?: unknown; schemaHint?: unknown }
+  const sections = []
+  if (typeof record.raw === 'string' && record.raw) {
+    sections.push(`Original output:\n${record.raw}`)
+  }
+  if (typeof record.repairedRaw === 'string' && record.repairedRaw) {
+    sections.push(`Repair output:\n${record.repairedRaw}`)
+  }
+  if (typeof record.schemaHint === 'string' && record.schemaHint) {
+    sections.push(`Expected schema:\n${record.schemaHint}`)
+  }
+  return sections.length ? { title: 'Raw AI Output', text: sections.join('\n\n') } : null
 }
 
 function cryptoId(): string {

@@ -54,6 +54,7 @@
   - `POST /api/jobs/:jobId/cancel` marks the job terminal, aborts the active `AbortController`, and prevents later progress/complete/fail calls from overwriting `cancelled`.
   - Cancelled controllers stay available briefly so workers that start right after cancellation still receive an already-aborted signal, then are cleaned up.
   - `server/ai.ts` passes the job `AbortSignal` into both initial OpenAI-compatible calls and one-shot JSON repair calls.
+  - If schema validation fails after one JSON repair attempt, the job error payload includes original and repaired raw model output for local user repair.
 
 - Editable AI Output
   - Story Bible and character edits are saved through `PUT /api/projects/:projectId/story-bible`.
@@ -72,6 +73,7 @@
 8. Story/page generation checks legacy global settings against provider/capability rows before R-18 external calls.
 9. Generation jobs pass `AbortSignal` through the AI service before provider fetches, so cancel requests can stop external calls when supported by the runtime/provider.
 10. User edits to Story Bible or characters are validated and persisted as a full Story Bible replacement.
+11. Invalid AI JSON output is repaired once; if it still fails, raw output is returned through the local job event stream and surfaced in the log panel.
 
 ## Provider Lab Frontend Data Flow
 

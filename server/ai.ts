@@ -27,6 +27,20 @@ export interface AiContext {
   signal?: AbortSignal
 }
 
+export class AiJsonOutputError extends Error {
+  readonly raw: string
+  readonly repairedRaw?: string
+  readonly schemaHint: string
+
+  constructor(input: { message: string; raw: string; repairedRaw?: string; schemaHint: string }) {
+    super(input.message)
+    this.name = 'AiJsonOutputError'
+    this.raw = input.raw
+    this.repairedRaw = input.repairedRaw
+    this.schemaHint = input.schemaHint
+  }
+}
+
 export async function analyzeStoryWithAi(
   context: AiContext,
   detail: ProjectDetail,
@@ -284,7 +298,16 @@ async function parseWithOneRepair<T>(input: {
     const repairedRaw = await openAiChatJson(input.baseUrl, input.model, input.apiKey, [{ type: 'text', text: repairPrompt }], {
       signal: input.signal,
     })
-    return { parsed: input.schema.parse(parsePossiblyWrappedJson(repairedRaw)), raw: repairedRaw }
+    try {
+      return { parsed: input.schema.parse(parsePossiblyWrappedJson(repairedRaw)), raw: repairedRaw }
+    } catch (repairError) {
+      throw new AiJsonOutputError({
+        message: `AI output could not be parsed after repair: ${repairError instanceof Error ? repairError.message : 'unknown'}`,
+        raw: input.raw,
+        repairedRaw,
+        schemaHint: input.schemaHint,
+      })
+    }
   }
 }
 

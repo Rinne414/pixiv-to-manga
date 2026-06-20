@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { generateDialoguesWithAi } from '../server/ai'
+import { AiJsonOutputError, generateDialoguesWithAi } from '../server/ai'
 import { StudioDatabase } from '../server/database'
 import { SecretStore, type KeytarModule } from '../server/secrets'
 
@@ -284,5 +284,58 @@ describe('AI vision generation', () => {
 
     expect(result.dialogues[0].text).toBe('修复后的对白。')
     expect(requestSignals).toEqual([controller.signal, controller.signal])
+  })
+
+  it('keeps raw model output when JSON repair still fails', async () => {
+    const { db, dataDir } = createDb()
+    const secrets = new TestSecretStore(db, new MemoryKeytar())
+    await secrets.save({
+      apiBaseUrl: 'https://api.example.test/v1',
+      modelName: 'gpt-4o',
+      apiKey: 'test-api-key',
+    })
+    const provider = db.createProvider({
+      name: 'Vision Provider',
+      baseUrl: 'https://api.example.test/v1',
+      defaultModel: 'gpt-4o',
+      isLocal: false,
+    })
+    db.upsertModelCapability({
+      providerId: provider.id,
+      modelId: 'gpt-4o',
+      supportsVision: true,
+      allowsAdultInput: false,
+      allowsAdultGeneration: false,
+    })
+
+    const project = db.createProject({ title: 'Raw Output Project', mode: 'story', source: 'local' })
+    const relativePath = path.join('projects', project.id, 'originals', 'page-001.png')
+    const absolutePath = path.join(dataDir, relativePath)
+    mkdirSync(path.dirname(absolutePath), { recursive: true })
+    writeFileSync(absolutePath, Buffer.from('png-bytes'))
+    const asset = db.createAsset({ projectId: project.id, kind: 'original', relativePath, mimeType: 'image/png' })
+    const page = db.createPage({ projectId: project.id, index: 0, originalAssetId: asset.id })
+    const outputs = ['first invalid output', 'second invalid output']
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => {
+        const content = outputs.shift() || 'extra invalid output'
+        return new Response(JSON.stringify({ choices: [{ message: { content } }] }), { status: 200 })
+      }),
+    )
+
+    try {
+      await generateDialoguesWithAi({ secrets, db }, db.getProjectDetail(project.id), page, {
+        mode: 'story',
+        textDensity: 0.65,
+      })
+      throw new Error('Expected invalid AI output to throw')
+    } catch (error) {
+      expect(error).toBeInstanceOf(AiJsonOutputError)
+      expect(error).toMatchObject({
+        raw: 'first invalid output',
+        repairedRaw: 'second invalid output',
+      })
+    }
   })
 })

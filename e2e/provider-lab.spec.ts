@@ -94,6 +94,64 @@ test('Provider Lab creates a keyed provider, discovers models, tests capabilitie
   expect(directProviderRequests).toEqual([])
 })
 
+test('raw AI output is shown when model JSON repair fails', async ({ page }) => {
+  const directProviderRequests: string[] = []
+  page.on('request', (request) => {
+    if (request.url().includes('127.0.0.1:5199')) {
+      directProviderRequests.push(request.url())
+    }
+  })
+
+  await openStudio(page)
+  await clearProviderProfiles(page)
+  await page.getByLabel('Project title').fill(`Raw Output Project ${Date.now()}`)
+  await page.getByRole('button', { name: /^Create$/ }).click()
+  await expect(page.getByText('Project created.')).toBeVisible()
+
+  const localImportResponse = page.waitForResponse(
+    (response) => response.url().includes('/api/import/local') && response.status() === 200,
+  )
+  await page.getByTestId('local-image-input').setInputFiles({
+    name: 'raw-output-page.svg',
+    mimeType: 'image/svg+xml',
+    buffer: Buffer.from(workflowSvg()),
+  })
+  await localImportResponse
+
+  const providerResponse = await page.request.post('/api/providers', {
+    data: {
+      name: `Invalid JSON ${Date.now()}`,
+      baseUrl: 'http://127.0.0.1:5199',
+      defaultModel: 'invalid-json-smoke',
+      isLocal: true,
+      apiKey: dummySecret,
+    },
+  })
+  expect(providerResponse.ok()).toBe(true)
+  const providerBody = (await providerResponse.json()) as { provider: { id: string } }
+  const discoverResponse = await page.request.post(`/api/providers/${providerBody.provider.id}/models/discover`)
+  expect(discoverResponse.ok()).toBe(true)
+  const discoverBody = (await discoverResponse.json()) as { models: Array<{ id: string; modelId: string }> }
+  const capability = discoverBody.models.find((model) => model.modelId === 'invalid-json-smoke')
+  expect(capability).toBeTruthy()
+  const capabilityResponse = await page.request.patch(`/api/model-capabilities/${capability!.id}`, {
+    data: {
+      supportsVision: true,
+      supportsStreaming: true,
+      supportsJsonSchema: false,
+      allowsAdultInput: false,
+      allowsAdultGeneration: false,
+    },
+  })
+  expect(capabilityResponse.ok()).toBe(true)
+
+  await page.getByTestId('toolbar-analyze-story').click()
+  await expect(page.getByText(/AI output could not be parsed after repair/)).toBeVisible()
+  await page.getByText('Raw AI Output').click()
+  await expect(page.getByTestId('raw-ai-output')).toHaveValue(/invalid-json-smoke output/)
+  expect(directProviderRequests).toEqual([])
+})
+
 test('main manga workflow imports local art, generates editable dialogue, exports PNG ZIP, and restores backup', async ({
   page,
 }) => {

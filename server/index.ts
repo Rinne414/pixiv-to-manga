@@ -10,7 +10,7 @@ import { appDataDir } from './paths'
 import { StudioDatabase } from './database'
 import { SecretStore } from './secrets'
 import { JobHub } from './jobs'
-import { analyzeStoryWithAi, generateDialoguesWithAi } from './ai'
+import { AiJsonOutputError, analyzeStoryWithAi, generateDialoguesWithAi } from './ai'
 import { exportProjectBackup, exportRenderedZip } from './exporter'
 import { importLocalImages, importPixivArtwork, importProjectBackup } from './importers'
 import { registerProviderLabRoutes } from './providers'
@@ -129,7 +129,7 @@ server.post('/api/story/analyze', async (request) => {
       })
     } catch (error) {
       if (jobs.isCancelled(jobId)) return
-      jobs.fail(jobId, error instanceof Error ? error.message : 'Story analysis failed')
+      jobs.fail(jobId, error instanceof Error ? error.message : 'Story analysis failed', aiErrorPayload(error))
     }
   })()
   return { jobId }
@@ -169,7 +169,7 @@ server.post('/api/pages/:pageId/generate', async (request) => {
       if (pageProjectId) {
         db.updatePageStatus(input.pageId, 'error')
       }
-      jobs.fail(jobId, error instanceof Error ? error.message : 'Page generation failed')
+      jobs.fail(jobId, error instanceof Error ? error.message : 'Page generation failed', aiErrorPayload(error))
       if (pageProjectId) {
         server.log.error({ projectId: pageProjectId }, 'Page generation failed')
       }
@@ -239,4 +239,15 @@ server.log.info(`Pixiv-to-Manga Studio server listening on http://127.0.0.1:${PO
 
 if (process.env.PTM_OPEN_BROWSER === '1') {
   await open(`http://127.0.0.1:5173`)
+}
+
+function aiErrorPayload(error: unknown): unknown {
+  if (!(error instanceof AiJsonOutputError)) {
+    return undefined
+  }
+  return {
+    raw: error.raw,
+    repairedRaw: error.repairedRaw,
+    schemaHint: error.schemaHint,
+  }
 }

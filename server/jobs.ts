@@ -39,12 +39,12 @@ export class JobHub {
     this.emit({ jobId, type: 'complete', progress: 1, message, payload })
   }
 
-  fail(jobId: string, error: string): void {
+  fail(jobId: string, error: string, payload?: unknown): void {
     if (this.terminal.has(jobId)) return
     this.terminal.add(jobId)
     this.controllers.delete(jobId)
     this.db.updateJob(jobId, 'error', 1, 'Failed', error)
-    this.emit({ jobId, type: 'error', progress: 1, message: 'Failed', error })
+    this.emit({ jobId, type: 'error', progress: 1, message: 'Failed', error, payload })
   }
 
   cancel(jobId: string): void {

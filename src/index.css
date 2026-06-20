@@ -939,6 +939,29 @@ select:focus {
   color: #ff9a9d;
 }
 
+.raw-output-panel {
+  margin-top: 8px;
+  color: #c7ccd5;
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: 12px;
+}
+
+.raw-output-panel summary {
+  cursor: pointer;
+  font-weight: 800;
+}
+
+.raw-output-panel textarea {
+  height: 92px;
+  margin-top: 6px;
+  color: #eef1f5;
+  background: #0f1012;
+  border-color: #343942;
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: 11px;
+  resize: vertical;
+}
+
 .hidden-input {
   display: none;
 }

@@ -284,6 +284,23 @@ Terminal event types are `complete`, `error`, and `cancelled`. On `complete`, `p
 }
 ```
 
+On `error`, `payload` may contain raw model output for user repair when JSON schema validation fails after one repair attempt:
+
+```json
+{
+  "jobId": "job-id",
+  "type": "error",
+  "progress": 1,
+  "message": "Failed",
+  "error": "AI output could not be parsed after repair",
+  "payload": {
+    "raw": "original invalid model output",
+    "repairedRaw": "repair attempt output",
+    "schemaHint": "Expected JSON shape"
+  }
+}
+```
+
 `POST /api/jobs/:jobId/cancel` aborts the active job and returns:
 
 ```json

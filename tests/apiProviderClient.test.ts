@@ -6,6 +6,7 @@ import {
   discoverProviderModels,
   exportProjectBackup,
   importProjectBackup,
+  JobFailedError,
   saveStoryBible,
   testProvider,
   updateModelCapability,
@@ -197,6 +198,33 @@ describe('Provider Lab API client adapters', () => {
 
     expect(path).toBe('/api/jobs/job-1/cancel')
     expect(requestInit?.method).toBe('POST')
+  })
+
+  it('preserves job error payloads for manual AI output repair', async () => {
+    stubFetch({ jobId: 'job-raw' })
+    vi.stubGlobal('EventSource', MockEventSource)
+
+    const pending = analyzeStory({ projectId: 'project-1', userBrief: '', r18Enabled: false })
+    await waitForEventSource()
+    MockEventSource.instances[0].emit({
+      jobId: 'job-raw',
+      type: 'error',
+      progress: 1,
+      message: 'Failed',
+      error: 'AI output could not be parsed after repair',
+      payload: {
+        raw: 'first invalid output',
+        repairedRaw: 'second invalid output',
+      },
+    })
+
+    await expect(pending).rejects.toMatchObject({
+      name: 'JobFailedError',
+      payload: {
+        raw: 'first invalid output',
+        repairedRaw: 'second invalid output',
+      },
+    } satisfies Partial<JobFailedError>)
   })
 
   it('saves editable Story Bible output', async () => {

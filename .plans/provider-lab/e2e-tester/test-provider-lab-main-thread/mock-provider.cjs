@@ -12,6 +12,7 @@ const server = http.createServer((req, res) => {
         JSON.stringify({
           data: [
             { id: 'gpt-4o-smoke', owned_by: 'mock' },
+            { id: 'invalid-json-smoke', owned_by: 'mock' },
             { id: 'text-only-smoke', owned_by: 'mock' },
             { id: 'qwen-vl-smoke', owned_by: 'mock' },
           ],
@@ -21,11 +22,21 @@ const server = http.createServer((req, res) => {
     }
 
     if (req.url === '/chat/completions' && req.method === 'POST') {
+      let parsedBody = {}
+      try {
+        parsedBody = JSON.parse(body)
+      } catch {
+        parsedBody = {}
+      }
+      const content =
+        parsedBody && parsedBody.model === 'invalid-json-smoke'
+          ? 'invalid-json-smoke output that is not valid JSON'
+          : '{"ok":true}'
       res.end(
         JSON.stringify({
           id: 'mock-chatcmpl',
           object: 'chat.completion',
-          choices: [{ message: { role: 'assistant', content: '{"ok":true}' } }],
+          choices: [{ message: { role: 'assistant', content } }],
           receivedAuthorization: req.headers.authorization || null,
           requestEcho: body,
         }),

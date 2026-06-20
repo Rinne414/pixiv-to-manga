@@ -129,6 +129,16 @@ export interface JobRequestOptions {
   timeoutMs?: number
 }
 
+export class JobFailedError extends Error {
+  readonly payload?: unknown
+
+  constructor(message: string, payload?: unknown) {
+    super(message)
+    this.name = 'JobFailedError'
+    this.payload = payload
+  }
+}
+
 export async function listProjects(): Promise<Project[]> {
   const payload = await request<{ projects: Project[] }>('/api/projects')
   return payload.projects
@@ -371,11 +381,11 @@ function waitForProjectJob(jobId: string, options: JobRequestOptions): Promise<P
         }
 
         if (event.type === 'error') {
-          settle(() => reject(new Error(event.error || event.message || 'Job failed')))
+          settle(() => reject(new JobFailedError(event.error || event.message || 'Job failed', event.payload)))
         }
 
         if (event.type === 'cancelled') {
-          settle(() => reject(new Error('Job cancelled')))
+          settle(() => reject(new JobFailedError('Job cancelled', event.payload)))
         }
       } catch (error) {
         settle(() => reject(error instanceof Error ? error : new Error('Invalid job event')))
