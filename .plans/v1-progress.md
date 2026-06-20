@@ -30,6 +30,7 @@
 - Added tests:
   - `tests/aiVision.test.ts` verifies local images are sent to vision-capable models and blocked for unconfirmed image routes.
   - `tests/aiVision.test.ts` verifies streaming OpenAI-compatible chunks are requested and aggregated when model capability allows streaming.
+  - `tests/aiVision.test.ts` verifies translation mode uses editable dialogue output without introducing OCR cleanup.
   - `tests/aiVision.test.ts` verifies abort signals are passed to initial and repair AI calls.
   - `tests/aiVision.test.ts` verifies raw model output is kept when JSON repair still fails.
   - `tests/jobs.test.ts` verifies job history replay, cancel signal handling, and terminal-state protection.

@@ -181,6 +181,30 @@ describe('AI vision generation', () => {
     expect(result.dialogues[0].text).toBe('流式对白')
   })
 
+  it('supports visual translation mode through editable dialogue data without OCR cleanup', async () => {
+    const { db } = createDb()
+    const secrets = new TestSecretStore(db, new MemoryKeytar())
+    const project = db.createProject({ title: 'Translation Project', mode: 'translation', source: 'local' })
+    const asset = db.createAsset({
+      projectId: project.id,
+      kind: 'original',
+      relativePath: path.join('projects', project.id, 'originals', 'page-001.svg'),
+      mimeType: 'image/svg+xml',
+    })
+    const page = db.createPage({ projectId: project.id, index: 0, originalAssetId: asset.id })
+
+    const result = await generateDialoguesWithAi({ secrets, db }, db.getProjectDetail(project.id), page, {
+      mode: 'translation',
+      textDensity: 0.65,
+    })
+
+    expect(result.usedMock).toBe(true)
+    expect(result.dialogues[0]).toMatchObject({
+      pageId: page.id,
+      text: expect.stringContaining('这句原文的意思是'),
+    })
+  })
+
   it('uses a saved Provider Lab key when global generation settings are empty', async () => {
     const { db, dataDir } = createDb()
     const secrets = new TestSecretStore(db, new MemoryKeytar())
