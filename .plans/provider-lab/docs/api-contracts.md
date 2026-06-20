@@ -309,6 +309,8 @@ On `error`, `payload` may contain raw model output for user repair when JSON sch
 
 The backend keeps recent job events in memory so fast mock jobs can be replayed to clients that connect after the job already completed. Browser clients wait for the SSE terminal event and do not call external providers directly.
 
+When the selected Provider Lab capability record has `supportsStreaming: true`, the backend may call the OpenAI-compatible `/chat/completions` endpoint with `stream: true` and aggregate streamed `delta.content` chunks into the JSON string before schema validation. Browser clients still receive only local job events and the final parsed project payload.
+
 Current v1 behavior:
 
 - Non-R-18 text-only generation can run with the legacy global model settings.

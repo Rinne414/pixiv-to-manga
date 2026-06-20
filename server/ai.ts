@@ -19,6 +19,7 @@ interface AiTarget {
   apiBaseUrl: string
   modelName: string
   apiKey: string
+  supportsStreaming: boolean
 }
 
 export interface AiContext {
@@ -65,6 +66,7 @@ export async function analyzeStoryWithAi(
   const prompt = `你是漫画编剧。请先观察随后的漫画页面图片，再基于画面、项目页数和用户补充，创建中文 Story Bible。必须只返回 JSON，字段为 synopsis, tone, characters, pageBeats, userBrief, r18Enabled。characters 每项包含 name, description, voice, color, bubbleStyle。pageBeats 每项包含 pageIndex, summary, intent。项目标题：${detail.project.title}。页数：${detail.pages.length}。用户补充：${input.userBrief || '无'}。R18: ${input.r18Enabled ? 'true' : 'false'}。`
   const raw = await openAiChatJson(target.apiBaseUrl, target.modelName, target.apiKey, [{ type: 'text', text: prompt }, ...imageParts], {
     signal: context.signal,
+    stream: target.supportsStreaming,
   })
   const repaired = await parseWithOneRepair({
     raw,
@@ -72,6 +74,7 @@ export async function analyzeStoryWithAi(
     baseUrl: target.apiBaseUrl,
     model: target.modelName,
     apiKey: target.apiKey,
+    stream: target.supportsStreaming,
     schemaHint: 'StoryBible JSON: synopsis, tone, characters[], pageBeats[], userBrief, r18Enabled',
     signal: context.signal,
   })
@@ -106,6 +109,7 @@ export async function generateDialoguesWithAi(
   const prompt = `你是漫画对白创作者。请先观察随后的本页漫画图片，再生成叠字对白。模式：${input.mode === 'translation' ? '视觉翻译/改写，不原创大剧情' : '原创故事对白'}。请为第 ${page.index + 1} 页生成中文漫画对白。故事：${storyBible.synopsis}。本页剧情：${beat?.summary || '未指定'}。角色声音：${characters}。文本密度：${input.textDensity}。必须只返回 JSON：{"dialogues":[{"text":"...","characterName":"...","x":0.5,"y":0.5,"scale":1,"rotation":0,"bubbleStyle":"speech","color":"#141414","locked":false}]}. x/y 是 0-1 画面坐标，避免挡脸、遮住关键画面和互相重叠。`
   const raw = await openAiChatJson(target.apiBaseUrl, target.modelName, target.apiKey, [{ type: 'text', text: prompt }, ...pageImageParts], {
     signal: context.signal,
+    stream: target.supportsStreaming,
   })
   const repaired = await parseWithOneRepair({
     raw,
@@ -113,6 +117,7 @@ export async function generateDialoguesWithAi(
     baseUrl: target.apiBaseUrl,
     model: target.modelName,
     apiKey: target.apiKey,
+    stream: target.supportsStreaming,
     schemaHint: 'Dialogue list JSON: {"dialogues":[{"text","characterName","x","y","scale","rotation","bubbleStyle","color","locked"}]}',
     signal: context.signal,
   })
@@ -137,6 +142,7 @@ async function resolveAiTarget(context: AiContext): Promise<AiTarget | null> {
     const matchingProvider = context.db
       ? findMatchingProvider(context.db.listProviders(), status.apiBaseUrl, status.modelName)
       : undefined
+    const capability = matchingProvider && context.db ? findMatchingCapability(context.db, matchingProvider.id, status.modelName) : undefined
     const providerApiKey = matchingProvider ? await context.secrets.getProviderApiKey(matchingProvider.id) : null
     const apiKey = globalApiKey || providerApiKey
     return apiKey
@@ -144,6 +150,7 @@ async function resolveAiTarget(context: AiContext): Promise<AiTarget | null> {
           apiBaseUrl: status.apiBaseUrl,
           modelName: status.modelName,
           apiKey,
+          supportsStreaming: Boolean(capability?.supportsStreaming),
         }
       : null
   }
@@ -158,10 +165,12 @@ async function resolveAiTarget(context: AiContext): Promise<AiTarget | null> {
     }
     const apiKey = await context.secrets.getProviderApiKey(provider.id)
     if (apiKey) {
+      const capability = findMatchingCapability(context.db, provider.id, provider.defaultModel)
       return {
         apiBaseUrl: provider.baseUrl,
         modelName: provider.defaultModel,
         apiKey,
+        supportsStreaming: Boolean(capability?.supportsStreaming),
       }
     }
   }
@@ -233,6 +242,13 @@ function findMatchingProvider(providers: ProviderProfile[], apiBaseUrl: string, 
   )
 }
 
+function findMatchingCapability(db: StudioDatabase, providerId: string, modelName: string): ModelCapability | undefined {
+  const normalizedModel = normalizeModelId(modelName)
+  return db
+    .listModelCapabilities(providerId)
+    .find((capability) => normalizeModelId(capability.modelId) === normalizedModel)
+}
+
 function normalizeBaseUrl(value: string): string {
   const trimmed = value.trim().replace(/\/+$/, '')
   if (!trimmed) return ''
@@ -251,7 +267,7 @@ async function openAiChatJson(
   model: string,
   apiKey: string,
   content: ChatContentPart[],
-  options: { signal?: AbortSignal } = {},
+  options: { signal?: AbortSignal; stream?: boolean } = {},
 ): Promise<string> {
   const response = await fetch(`${baseUrl.replace(/\/+$/, '')}/chat/completions`, {
     method: 'POST',
@@ -264,7 +280,7 @@ async function openAiChatJson(
       model,
       messages: [{ role: 'user', content }],
       temperature: 0.9,
-      stream: false,
+      stream: options.stream === true,
     }),
   })
 
@@ -272,14 +288,46 @@ async function openAiChatJson(
     throw new Error(`AI request failed: HTTP ${response.status}`)
   }
 
-  const payload = (await response.json()) as {
-    choices?: Array<{ message?: { content?: string } }>
-  }
-  const contentText = payload.choices?.[0]?.message?.content
+  const rawText = await response.text()
+  const contentText = responseLooksLikeEventStream(response, rawText)
+    ? contentFromOpenAiStream(rawText)
+    : contentFromOpenAiJson(rawText)
   if (!contentText) {
     throw new Error('AI returned an empty response')
   }
   return contentText
+}
+
+function responseLooksLikeEventStream(response: Response, rawText: string): boolean {
+  return response.headers.get('content-type')?.includes('text/event-stream') || rawText.trimStart().startsWith('data:')
+}
+
+function contentFromOpenAiJson(rawText: string): string {
+  const payload = JSON.parse(rawText) as {
+    choices?: Array<{ message?: { content?: string } }>
+  }
+  return payload.choices?.[0]?.message?.content || ''
+}
+
+function contentFromOpenAiStream(rawText: string): string {
+  let content = ''
+  for (const line of rawText.split(/\r?\n/)) {
+    const trimmed = line.trim()
+    if (!trimmed.startsWith('data:')) {
+      continue
+    }
+    const data = trimmed.slice('data:'.length).trim()
+    if (!data || data === '[DONE]') {
+      continue
+    }
+    const payload = JSON.parse(data) as {
+      choices?: Array<{ delta?: { content?: string }; message?: { content?: string } }>
+    }
+    for (const choice of payload.choices || []) {
+      content += choice.delta?.content || choice.message?.content || ''
+    }
+  }
+  return content
 }
 
 async function parseWithOneRepair<T>(input: {
@@ -288,6 +336,7 @@ async function parseWithOneRepair<T>(input: {
   baseUrl: string
   model: string
   apiKey: string
+  stream: boolean
   schemaHint: string
   signal?: AbortSignal
 }): Promise<{ parsed: T; raw: string }> {
@@ -297,6 +346,7 @@ async function parseWithOneRepair<T>(input: {
     const repairPrompt = `上一次模型输出不是有效 JSON 或不符合 schema。请只返回修正后的 JSON，不要解释。\nSchema: ${input.schemaHint}\n错误: ${error instanceof Error ? error.message : 'unknown'}\n原始输出:\n${input.raw.slice(0, 12000)}`
     const repairedRaw = await openAiChatJson(input.baseUrl, input.model, input.apiKey, [{ type: 'text', text: repairPrompt }], {
       signal: input.signal,
+      stream: input.stream,
     })
     try {
       return { parsed: input.schema.parse(parsePossiblyWrappedJson(repairedRaw)), raw: repairedRaw }

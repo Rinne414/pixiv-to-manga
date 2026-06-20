@@ -77,7 +77,7 @@ describe('AI vision generation', () => {
     const asset = db.createAsset({ projectId: project.id, kind: 'original', relativePath, mimeType: 'image/png' })
     const page = db.createPage({ projectId: project.id, index: 0, originalAssetId: asset.id })
 
-    let requestBody: { messages?: Array<{ content?: unknown[] }> } | undefined
+    let requestBody: { messages?: Array<{ content?: unknown[] }>; stream?: boolean } | undefined
     vi.stubGlobal(
       'fetch',
       vi.fn(async (_url, init) => {
@@ -120,6 +120,65 @@ describe('AI vision generation', () => {
     expect(result.dialogues[0].text).toBe('我看见这页画面了。')
     const content = requestBody?.messages?.[0]?.content || []
     expect(content.some((part) => JSON.stringify(part).includes('data:image/png;base64,'))).toBe(true)
+    expect(requestBody?.stream).toBe(false)
+  })
+
+  it('streams and aggregates OpenAI-compatible chat completion chunks when the model supports streaming', async () => {
+    const { db, dataDir } = createDb()
+    const secrets = new TestSecretStore(db, new MemoryKeytar())
+    await secrets.save({
+      apiBaseUrl: 'https://api.example.test/v1',
+      modelName: 'gpt-4o-stream',
+      apiKey: 'test-api-key',
+    })
+    const provider = db.createProvider({
+      name: 'Streaming Vision Provider',
+      baseUrl: 'https://api.example.test/v1',
+      defaultModel: 'gpt-4o-stream',
+      isLocal: false,
+    })
+    db.upsertModelCapability({
+      providerId: provider.id,
+      modelId: 'gpt-4o-stream',
+      supportsVision: true,
+      supportsStreaming: true,
+      allowsAdultInput: false,
+      allowsAdultGeneration: false,
+    })
+
+    const project = db.createProject({ title: 'Streaming Project', mode: 'story', source: 'local' })
+    const relativePath = path.join('projects', project.id, 'originals', 'page-001.png')
+    const absolutePath = path.join(dataDir, relativePath)
+    mkdirSync(path.dirname(absolutePath), { recursive: true })
+    writeFileSync(absolutePath, Buffer.from('png-bytes'))
+    const asset = db.createAsset({ projectId: project.id, kind: 'original', relativePath, mimeType: 'image/png' })
+    const page = db.createPage({ projectId: project.id, index: 0, originalAssetId: asset.id })
+
+    let requestBody: { stream?: boolean } | undefined
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (_url, init) => {
+        requestBody = JSON.parse(String(init?.body))
+        const chunks = [
+          '{"dialogues":[',
+          '{"text":"流式对白","characterName":"夏海","x":0.5,"y":0.25,"scale":1,"rotation":0,"bubbleStyle":"speech","color":"#141414","locked":false}',
+          ']}',
+        ]
+        const body = `${chunks
+          .map((content) => `data: ${JSON.stringify({ choices: [{ delta: { content } }] })}\n\n`)
+          .join('')}data: [DONE]\n\n`
+        return new Response(body, { status: 200, headers: { 'content-type': 'text/event-stream' } })
+      }),
+    )
+
+    const result = await generateDialoguesWithAi({ secrets, db }, db.getProjectDetail(project.id), page, {
+      mode: 'story',
+      textDensity: 0.65,
+    })
+
+    expect(requestBody?.stream).toBe(true)
+    expect(result.usedMock).toBe(false)
+    expect(result.dialogues[0].text).toBe('流式对白')
   })
 
   it('uses a saved Provider Lab key when global generation settings are empty', async () => {

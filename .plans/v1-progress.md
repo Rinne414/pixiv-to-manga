@@ -12,6 +12,7 @@
 - Added frontend `Export Backup` toolbar action.
 - Added frontend `Restore Backup` toolbar action.
 - Updated external AI generation to send local page images as OpenAI-compatible `image_url` content and to require matching vision/adult capability gates.
+- External AI generation now requests and aggregates OpenAI-compatible streaming chat completion chunks when the selected model capability has `supportsStreaming`.
 - Main AI generation can now use saved Provider Lab provider keys when global generation settings are empty or missing a matching API key.
 - Added one-shot AI JSON repair retry before surfacing invalid model output.
 - AI JSON repair failure now preserves original and repaired raw model output through the local job event stream, and the Studio shows it in a Raw AI Output panel for manual correction.
@@ -28,6 +29,7 @@
 - Added stable toolbar/input/tab/dialogue test selectors and ARIA state for browser E2E and accessibility.
 - Added tests:
   - `tests/aiVision.test.ts` verifies local images are sent to vision-capable models and blocked for unconfirmed image routes.
+  - `tests/aiVision.test.ts` verifies streaming OpenAI-compatible chunks are requested and aggregated when model capability allows streaming.
   - `tests/aiVision.test.ts` verifies abort signals are passed to initial and repair AI calls.
   - `tests/aiVision.test.ts` verifies raw model output is kept when JSON repair still fails.
   - `tests/jobs.test.ts` verifies job history replay, cancel signal handling, and terminal-state protection.

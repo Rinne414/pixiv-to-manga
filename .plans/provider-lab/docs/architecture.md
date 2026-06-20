@@ -47,6 +47,7 @@
   - Blocks illegal content, failed/unknown image safety classification, R-18 when disabled, images for non-vision models, explicit image input for models not marked adult-compatible, and R-18 generation for models without `allowsAdultGeneration`.
   - `server/ai.ts` also exposes `evaluateAiGenerationRoute`, which matches legacy global AI settings against Provider Lab provider/model metadata before external R-18 or image-capable routes.
   - `POST /api/story/analyze` and `POST /api/pages/:pageId/generate` pass `db` into the AI service; R-18 generation now fails closed unless the matching Provider Lab capability record allows adult generation.
+  - When the matched model capability has `supportsStreaming`, story/page generation requests OpenAI-compatible streaming chat completions and aggregates `delta.content` chunks before JSON validation/repair.
 
 - Generation Job Hub
   - Implemented in `server/jobs.ts`.
