@@ -7,6 +7,7 @@
 - Backend: Fastify + TypeScript.
 - Storage: SQLite via `node:sqlite`, project assets on disk.
 - Secrets: `keytar`; no plaintext fallback.
+- Image import: local and Pixiv imports parse PNG, JPEG, WebP, and SVG dimensions before creating asset/page records.
 
 ## Provider Lab Components
 

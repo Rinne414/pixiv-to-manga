@@ -121,6 +121,7 @@ test('main manga workflow imports local art, generates editable dialogue, export
   await localImportResponse
   await expect(page.getByText('1 image(s) imported.')).toBeVisible()
   await expect(page.getByTestId('page-thumb')).toHaveCount(1)
+  await expect(page.locator('.canvas-meta')).toContainText('800x1000')
 
   await page.getByTestId('toolbar-analyze-story').click()
   await expect(page.getByText('Story Bible generated with local mock engine.')).toBeVisible()
@@ -227,17 +228,17 @@ async function clearProviderProfiles(page: Page) {
 }
 
 function workflowSvg(): string {
-  return `<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="1600" viewBox="0 0 1200 1600">
-  <rect width="1200" height="1600" fill="#ffffff"/>
-  <rect x="72" y="72" width="1056" height="580" fill="#f6f6f6" stroke="#111111" stroke-width="8"/>
-  <rect x="72" y="710" width="500" height="370" fill="#ffffff" stroke="#111111" stroke-width="8"/>
-  <rect x="628" y="710" width="500" height="370" fill="#ffffff" stroke="#111111" stroke-width="8"/>
-  <rect x="72" y="1138" width="1056" height="390" fill="#ffffff" stroke="#111111" stroke-width="8"/>
-  <circle cx="420" cy="420" r="112" fill="#eeeeee" stroke="#111111" stroke-width="6"/>
-  <circle cx="820" cy="410" r="112" fill="#eeeeee" stroke="#111111" stroke-width="6"/>
-  <path d="M322 380 C380 320 470 330 508 410" fill="none" stroke="#111111" stroke-width="12"/>
-  <path d="M725 370 C785 318 890 332 918 418" fill="none" stroke="#111111" stroke-width="12"/>
-  <ellipse cx="960" cy="250" rx="96" ry="148" fill="#ffffff" stroke="#111111" stroke-width="5"/>
-  <text x="990" y="148" writing-mode="vertical-rl" font-family="serif" font-size="38" font-weight="700">一起去看海吧。</text>
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="800" height="1000" viewBox="0 0 800 1000">
+  <rect width="800" height="1000" fill="#ffffff"/>
+  <rect x="48" y="48" width="704" height="360" fill="#f6f6f6" stroke="#111111" stroke-width="6"/>
+  <rect x="48" y="452" width="332" height="232" fill="#ffffff" stroke="#111111" stroke-width="6"/>
+  <rect x="420" y="452" width="332" height="232" fill="#ffffff" stroke="#111111" stroke-width="6"/>
+  <rect x="48" y="724" width="704" height="228" fill="#ffffff" stroke="#111111" stroke-width="6"/>
+  <circle cx="280" cy="260" r="74" fill="#eeeeee" stroke="#111111" stroke-width="5"/>
+  <circle cx="548" cy="254" r="74" fill="#eeeeee" stroke="#111111" stroke-width="5"/>
+  <path d="M214 238 C254 200 314 210 338 268" fill="none" stroke="#111111" stroke-width="8"/>
+  <path d="M484 232 C524 198 592 210 612 272" fill="none" stroke="#111111" stroke-width="8"/>
+  <ellipse cx="640" cy="164" rx="64" ry="94" fill="#ffffff" stroke="#111111" stroke-width="4"/>
+  <text x="660" y="96" writing-mode="vertical-rl" font-family="serif" font-size="28" font-weight="700">一起去看海吧。</text>
 </svg>`
 }

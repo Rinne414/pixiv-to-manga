@@ -23,6 +23,7 @@
   - `PUT /api/projects/:projectId/story-bible` validates and saves user-edited Story Bible JSON.
   - Story inspector supports editing synopsis, tone, page beats, and Story Bible R-18 flag.
   - Characters inspector supports editing name, description, voice, color, and default bubble style.
+- Local and Pixiv imports now detect PNG, JPEG, WebP, and SVG dimensions and store real page/asset sizes instead of defaulting every page to 1200x1600.
 - Added stable toolbar/input/tab/dialogue test selectors and ARIA state for browser E2E and accessibility.
 - Added tests:
   - `tests/aiVision.test.ts` verifies local images are sent to vision-capable models and blocked for unconfirmed image routes.
@@ -30,6 +31,7 @@
   - `tests/jobs.test.ts` verifies job history replay, cancel signal handling, and terminal-state protection.
   - `tests/exporter.test.ts` verifies backup ZIP contents and restore round-trip.
   - `tests/apiProviderClient.test.ts` verifies backup export/restore API client request shape, Story Bible save requests, and job event completion.
+  - `tests/imageDimensions.test.ts` verifies PNG/JPEG/WebP/SVG dimension parsing and local import persistence.
   - `e2e/provider-lab.spec.ts` verifies Provider Lab plus the full local manga workflow, including manual Story Bible and character edits.
 - Added Vite/Rolldown code splitting for React, Konva, icons, and ZIP-heavy dependencies; production build no longer emits the chunk-size warning.
 

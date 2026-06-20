@@ -1,7 +1,6 @@
-import { createWriteStream, mkdirSync } from 'node:fs'
+import { mkdirSync } from 'node:fs'
 import { writeFile } from 'node:fs/promises'
 import path from 'node:path'
-import { pipeline } from 'node:stream/promises'
 import { randomUUID } from 'node:crypto'
 import type { MultipartFile } from '@fastify/multipart'
 import JSZip from 'jszip'
@@ -80,22 +79,22 @@ export async function importLocalImages(
     const absolutePath = path.join(getAppDataDir(), relativePath)
     mkdirSync(path.dirname(absolutePath), { recursive: true })
 
-    let bytes = 0
-    file.file.on('data', (chunk: Buffer) => {
-      bytes += chunk.length
-      if (bytes > MAX_IMAGE_BYTES) {
-        file.file.destroy(new Error('File too large'))
-      }
-    })
-    await pipeline(file.file, createWriteStream(absolutePath))
+    const buffer = await file.toBuffer()
+    if (buffer.byteLength > MAX_IMAGE_BYTES) {
+      throw new Error('File too large')
+    }
+    await writeFile(absolutePath, buffer)
+    const dimensions = detectImageDimensions(buffer, file.mimetype)
 
     const asset = db.createAsset({
       projectId: project.id,
       kind: 'original',
       relativePath,
       mimeType: file.mimetype,
+      width: dimensions?.width,
+      height: dimensions?.height,
     })
-    db.createPage({ projectId: project.id, index, originalAssetId: asset.id })
+    db.createPage({ projectId: project.id, index, originalAssetId: asset.id, width: asset.width, height: asset.height })
     index += 1
   }
 
@@ -145,6 +144,7 @@ export async function importPixivArtwork(
       throw new Error('Pixiv image is too large')
     }
     await writeFile(absolutePath, buffer)
+    const dimensions = detectImageDimensions(buffer, mimeType)
 
     const asset = db.createAsset({
       projectId: project.id,
@@ -152,8 +152,10 @@ export async function importPixivArtwork(
       relativePath,
       mimeType: mimeType.split(';')[0],
       sourceUrl: imageUrl.toString(),
+      width: dimensions?.width,
+      height: dimensions?.height,
     })
-    db.createPage({ projectId: project.id, index, originalAssetId: asset.id })
+    db.createPage({ projectId: project.id, index, originalAssetId: asset.id, width: asset.width, height: asset.height })
     index += 1
   }
 
@@ -299,6 +301,118 @@ function pixivHeaders(cookie: string | null, referer: string): Record<string, st
     headers.Cookie = cookie
   }
   return headers
+}
+
+export function detectImageDimensions(buffer: Buffer, mimeType: string): { width: number; height: number } | null {
+  const normalizedMime = mimeType.split(';')[0].trim().toLowerCase()
+  if (normalizedMime === 'image/png') {
+    return detectPngDimensions(buffer)
+  }
+  if (normalizedMime === 'image/jpeg') {
+    return detectJpegDimensions(buffer)
+  }
+  if (normalizedMime === 'image/webp') {
+    return detectWebpDimensions(buffer)
+  }
+  if (normalizedMime === 'image/svg+xml') {
+    return detectSvgDimensions(buffer)
+  }
+  return null
+}
+
+function detectPngDimensions(buffer: Buffer): { width: number; height: number } | null {
+  if (buffer.length < 24 || buffer.toString('ascii', 1, 4) !== 'PNG') {
+    return null
+  }
+  return validDimensions(buffer.readUInt32BE(16), buffer.readUInt32BE(20))
+}
+
+function detectJpegDimensions(buffer: Buffer): { width: number; height: number } | null {
+  if (buffer.length < 4 || buffer[0] !== 0xff || buffer[1] !== 0xd8) {
+    return null
+  }
+
+  let offset = 2
+  while (offset + 9 < buffer.length) {
+    if (buffer[offset] !== 0xff) {
+      offset += 1
+      continue
+    }
+    const marker = buffer[offset + 1]
+    const segmentLength = buffer.readUInt16BE(offset + 2)
+    if (segmentLength < 2 || offset + 2 + segmentLength > buffer.length) {
+      return null
+    }
+    if (
+      marker === 0xc0 ||
+      marker === 0xc1 ||
+      marker === 0xc2 ||
+      marker === 0xc3 ||
+      marker === 0xc5 ||
+      marker === 0xc6 ||
+      marker === 0xc7 ||
+      marker === 0xc9 ||
+      marker === 0xca ||
+      marker === 0xcb ||
+      marker === 0xcd ||
+      marker === 0xce ||
+      marker === 0xcf
+    ) {
+      return validDimensions(buffer.readUInt16BE(offset + 7), buffer.readUInt16BE(offset + 5))
+    }
+    offset += 2 + segmentLength
+  }
+  return null
+}
+
+function detectWebpDimensions(buffer: Buffer): { width: number; height: number } | null {
+  if (buffer.length < 30 || buffer.toString('ascii', 0, 4) !== 'RIFF' || buffer.toString('ascii', 8, 12) !== 'WEBP') {
+    return null
+  }
+
+  const chunkType = buffer.toString('ascii', 12, 16)
+  if (chunkType === 'VP8X' && buffer.length >= 30) {
+    return validDimensions(1 + readUInt24LE(buffer, 24), 1 + readUInt24LE(buffer, 27))
+  }
+  if (chunkType === 'VP8L' && buffer.length >= 25 && buffer[20] === 0x2f) {
+    const bits = buffer.readUInt32LE(21)
+    return validDimensions(1 + (bits & 0x3fff), 1 + ((bits >> 14) & 0x3fff))
+  }
+  if (chunkType === 'VP8 ' && buffer.length >= 30 && buffer[23] === 0x9d && buffer[24] === 0x01 && buffer[25] === 0x2a) {
+    return validDimensions(buffer.readUInt16LE(26) & 0x3fff, buffer.readUInt16LE(28) & 0x3fff)
+  }
+  return null
+}
+
+function detectSvgDimensions(buffer: Buffer): { width: number; height: number } | null {
+  const text = buffer.toString('utf8', 0, Math.min(buffer.length, 20_000))
+  const svgMatch = text.match(/<svg\b[^>]*>/i)
+  if (!svgMatch) return null
+  const tag = svgMatch[0]
+  const width = parseSvgNumber(tag.match(/\bwidth=["']([0-9.]+)/i)?.[1])
+  const height = parseSvgNumber(tag.match(/\bheight=["']([0-9.]+)/i)?.[1])
+  if (width && height) {
+    return validDimensions(width, height)
+  }
+  const viewBox = tag.match(/\bviewBox=["']\s*[-0-9.]+\s+[-0-9.]+\s+([0-9.]+)\s+([0-9.]+)/i)
+  return viewBox ? validDimensions(parseSvgNumber(viewBox[1]), parseSvgNumber(viewBox[2])) : null
+}
+
+function readUInt24LE(buffer: Buffer, offset: number): number {
+  return buffer[offset] + (buffer[offset + 1] << 8) + (buffer[offset + 2] << 16)
+}
+
+function parseSvgNumber(value?: string): number | null {
+  if (!value) return null
+  const parsed = Number.parseFloat(value)
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : null
+}
+
+function validDimensions(width: number | null, height: number | null): { width: number; height: number } | null {
+  if (!width || !height || width <= 0 || height <= 0) {
+    return null
+  }
+  return { width: Math.round(width), height: Math.round(height) }
 }
 
 function safeExtension(filename: string, mimeType: string): string {
