@@ -30,6 +30,7 @@
   - `tests/aiVision.test.ts` verifies abort signals are passed to initial and repair AI calls.
   - `tests/jobs.test.ts` verifies job history replay, cancel signal handling, and terminal-state protection.
   - `tests/exporter.test.ts` verifies backup ZIP contents and restore round-trip.
+  - `tests/pixivImport.test.ts` verifies mock Pixiv import, R-18 cookie forwarding, source URL capture, and imported image dimensions.
   - `tests/apiProviderClient.test.ts` verifies backup export/restore API client request shape, Story Bible save requests, and job event completion.
   - `tests/imageDimensions.test.ts` verifies PNG/JPEG/WebP/SVG dimension parsing and local import persistence.
   - `e2e/provider-lab.spec.ts` verifies Provider Lab plus the full local manga workflow, including manual Story Bible and character edits.
