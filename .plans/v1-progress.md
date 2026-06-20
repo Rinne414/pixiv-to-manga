@@ -27,7 +27,8 @@
   - `tests/exporter.test.ts` verifies backup ZIP contents and restore round-trip.
   - `tests/apiProviderClient.test.ts` verifies backup export/restore API client request shape and job event completion.
   - `e2e/provider-lab.spec.ts` verifies Provider Lab plus the full local manga workflow.
+- Added Vite/Rolldown code splitting for React, Konva, icons, and ZIP-heavy dependencies; production build no longer emits the chunk-size warning.
 
 Remaining v1 audit items to keep checking:
 
-- Vite chunk-size warning remains non-blocking but should be addressed before packaging.
+- No known v1 audit item is currently recorded here; continue requirement-by-requirement verification before marking the overall goal complete.
