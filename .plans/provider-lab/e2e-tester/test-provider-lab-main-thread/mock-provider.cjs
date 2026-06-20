@@ -13,6 +13,7 @@ const server = http.createServer((req, res) => {
           data: [
             { id: 'gpt-4o-smoke', owned_by: 'mock' },
             { id: 'invalid-json-smoke', owned_by: 'mock' },
+            { id: 'slow-json-smoke', owned_by: 'mock' },
             { id: 'text-only-smoke', owned_by: 'mock' },
             { id: 'qwen-vl-smoke', owned_by: 'mock' },
           ],
@@ -32,6 +33,20 @@ const server = http.createServer((req, res) => {
         parsedBody && parsedBody.model === 'invalid-json-smoke'
           ? 'invalid-json-smoke output that is not valid JSON'
           : '{"ok":true}'
+      if (parsedBody && parsedBody.model === 'slow-json-smoke') {
+        setTimeout(() => {
+          res.end(
+            JSON.stringify({
+              id: 'mock-chatcmpl',
+              object: 'chat.completion',
+              choices: [{ message: { role: 'assistant', content } }],
+              receivedAuthorization: req.headers.authorization || null,
+              requestEcho: body,
+            }),
+          )
+        }, 3000)
+        return
+      }
       res.end(
         JSON.stringify({
           id: 'mock-chatcmpl',

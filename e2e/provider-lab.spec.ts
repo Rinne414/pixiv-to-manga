@@ -152,6 +152,66 @@ test('raw AI output is shown when model JSON repair fails', async ({ page }) => 
   expect(directProviderRequests).toEqual([])
 })
 
+test('active generation jobs can be cancelled from the toolbar', async ({ page }) => {
+  const directProviderRequests: string[] = []
+  page.on('request', (request) => {
+    if (request.url().includes('127.0.0.1:5199')) {
+      directProviderRequests.push(request.url())
+    }
+  })
+
+  await openStudio(page)
+  await clearProviderProfiles(page)
+  await page.getByLabel('Project title').fill(`Cancel Project ${Date.now()}`)
+  await page.getByRole('button', { name: /^Create$/ }).click()
+  await expect(page.getByText('Project created.')).toBeVisible()
+
+  const localImportResponse = page.waitForResponse(
+    (response) => response.url().includes('/api/import/local') && response.status() === 200,
+  )
+  await page.getByTestId('local-image-input').setInputFiles({
+    name: 'cancel-page.svg',
+    mimeType: 'image/svg+xml',
+    buffer: Buffer.from(workflowSvg()),
+  })
+  await localImportResponse
+
+  const providerResponse = await page.request.post('/api/providers', {
+    data: {
+      name: `Slow JSON ${Date.now()}`,
+      baseUrl: 'http://127.0.0.1:5199',
+      defaultModel: 'slow-json-smoke',
+      isLocal: true,
+      apiKey: dummySecret,
+    },
+  })
+  expect(providerResponse.ok()).toBe(true)
+  const providerBody = (await providerResponse.json()) as { provider: { id: string } }
+  const discoverResponse = await page.request.post(`/api/providers/${providerBody.provider.id}/models/discover`)
+  expect(discoverResponse.ok()).toBe(true)
+  const discoverBody = (await discoverResponse.json()) as { models: Array<{ id: string; modelId: string }> }
+  const capability = discoverBody.models.find((model) => model.modelId === 'slow-json-smoke')
+  expect(capability).toBeTruthy()
+  const capabilityResponse = await page.request.patch(`/api/model-capabilities/${capability!.id}`, {
+    data: {
+      supportsVision: true,
+      supportsStreaming: true,
+      supportsJsonSchema: false,
+      allowsAdultInput: false,
+      allowsAdultGeneration: false,
+    },
+  })
+  expect(capabilityResponse.ok()).toBe(true)
+
+  await page.getByTestId('toolbar-analyze-story').click()
+  await expect(page.getByTestId('toolbar-cancel-job')).toBeEnabled()
+  await page.getByTestId('toolbar-cancel-job').click()
+  await expect(page.getByText('Cancellation requested.')).toBeVisible()
+  await expect(page.getByText('Job cancelled.')).toBeVisible()
+  await expect(page.getByTestId('toolbar-cancel-job')).toBeDisabled()
+  expect(directProviderRequests).toEqual([])
+})
+
 test('main manga workflow imports local art, generates editable dialogue, exports PNG ZIP, and restores backup', async ({
   page,
 }) => {
