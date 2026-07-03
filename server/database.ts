@@ -351,6 +351,7 @@ export class StudioDatabase {
       providerId: string
       modelId: string
       supportsVision?: boolean
+      supportsImageGeneration?: boolean
       supportsStreaming?: boolean
       supportsJsonSchema?: boolean
       allowsAdultInput?: boolean
@@ -367,9 +368,14 @@ export class StudioDatabase {
 
     if (existing) {
       const current = modelCapabilityFromRow(existing)
+      // Absent/undefined fields keep their stored value — an explicit undefined must not
+      // reset a persisted flag to false.
+      const definedInput = Object.fromEntries(
+        Object.entries(input).filter(([, value]) => value !== undefined),
+      ) as typeof input
       const merged = {
         ...current,
-        ...input,
+        ...definedInput,
         contextWindow: input.contextWindow === undefined ? current.contextWindow : input.contextWindow || undefined,
         notes: input.notes ?? current.notes,
         source: input.source ?? current.source,
@@ -378,7 +384,7 @@ export class StudioDatabase {
         .prepare(
           `UPDATE model_capabilities
            SET supportsVision = ?, supportsStreaming = ?, supportsJsonSchema = ?, allowsAdultInput = ?,
-               allowsAdultGeneration = ?, contextWindow = ?, notes = ?, source = ?, updatedAt = ?
+               allowsAdultGeneration = ?, supportsImageGeneration = ?, contextWindow = ?, notes = ?, source = ?, updatedAt = ?
            WHERE id = ?`,
         )
         .run(
@@ -387,6 +393,7 @@ export class StudioDatabase {
           merged.supportsJsonSchema ? 1 : 0,
           merged.allowsAdultInput ? 1 : 0,
           merged.allowsAdultGeneration ? 1 : 0,
+          merged.supportsImageGeneration ? 1 : 0,
           merged.contextWindow ?? null,
           merged.notes,
           merged.source,
@@ -401,8 +408,8 @@ export class StudioDatabase {
       .prepare(
         `INSERT INTO model_capabilities
           (id, providerId, modelId, supportsVision, supportsStreaming, supportsJsonSchema, allowsAdultInput,
-           allowsAdultGeneration, contextWindow, notes, source, createdAt, updatedAt)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+           allowsAdultGeneration, supportsImageGeneration, contextWindow, notes, source, createdAt, updatedAt)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         id,
@@ -413,6 +420,7 @@ export class StudioDatabase {
         input.supportsJsonSchema ? 1 : 0,
         input.allowsAdultInput ? 1 : 0,
         input.allowsAdultGeneration ? 1 : 0,
+        input.supportsImageGeneration ? 1 : 0,
         input.contextWindow ?? null,
         input.notes || '',
         input.source || 'discovered',
@@ -429,7 +437,7 @@ export class StudioDatabase {
       .prepare(
         `UPDATE model_capabilities
          SET supportsVision = ?, supportsStreaming = ?, supportsJsonSchema = ?, allowsAdultInput = ?,
-             allowsAdultGeneration = ?, contextWindow = ?, notes = ?, source = ?, updatedAt = ?
+             allowsAdultGeneration = ?, supportsImageGeneration = ?, contextWindow = ?, notes = ?, source = ?, updatedAt = ?
          WHERE id = ?`,
       )
       .run(
@@ -438,6 +446,7 @@ export class StudioDatabase {
         merged.supportsJsonSchema ? 1 : 0,
         merged.allowsAdultInput ? 1 : 0,
         merged.allowsAdultGeneration ? 1 : 0,
+        merged.supportsImageGeneration ? 1 : 0,
         merged.contextWindow ?? null,
         merged.notes,
         merged.source,
@@ -540,6 +549,7 @@ export class StudioDatabase {
         supportsJsonSchema INTEGER NOT NULL,
         allowsAdultInput INTEGER NOT NULL,
         allowsAdultGeneration INTEGER NOT NULL,
+        supportsImageGeneration INTEGER NOT NULL DEFAULT 0,
         contextWindow INTEGER,
         notes TEXT NOT NULL,
         source TEXT NOT NULL,
@@ -548,6 +558,20 @@ export class StudioDatabase {
         UNIQUE(providerId, modelId)
       );
     `)
+    this.ensureColumn('model_capabilities', 'supportsImageGeneration', 'INTEGER NOT NULL DEFAULT 0')
+  }
+
+  private ensureColumn(table: string, column: string, definition: string): void {
+    // SQLite cannot bind identifiers, so restrict interpolation to literal-safe names.
+    const identifier = /^[A-Za-z_][A-Za-z0-9_]*$/
+    if (!identifier.test(table) || !identifier.test(column)) {
+      throw new Error('ensureColumn requires plain identifier names')
+    }
+    const rows = this.db.prepare(`PRAGMA table_info(${table})`).all() as Row[]
+    if (rows.some((row) => row.name === column)) {
+      return
+    }
+    this.db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition};`)
   }
 
   private ensureSampleProject(): void {
@@ -680,6 +704,7 @@ function modelCapabilityFromRow(row: Row): ModelCapability {
     providerId: String(row.providerId),
     modelId: String(row.modelId),
     supportsVision: Number(row.supportsVision) === 1,
+    supportsImageGeneration: Number(row.supportsImageGeneration) === 1,
     supportsStreaming: Number(row.supportsStreaming) === 1,
     supportsJsonSchema: Number(row.supportsJsonSchema) === 1,
     allowsAdultInput: Number(row.allowsAdultInput) === 1,

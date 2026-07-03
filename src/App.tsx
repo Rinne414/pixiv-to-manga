@@ -27,9 +27,11 @@ import type { Asset, BubbleStyle, Character, Dialogue, JobEvent, Page, Project, 
 import { estimateVerticalTextBox, resolveDialogueCollisions } from './shared/layout'
 import { renderProjectPages } from './canvasExport'
 import { ProviderLabPanel } from './ProviderLabPanel'
+import { StoryContinuePanel } from './StoryContinuePanel'
 import * as api from './api'
 
 type InspectorTab = 'story' | 'characters' | 'dialogue' | 'layout' | 'settings'
+type EntryMode = 'studio' | 'continue'
 type LogLevel = 'info' | 'success' | 'error'
 
 interface LogEntry {
@@ -67,6 +69,7 @@ function App() {
   const [currentJobId, setCurrentJobId] = useState<string>('')
   const [logs, setLogs] = useState<LogEntry[]>([])
   const [rawOutput, setRawOutput] = useState<RawOutputState | null>(null)
+  const [entryMode, setEntryMode] = useState<EntryMode>('studio')
   const [createTitle, setCreateTitle] = useState('Untitled Manga')
   const [createMode, setCreateMode] = useState<'story' | 'translation'>('story')
   const [pixivUrl, setPixivUrl] = useState('')
@@ -427,15 +430,27 @@ function App() {
           </div>
         </div>
         <div className="toolbar">
-          <ToolbarButton icon={ImagePlus} label="Import Pixiv" testId="toolbar-import-pixiv" disabled={!canRun} onClick={() => setActiveTab('story')} />
-          <ToolbarButton icon={Upload} label="Local Images" testId="toolbar-import-local" disabled={Boolean(busy)} onClick={() => fileInputRef.current?.click()} />
-          <ToolbarButton icon={WandSparkles} label="Analyze Story" testId="toolbar-analyze-story" disabled={!canRun} onClick={handleAnalyzeStory} />
-          <ToolbarButton icon={Play} label="Generate Page" testId="toolbar-generate-page" disabled={!canRun || !activePage} onClick={handleGenerateActivePage} />
-          <ToolbarButton icon={Sparkles} label="Generate All" testId="toolbar-generate-all" disabled={!canRun} onClick={handleGenerateAll} />
-          <ToolbarButton icon={CircleStop} label="Cancel" testId="toolbar-cancel-job" disabled={!currentJobId} onClick={handleCancelCurrentJob} />
-          <ToolbarButton icon={Download} label="Export ZIP" testId="toolbar-export-zip" disabled={!canRun || !detail?.pages.length} onClick={handleExportZip} />
-          <ToolbarButton icon={Save} label="Export Backup" testId="toolbar-export-backup" disabled={!canRun} onClick={handleExportBackup} />
-          <ToolbarButton icon={ArchiveRestore} label="Restore Backup" testId="toolbar-restore-backup" disabled={Boolean(busy)} onClick={() => backupInputRef.current?.click()} />
+          <div className="entry-switch" role="tablist" aria-label="Workspace entries">
+            <button type="button" className={entryMode === 'studio' ? 'active' : ''} onClick={() => setEntryMode('studio')}>
+              Manga Studio
+            </button>
+            <button type="button" className={entryMode === 'continue' ? 'active' : ''} data-testid="entry-story-continue" onClick={() => setEntryMode('continue')}>
+              Story Continue
+            </button>
+          </div>
+          {entryMode === 'studio' ? (
+            <>
+              <ToolbarButton icon={ImagePlus} label="Import Pixiv" testId="toolbar-import-pixiv" disabled={!canRun} onClick={() => setActiveTab('story')} />
+              <ToolbarButton icon={Upload} label="Local Images" testId="toolbar-import-local" disabled={Boolean(busy)} onClick={() => fileInputRef.current?.click()} />
+              <ToolbarButton icon={WandSparkles} label="Analyze Story" testId="toolbar-analyze-story" disabled={!canRun} onClick={handleAnalyzeStory} />
+              <ToolbarButton icon={Play} label="Generate Page" testId="toolbar-generate-page" disabled={!canRun || !activePage} onClick={handleGenerateActivePage} />
+              <ToolbarButton icon={Sparkles} label="Generate All" testId="toolbar-generate-all" disabled={!canRun} onClick={handleGenerateAll} />
+              <ToolbarButton icon={CircleStop} label="Cancel" testId="toolbar-cancel-job" disabled={!currentJobId} onClick={handleCancelCurrentJob} />
+              <ToolbarButton icon={Download} label="Export ZIP" testId="toolbar-export-zip" disabled={!canRun || !detail?.pages.length} onClick={handleExportZip} />
+              <ToolbarButton icon={Save} label="Export Backup" testId="toolbar-export-backup" disabled={!canRun} onClick={handleExportBackup} />
+              <ToolbarButton icon={ArchiveRestore} label="Restore Backup" testId="toolbar-restore-backup" disabled={Boolean(busy)} onClick={() => backupInputRef.current?.click()} />
+            </>
+          ) : null}
         </div>
         <div className="status-pill" data-busy={Boolean(busy)} data-testid="studio-status" role="status" aria-live="polite">
           {busy ? <Loader2 size={15} /> : <span />}
@@ -464,6 +479,9 @@ function App() {
         />
       </header>
 
+      {entryMode === 'continue' ? (
+        <StoryContinuePanel disabled={Boolean(busy)} runTask={runTask} onLog={pushLog} />
+      ) : (
       <main className="workspace-grid">
         <aside className="left-rail panel">
           <form className="create-form" onSubmit={handleCreateProject}>
@@ -618,6 +636,7 @@ function App() {
           )}
         </aside>
       </main>
+      )}
 
       <footer className="log-panel">
         <div className="panel-heading">

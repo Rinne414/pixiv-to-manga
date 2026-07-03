@@ -118,6 +118,7 @@ export interface ModelCapability {
   providerId: string
   modelId: string
   supportsVision: boolean
+  supportsImageGeneration: boolean
   supportsStreaming: boolean
   supportsJsonSchema: boolean
   allowsAdultInput: boolean
@@ -127,4 +128,49 @@ export interface ModelCapability {
   source: 'discovered' | 'tested' | 'user'
   createdAt: string
   updatedAt: string
+}
+
+export type GenerationMetadataFormat = 'a1111' | 'comfyui' | 'novelai' | 'plain' | 'unknown'
+
+export interface GenerationMetadata {
+  format: GenerationMetadataFormat
+  positivePrompt?: string
+  negativePrompt?: string
+  tags: string[]
+  raw: Record<string, string>
+  settings: Record<string, string | number | boolean>
+  sourceFields: string[]
+  workflowSummary?: string[]
+}
+
+export interface ContinuationReference {
+  id: string
+  fileName: string
+  mimeType: string
+  width: number
+  height: number
+  source: 'upload' | 'pixiv'
+  previewDataUrl: string
+  sourceUrl?: string
+  tags: string[]
+  metadata: GenerationMetadata
+}
+
+/** Reference payload sent back to /api/continuation/generate — image bytes stay client-side. */
+export type ContinuationReferenceInput = Omit<ContinuationReference, 'previewDataUrl'>
+
+export interface ContinuationImage {
+  id: string
+  mimeType: string
+  dataUrl?: string
+  url?: string
+  prompt: string
+  usedMock: boolean
+}
+
+export interface ContinuationGenerateResponse {
+  images: ContinuationImage[]
+  expandedPrompt: string
+  usedMock: boolean
+  routeTrace: string[]
 }

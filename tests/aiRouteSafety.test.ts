@@ -18,6 +18,7 @@ const capability: ModelCapability = {
   providerId: provider.id,
   modelId: provider.defaultModel,
   supportsVision: true,
+  supportsImageGeneration: false,
   supportsStreaming: true,
   supportsJsonSchema: true,
   allowsAdultInput: false,

@@ -13,6 +13,7 @@ import * as api from './api'
 
 const capabilityKeys: Array<keyof ModelCapabilityFlags> = [
   'supportsVision',
+  'supportsImageGeneration',
   'supportsStreaming',
   'supportsJsonSchema',
   'allowsAdultInput',
@@ -21,6 +22,7 @@ const capabilityKeys: Array<keyof ModelCapabilityFlags> = [
 
 const capabilityLabels: Record<keyof ModelCapabilityFlags, string> = {
   supportsVision: 'Vision',
+  supportsImageGeneration: 'Image generation',
   supportsStreaming: 'Streaming',
   supportsJsonSchema: 'JSON Schema',
   allowsAdultInput: 'Adult input',
@@ -29,6 +31,7 @@ const capabilityLabels: Record<keyof ModelCapabilityFlags, string> = {
 
 const emptyFlags: ModelCapabilityFlags = {
   supportsVision: false,
+  supportsImageGeneration: false,
   supportsStreaming: false,
   supportsJsonSchema: false,
   allowsAdultInput: false,
@@ -420,6 +423,9 @@ function NsfwRouteHint({ provider, flags }: { provider?: ProviderProfile; flags:
   if (!flags.supportsVision) {
     hints.push('Images are blocked because this model is not marked Vision-capable.')
   }
+  if (!flags.supportsImageGeneration) {
+    hints.push('Story continuation image generation is blocked until image generation is enabled.')
+  }
   if (!provider?.isLocal && !flags.allowsAdultInput) {
     hints.push('R-18 image input is blocked for external providers unless adult input is explicitly allowed.')
   }
@@ -472,6 +478,7 @@ function ProviderTestReadout({ result }: { result: ProviderTestResponse }) {
 function pickFlags(capability: ModelCapability): ModelCapabilityFlags {
   return {
     supportsVision: capability.supportsVision,
+    supportsImageGeneration: capability.supportsImageGeneration,
     supportsStreaming: capability.supportsStreaming,
     supportsJsonSchema: capability.supportsJsonSchema,
     allowsAdultInput: capability.allowsAdultInput,

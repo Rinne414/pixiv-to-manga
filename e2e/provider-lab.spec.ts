@@ -267,6 +267,45 @@ test('active generation jobs can be cancelled from the toolbar', async ({ page }
   expect(directProviderRequests).toEqual([])
 })
 
+test('Story Continue entry inspects references and generates a local continuation draft', async ({ page }) => {
+  const directProviderRequests: string[] = []
+  page.on('request', (request) => {
+    if (request.url().includes('127.0.0.1:5199')) {
+      directProviderRequests.push(request.url())
+    }
+  })
+
+  await openStudio(page)
+  await clearProviderProfiles(page)
+  await page.getByTestId('entry-story-continue').click()
+  await expect(page.getByText('Story Continue').first()).toBeVisible()
+
+  const inspectResponse = page.waitForResponse(
+    (response) => response.url().includes('/api/continuation/references/local') && response.status() === 200,
+  )
+  await page.getByTestId('continuation-local-input').setInputFiles({
+    name: 'continue-reference.svg',
+    mimeType: 'image/svg+xml',
+    buffer: Buffer.from(continuationSvg()),
+  })
+  await inspectResponse
+  await expect(page.getByText('1 reference image(s) inspected.')).toBeVisible()
+  await expect(page.getByTestId('continuation-reference-row')).toContainText('continue-reference.svg')
+  await expect(page.locator('.metadata-editor').getByLabel('Tags')).toHaveValue(/same heroine/)
+
+  await page.getByTestId('continuation-prompt').fill('Continue with the heroine opening the letter on the same rooftop.')
+  const generateResponse = page.waitForResponse(
+    (response) => response.url().includes('/api/continuation/generate') && response.status() === 200,
+  )
+  await page.locator('.continue-controls').getByRole('button', { name: /Generate/ }).click()
+  await generateResponse
+  await expect(page.getByText('Continuation generated with local mock engine.')).toBeVisible()
+  await expect(page.getByTestId('continuation-output')).toBeVisible()
+  await page.getByText('Expanded prompt').click()
+  await expect(page.getByTestId('continuation-expanded-prompt')).toHaveValue(/school rooftop/)
+  expect(directProviderRequests).toEqual([])
+})
+
 test('workspace remains usable without page-level horizontal overflow on narrow screens', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 })
   await openStudio(page)
@@ -542,5 +581,17 @@ function workflowSvg(width = 800, height = 1000): string {
   <path d="M484 232 C524 198 592 210 612 272" fill="none" stroke="#111111" stroke-width="8"/>
   <ellipse cx="640" cy="164" rx="64" ry="94" fill="#ffffff" stroke="#111111" stroke-width="4"/>
   <text x="660" y="96" writing-mode="vertical-rl" font-family="serif" font-size="28" font-weight="700">一起去看海吧。</text>
+</svg>`
+}
+
+function continuationSvg(): string {
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="640" height="960" viewBox="0 0 640 960">
+  <title>same heroine, school rooftop, sunset, letter</title>
+  <desc>same heroine, school rooftop, sunset, letter</desc>
+  <rect width="640" height="960" fill="#ffffff"/>
+  <rect x="48" y="48" width="544" height="420" fill="#edf2f7" stroke="#111111" stroke-width="6"/>
+  <circle cx="320" cy="300" r="92" fill="#eeeeee" stroke="#111111" stroke-width="5"/>
+  <path d="M238 276 C306 206 390 232 426 326" fill="none" stroke="#111111" stroke-width="8"/>
+  <rect x="112" y="560" width="416" height="260" fill="#ffffff" stroke="#111111" stroke-width="6"/>
 </svg>`
 }

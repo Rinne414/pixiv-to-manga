@@ -12,9 +12,18 @@ import { assertPixivImageUrl, extractPixivArtworkId } from '../src/shared/pixiv'
 import { characterSchema, dialogueSchema, storyBibleSchema } from '../src/shared/schemas'
 import type { Character, ProjectDetail, ProjectMode, ProjectSource, StoryBible } from '../src/shared/types'
 
-const MAX_IMAGE_BYTES = 30 * 1024 * 1024
-const ALLOWED_MIME = new Set(['image/png', 'image/jpeg', 'image/webp', 'image/svg+xml'])
+export const MAX_IMAGE_BYTES = 30 * 1024 * 1024
+export const ALLOWED_IMAGE_MIME = new Set(['image/png', 'image/jpeg', 'image/webp', 'image/svg+xml'])
 const PROJECT_BACKUP_FORMAT = 'pixiv-to-manga-project-backup'
+
+export interface DownloadedPixivImage {
+  artworkId: string
+  pageIndex: number
+  buffer: Buffer
+  mimeType: string
+  sourceUrl: string
+  fileName: string
+}
 
 const backupProjectDataSchema = z.object({
   project: z.object({
@@ -70,7 +79,7 @@ export async function importLocalImages(
   let index = existingPages.length
 
   for await (const file of files) {
-    if (!ALLOWED_MIME.has(file.mimetype)) {
+    if (!ALLOWED_IMAGE_MIME.has(file.mimetype)) {
       throw new Error(`Unsupported file type: ${file.mimetype}`)
     }
 
@@ -114,14 +123,51 @@ export async function importPixivArtwork(
   const project = input.projectId
     ? db.getProject(input.projectId)
     : db.createProject({ title: input.title || `Pixiv Artwork ${artworkId}`, mode: 'story', source: 'pixiv' })
-  const cookie = input.r18Enabled ? await secrets.getPixivCookie() : null
 
-  const pages = await fetchPixivPages(artworkId, cookie)
-  const mockBaseUrl = getLoopbackPixivMockBaseUrl()
   const existingPages = db.listPages(project.id)
   let index = existingPages.length
 
-  for (const page of pages) {
+  // Pages are written to disk one at a time so a large artwork never holds more than a
+  // single page buffer in memory.
+  await forEachPixivArtworkImage(secrets, input, async (image) => {
+    const extension = path.extname(image.fileName) || `.${extensionForMime(image.mimeType)}`
+    const relativePath = path.join('projects', project.id, 'originals', `pixiv-${artworkId}-${String(index + 1).padStart(3, '0')}${extension}`)
+    const absolutePath = path.join(getAppDataDir(), relativePath)
+    projectAssetDir(project.id, 'originals')
+    await writeFile(absolutePath, image.buffer)
+    const dimensions = detectImageDimensions(image.buffer, image.mimeType)
+
+    const asset = db.createAsset({
+      projectId: project.id,
+      kind: 'original',
+      relativePath,
+      mimeType: image.mimeType,
+      sourceUrl: image.sourceUrl,
+      width: dimensions?.width,
+      height: dimensions?.height,
+    })
+    db.createPage({ projectId: project.id, index, originalAssetId: asset.id, width: asset.width, height: asset.height })
+    index += 1
+  })
+
+  return db.getProjectDetail(project.id)
+}
+
+export async function forEachPixivArtworkImage(
+  secrets: SecretStore,
+  input: { url: string; r18Enabled: boolean; maxPages?: number },
+  handler: (image: DownloadedPixivImage) => Promise<void>,
+): Promise<void> {
+  const artworkId = extractPixivArtworkId(input.url)
+  if (!artworkId) {
+    throw new Error('Invalid Pixiv artwork URL')
+  }
+
+  const cookie = input.r18Enabled ? await secrets.getPixivCookie() : null
+  const pages = await fetchPixivPages(artworkId, cookie)
+  const mockBaseUrl = getLoopbackPixivMockBaseUrl()
+
+  for (const [pageIndex, page] of pages.slice(0, input.maxPages ?? pages.length).entries()) {
     const imageUrl = assertPixivDownloadUrl(page, mockBaseUrl)
     const response = await fetch(imageUrl, {
       headers: pixivHeaders(cookie, `https://www.pixiv.net/artworks/${artworkId}`),
@@ -131,36 +177,38 @@ export async function importPixivArtwork(
       throw new Error(`Failed to download Pixiv page: HTTP ${response.status}`)
     }
 
-    const mimeType = response.headers.get('content-type') || 'image/jpeg'
-    if (!ALLOWED_MIME.has(mimeType.split(';')[0])) {
+    const mimeType = (response.headers.get('content-type') || 'image/jpeg').split(';')[0]
+    if (!ALLOWED_IMAGE_MIME.has(mimeType)) {
       throw new Error(`Pixiv returned unsupported image type: ${mimeType}`)
     }
 
-    const extension = mimeType.includes('png') ? '.png' : mimeType.includes('webp') ? '.webp' : '.jpg'
-    const relativePath = path.join('projects', project.id, 'originals', `pixiv-${artworkId}-${String(index + 1).padStart(3, '0')}${extension}`)
-    const absolutePath = path.join(getAppDataDir(), relativePath)
-    projectAssetDir(project.id, 'originals')
     const buffer = Buffer.from(await response.arrayBuffer())
     if (buffer.byteLength > MAX_IMAGE_BYTES) {
       throw new Error('Pixiv image is too large')
     }
-    await writeFile(absolutePath, buffer)
-    const dimensions = detectImageDimensions(buffer, mimeType)
 
-    const asset = db.createAsset({
-      projectId: project.id,
-      kind: 'original',
-      relativePath,
-      mimeType: mimeType.split(';')[0],
+    await handler({
+      artworkId,
+      pageIndex,
+      buffer,
+      mimeType,
       sourceUrl: imageUrl.toString(),
-      width: dimensions?.width,
-      height: dimensions?.height,
+      fileName: `pixiv-${artworkId}-${String(pageIndex + 1).padStart(3, '0')}.${extensionForMime(mimeType)}`,
     })
-    db.createPage({ projectId: project.id, index, originalAssetId: asset.id, width: asset.width, height: asset.height })
-    index += 1
   }
+}
 
-  return db.getProjectDetail(project.id)
+// Buffers every requested page in memory — only safe for callers that cap maxPages
+// (the continuation reference flow); the import path streams via forEachPixivArtworkImage.
+export async function downloadPixivArtworkImages(
+  secrets: SecretStore,
+  input: { url: string; r18Enabled: boolean; maxPages: number },
+): Promise<DownloadedPixivImage[]> {
+  const images: DownloadedPixivImage[] = []
+  await forEachPixivArtworkImage(secrets, input, async (image) => {
+    images.push(image)
+  })
+  return images
 }
 
 export async function importProjectBackup(db: StudioDatabase, file: MultipartFile): Promise<ProjectDetail> {

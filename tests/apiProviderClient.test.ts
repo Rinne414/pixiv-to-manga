@@ -19,6 +19,7 @@ const capability: ModelCapability = {
   providerId: 'provider-1',
   modelId: 'gpt-4o',
   supportsVision: true,
+  supportsImageGeneration: false,
   supportsStreaming: true,
   supportsJsonSchema: true,
   allowsAdultInput: false,
@@ -69,6 +70,7 @@ describe('Provider Lab API client adapters', () => {
         capabilityStatus: 'detected',
         capabilities: {
           supportsVision: true,
+          supportsImageGeneration: false,
           supportsStreaming: true,
           supportsJsonSchema: true,
           allowsAdultInput: false,
@@ -110,6 +112,7 @@ describe('Provider Lab API client adapters', () => {
 
     const updated = await updateModelCapability('cap-1', {
       supportsVision: true,
+      supportsImageGeneration: false,
       supportsStreaming: true,
       supportsJsonSchema: true,
       allowsAdultInput: true,

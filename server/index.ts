@@ -1,4 +1,5 @@
 import fastify from 'fastify'
+import { ZodError } from 'zod'
 import multipart from '@fastify/multipart'
 import fastifyStatic from '@fastify/static'
 import { existsSync } from 'node:fs'
@@ -14,6 +15,7 @@ import { AiJsonOutputError, analyzeStoryWithAi, generateDialoguesWithAi } from '
 import { exportProjectBackup, exportRenderedZip } from './exporter'
 import { importLocalImages, importPixivArtwork, importProjectBackup } from './importers'
 import { registerProviderLabRoutes } from './providers'
+import { registerContinuationRoutes } from './continuation'
 import {
   analyzeStorySchema,
   createProjectSchema,
@@ -50,7 +52,15 @@ await server.register(fastifyStatic, {
 })
 
 server.setErrorHandler((error, _request, reply) => {
-  const message = error instanceof Error ? error.message : 'Request failed'
+  const message =
+    error instanceof ZodError
+      ? `Invalid request: ${error.issues
+          .slice(0, 3)
+          .map((issue) => `${issue.path.join('.') || 'body'}: ${issue.message}`)
+          .join('; ')}`
+      : error instanceof Error
+        ? error.message
+        : 'Request failed'
   server.log.error({ message }, 'Request failed')
   reply.status(400).send({ error: message })
 })
@@ -58,6 +68,7 @@ server.setErrorHandler((error, _request, reply) => {
 server.get('/api/health', async () => ({ ok: true, dataDir: appDataDir }))
 
 registerProviderLabRoutes(server, { db, secrets })
+registerContinuationRoutes(server, { db, secrets })
 
 server.get('/api/settings/secrets', async () => secrets.status())
 

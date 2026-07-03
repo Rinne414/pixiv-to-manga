@@ -182,12 +182,22 @@ export class ProviderLabService {
     }
 
     const candidates = parseProviderModels(rawText)
+    const existingByModelId = new Map(
+      this.db.listModelCapabilities(provider.id).map((capability) => [capability.modelId, capability]),
+    )
+    // Discovery only seeds capability rows for models we have not seen before; name-based
+    // inference must never downgrade flags a user set or a test verified.
     const models = candidates.map((candidate) => {
+      const existing = existingByModelId.get(candidate.id)
+      if (existing) {
+        return existing
+      }
       const inferred = inferCapabilities(candidate.id)
       return this.db.upsertModelCapability({
         providerId: provider.id,
         modelId: candidate.id,
         supportsVision: inferred.supportsVision,
+        supportsImageGeneration: inferred.supportsImageGeneration,
         supportsStreaming: inferred.supportsStreaming,
         supportsJsonSchema: inferred.supportsJsonSchema,
         allowsAdultInput: false,
@@ -269,22 +279,34 @@ export class ProviderLabService {
       }
     }
 
-    const inferredCapabilities = {
-      modelId,
-      supportsVision: input.tests.includes('vision') && results.some((result) => result.kind === 'vision' && result.ok),
-      supportsStreaming:
-        input.tests.includes('streaming') && results.some((result) => result.kind === 'streaming' && result.ok),
-      supportsJsonSchema: input.tests.includes('json') && results.some((result) => result.kind === 'json' && result.ok),
-      allowsAdultInput: false,
-      allowsAdultGeneration: false,
-      contextWindow: inferCapabilities(modelId).contextWindow,
-      notes: 'Updated from provider test endpoint. Adult capability remains user-confirmed only.',
-      source: 'tested' as const,
-    }
-
-    this.db.upsertModelCapability({
+    const existing = this.db
+      .listModelCapabilities(provider.id)
+      .find((capability) => capability.modelId === modelId)
+    const inferred = inferCapabilities(modelId)
+    // Only kinds that actually ran may update their flags; supportsImageGeneration and the
+    // adult flags are never exercised by these tests, so existing values are preserved.
+    const capability = this.db.upsertModelCapability({
       providerId: provider.id,
-      ...inferredCapabilities,
+      modelId,
+      ...(input.tests.includes('vision')
+        ? { supportsVision: results.some((result) => result.kind === 'vision' && result.ok) }
+        : {}),
+      ...(input.tests.includes('streaming')
+        ? { supportsStreaming: results.some((result) => result.kind === 'streaming' && result.ok) }
+        : {}),
+      ...(input.tests.includes('json')
+        ? { supportsJsonSchema: results.some((result) => result.kind === 'json' && result.ok) }
+        : {}),
+      ...(existing
+        ? {}
+        : {
+            supportsImageGeneration: inferred.supportsImageGeneration,
+            allowsAdultInput: false,
+            allowsAdultGeneration: false,
+            contextWindow: inferred.contextWindow,
+          }),
+      notes: 'Updated from provider test endpoint. Adult capability remains user-confirmed only.',
+      source: existing?.source === 'user' ? 'user' : ('tested' as const),
     })
 
     return {
@@ -292,7 +314,18 @@ export class ProviderLabService {
       modelId,
       ok: results.every((result) => result.ok),
       results,
-      inferredCapabilities,
+      inferredCapabilities: {
+        modelId: capability.modelId,
+        supportsVision: capability.supportsVision,
+        supportsImageGeneration: capability.supportsImageGeneration,
+        supportsStreaming: capability.supportsStreaming,
+        supportsJsonSchema: capability.supportsJsonSchema,
+        allowsAdultInput: capability.allowsAdultInput,
+        allowsAdultGeneration: capability.allowsAdultGeneration,
+        contextWindow: capability.contextWindow,
+        notes: capability.notes,
+        source: capability.source,
+      },
       trace: traces,
     }
   }
@@ -400,6 +433,7 @@ function providerHeaders(apiKey: string | null): Record<string, string> {
 
 function inferCapabilities(modelId: string): {
   supportsVision: boolean
+  supportsImageGeneration: boolean
   supportsStreaming: boolean
   supportsJsonSchema: boolean
   contextWindow?: number
@@ -407,6 +441,7 @@ function inferCapabilities(modelId: string): {
   const normalized = modelId.toLowerCase()
   return {
     supportsVision: /\b(vision|vlm|gpt-4o|gpt-5|gemini|qwen-vl|llava|pixtral)\b/.test(normalized),
+    supportsImageGeneration: /\b(gpt-image|imagen?|dall-?e|stable-diffusion|sd3|sdxl|flux|hidream|kolors)\b/.test(normalized),
     supportsStreaming: true,
     supportsJsonSchema: /(gpt-4o|gpt-5|json|structured|gemini|qwen)/.test(normalized),
     contextWindow: normalized.includes('32k') ? 32768 : normalized.includes('128k') ? 128000 : undefined,

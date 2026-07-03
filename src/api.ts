@@ -1,4 +1,14 @@
-import type { Dialogue, JobEvent, Project, ProjectDetail, SecretStatus, StoryBible } from './shared/types'
+import type {
+  ContinuationGenerateResponse,
+  ContinuationReference,
+  ContinuationReferenceInput,
+  Dialogue,
+  JobEvent,
+  Project,
+  ProjectDetail,
+  SecretStatus,
+  StoryBible,
+} from './shared/types'
 
 export interface ProviderProfile {
   id: string
@@ -30,6 +40,7 @@ export interface DiscoveredModel {
 
 export interface ModelCapabilityFlags {
   supportsVision: boolean
+  supportsImageGeneration: boolean
   supportsStreaming: boolean
   supportsJsonSchema: boolean
   allowsAdultInput: boolean
@@ -183,6 +194,43 @@ export function importLocal(files: File[], projectId?: string): Promise<ProjectD
     method: 'POST',
     headers: projectId ? { 'x-project-id': projectId } : undefined,
     body: form,
+  })
+}
+
+export function inspectContinuationLocal(files: File[]): Promise<{ references: ContinuationReference[] }> {
+  const form = new FormData()
+  for (const file of files) {
+    form.append('files', file)
+  }
+
+  return request<{ references: ContinuationReference[] }>('/api/continuation/references/local', {
+    method: 'POST',
+    body: form,
+  })
+}
+
+export function inspectContinuationPixiv(input: {
+  url: string
+  r18Enabled: boolean
+  maxPages?: number
+}): Promise<{ references: ContinuationReference[] }> {
+  return request<{ references: ContinuationReference[] }>('/api/continuation/references/pixiv', {
+    method: 'POST',
+    body: JSON.stringify(input),
+  })
+}
+
+export function generateContinuation(input: {
+  prompt: string
+  r18Enabled: boolean
+  outputCount: number
+  keepCharacterConsistency: boolean
+  keepBackgroundConsistency: boolean
+  references: ContinuationReferenceInput[]
+}): Promise<ContinuationGenerateResponse> {
+  return request<ContinuationGenerateResponse>('/api/continuation/generate', {
+    method: 'POST',
+    body: JSON.stringify(input),
   })
 }
 
@@ -435,6 +483,7 @@ function normalizeProviderTestResponse(payload: BackendProviderTestResponse): Pr
 function pickCapabilityFlags(capability: ModelCapability): ModelCapabilityFlags {
   return {
     supportsVision: capability.supportsVision,
+    supportsImageGeneration: capability.supportsImageGeneration,
     supportsStreaming: capability.supportsStreaming,
     supportsJsonSchema: capability.supportsJsonSchema,
     allowsAdultInput: capability.allowsAdultInput,

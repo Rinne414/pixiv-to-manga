@@ -10,6 +10,7 @@ import { evaluateRouteSafety, type RouteSafetyResult, type SafetyClass } from '.
 import type { StudioDatabase } from './database'
 import type { SecretStore } from './secrets'
 import { getAppDataDir } from './paths'
+import { findMatchingCapability, findMatchingProvider, normalizeModelId } from './providerResolution'
 
 type ParsedStoryBible = z.infer<typeof storyBibleSchema>
 type ChatContentPart =
@@ -232,34 +233,6 @@ function ensureAiGenerationAllowed(
   if (!result.allow) {
     throw new Error(`AI route blocked by provider safety policy: ${result.reason}`)
   }
-}
-
-function findMatchingProvider(providers: ProviderProfile[], apiBaseUrl: string, modelName: string): ProviderProfile | undefined {
-  const normalizedBaseUrl = normalizeBaseUrl(apiBaseUrl)
-  const normalizedModel = normalizeModelId(modelName)
-  return providers.find(
-    (provider) => normalizeBaseUrl(provider.baseUrl) === normalizedBaseUrl && normalizeModelId(provider.defaultModel) === normalizedModel,
-  )
-}
-
-function findMatchingCapability(db: StudioDatabase, providerId: string, modelName: string): ModelCapability | undefined {
-  const normalizedModel = normalizeModelId(modelName)
-  return db
-    .listModelCapabilities(providerId)
-    .find((capability) => normalizeModelId(capability.modelId) === normalizedModel)
-}
-
-function normalizeBaseUrl(value: string): string {
-  const trimmed = value.trim().replace(/\/+$/, '')
-  if (!trimmed) return ''
-  if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) {
-    return trimmed
-  }
-  return `https://${trimmed}`
-}
-
-function normalizeModelId(modelName: string): string {
-  return modelName.trim().toLowerCase()
 }
 
 async function openAiChatJson(
