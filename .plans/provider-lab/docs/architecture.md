@@ -31,7 +31,7 @@
 - Model Capability Registry
   - Implemented in `StudioDatabase` with the `model_capabilities` table.
   - Unique key: `(providerId, modelId)`.
-  - Stores `supportsVision`, `supportsStreaming`, `supportsJsonSchema`, `allowsAdultInput`, `allowsAdultGeneration`, `contextWindow`, `notes`, and `source`.
+  - Stores `supportsVision`, `supportsImageGeneration`, `supportsStreaming`, `supportsJsonSchema`, `allowsAdultInput`, `allowsAdultGeneration`, `contextWindow`, `notes`, and `source`.
   - `source` values are `discovered`, `tested`, and `user`.
   - Adult capability flags default to `false` and require user confirmation.
 
@@ -48,6 +48,15 @@
   - `server/ai.ts` also exposes `evaluateAiGenerationRoute`, which matches legacy global AI settings against Provider Lab provider/model metadata before external R-18 or image-capable routes.
   - `POST /api/story/analyze` and `POST /api/pages/:pageId/generate` pass `db` into the AI service; R-18 generation now fails closed unless the matching Provider Lab capability record allows adult generation.
   - When the matched model capability has `supportsStreaming`, story/page generation requests OpenAI-compatible streaming chat completions and aggregates `delta.content` chunks before JSON validation/repair.
+
+- Story Continue Workspace
+  - Implemented as a separate top-level entry in `src/StoryContinuePanel.tsx`.
+  - Local/Pixiv reference inspection calls only the local backend and returns preview data URLs plus extracted metadata.
+  - Metadata extraction lives in `server/imageMetadata.ts` and covers PNG text/iTXt/zTXt chunks, JPEG comment/UserComment, WebP EXIF/XMP text, SVG title/desc, and normalized A1111/ComfyUI/NovelAI shapes.
+  - `POST /api/continuation/generate` builds a continuation prompt from user prompt, edited tags, and extracted metadata.
+  - If no image-generation provider is configured, the backend returns local mock SVG drafts for offline development.
+  - If an external provider/key is configured, the selected model must have `supportsImageGeneration: true`; R-18 routes still require `allowsAdultGeneration: true`.
+  - V1 does not send reference image binary to external providers. Only extracted/edited tags and prompt text are sent to the image generation endpoint.
 
 - Generation Job Hub
   - Implemented in `server/jobs.ts`.
@@ -76,6 +85,8 @@
 9. Generation jobs pass `AbortSignal` through the AI service before provider fetches, so cancel requests can stop external calls when supported by the runtime/provider.
 10. User edits to Story Bible or characters are validated and persisted as a full Story Bible replacement.
 11. Invalid AI JSON output is repaired once; if it still fails, raw output is returned through the local job event stream and surfaced in the log panel.
+12. Story Continue reference inspection validates image uploads, extracts generation metadata, and keeps Pixiv cookie usage backend-only.
+13. Story Continue generation checks Provider Lab image-generation capability before calling external `/images/generations`; without a configured image provider it stays local with mock output.
 
 ## Provider Lab Frontend Data Flow
 
@@ -92,3 +103,4 @@
    - missing adult-generation flag blocks R-18 generation.
 7. Analyze Story, Generate Page, and Generate All call local POST endpoints, store the returned `jobId`, subscribe to SSE until a terminal event, and expose a toolbar Cancel action for the active job.
 8. Story and Characters inspector tabs update local state immediately and save the edited Story Bible back to the backend on commit.
+9. Story Continue entry manages its own reference list, editable tags, continuation prompt, generated previews, and expanded prompt readout.

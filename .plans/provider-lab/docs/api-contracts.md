@@ -7,6 +7,9 @@
 - `POST /api/story/analyze`
 - `PUT /api/projects/:projectId/story-bible`
 - `POST /api/pages/:pageId/generate`
+- `POST /api/continuation/references/local`
+- `POST /api/continuation/references/pixiv`
+- `POST /api/continuation/generate`
 - `GET /api/jobs/:jobId/events`
 - `POST /api/jobs/:jobId/cancel`
 
@@ -104,6 +107,7 @@ Response:
       "providerId": "provider-id",
       "modelId": "gpt-4o",
       "supportsVision": true,
+      "supportsImageGeneration": false,
       "supportsStreaming": true,
       "supportsJsonSchema": true,
       "allowsAdultInput": false,
@@ -150,9 +154,10 @@ Response:
     { "kind": "text", "ok": true, "status": 200, "latencyMs": 120 }
   ],
   "inferredCapabilities": {
-    "modelId": "gpt-4o",
-    "supportsVision": false,
-    "supportsStreaming": true,
+      "modelId": "gpt-4o",
+      "supportsVision": false,
+      "supportsImageGeneration": false,
+      "supportsStreaming": true,
     "supportsJsonSchema": true,
     "allowsAdultInput": false,
     "allowsAdultGeneration": false,
@@ -192,6 +197,7 @@ Response:
       "providerId": "provider-id",
       "modelId": "gpt-4o",
       "supportsVision": true,
+      "supportsImageGeneration": false,
       "supportsStreaming": true,
       "supportsJsonSchema": true,
       "allowsAdultInput": false,
@@ -217,6 +223,7 @@ Request:
 ```json
 {
   "supportsVision": true,
+  "supportsImageGeneration": false,
   "supportsStreaming": true,
   "supportsJsonSchema": true,
   "allowsAdultInput": false,
@@ -227,6 +234,102 @@ Request:
 ```
 
 Response: `{ "capability": ModelCapability }`. If `source` is omitted, backend sets it to `user`.
+
+## Story Continue API
+
+Story Continue is a separate workspace entry for reference-image-driven continuation drafts. Browser clients call only the local backend. API keys, Pixiv cookies, and provider calls remain backend-only.
+
+### `POST /api/continuation/references/local`
+
+Multipart upload field: `files`.
+
+The backend validates image MIME/size, reads dimensions, extracts generation metadata, and returns reference objects with preview data URLs for local display. Supported extraction includes PNG text/iTXt/zTXt chunks, JPEG comment/UserComment, WebP EXIF/XMP text, SVG title/desc, and normalized A1111/ComfyUI/NovelAI metadata shapes.
+
+Response:
+
+```json
+{
+  "references": [
+    {
+      "id": "reference-id",
+      "fileName": "page.png",
+      "mimeType": "image/png",
+      "width": 768,
+      "height": 1024,
+      "source": "upload",
+      "previewDataUrl": "data:image/png;base64,...",
+      "tags": ["same heroine", "school rooftop"],
+      "metadata": {
+        "format": "a1111",
+        "positivePrompt": "same heroine, school rooftop",
+        "negativePrompt": "low quality",
+        "tags": ["same heroine", "school rooftop"],
+        "raw": {},
+        "settings": {},
+        "sourceFields": ["parameters"]
+      }
+    }
+  ]
+}
+```
+
+### `POST /api/continuation/references/pixiv`
+
+Downloads Pixiv pages through the backend and applies the same reference inspection. R-18 imports require the saved Pixiv cookie.
+
+Request:
+
+```json
+{
+  "url": "https://www.pixiv.net/artworks/123456789",
+  "r18Enabled": false,
+  "maxPages": 4
+}
+```
+
+Response shape is the same as local reference inspection.
+
+### `POST /api/continuation/generate`
+
+Builds an expanded continuation prompt from user prompt, edited tags, and extracted metadata. If no image-generation provider is configured, the backend returns local mock SVG drafts. If an external provider/key is configured, the matching Provider Lab model capability must set `supportsImageGeneration: true`; R-18 routes additionally require `allowsAdultGeneration: true`.
+
+Request:
+
+```json
+{
+  "prompt": "Continue with the heroine opening the letter.",
+  "r18Enabled": false,
+  "outputCount": 1,
+  "keepCharacterConsistency": true,
+  "keepBackgroundConsistency": true,
+  "references": []
+}
+```
+
+Response:
+
+```json
+{
+  "images": [
+    {
+      "id": "image-id",
+      "mimeType": "image/png",
+      "dataUrl": "data:image/png;base64,...",
+      "prompt": "expanded prompt",
+      "usedMock": false
+    }
+  ],
+  "expandedPrompt": "expanded prompt",
+  "usedMock": false,
+  "routeTrace": ["Generated with Provider / model."]
+}
+```
+
+Current v1 continuation behavior:
+
+- Reference image binary is not sent to external providers; extracted/edited tags and prompt text are used for consistency.
+- External image generation uses OpenAI-compatible `POST /images/generations` with `response_format: "b64_json"`.
+- Unknown image-generation capability fails closed with `image_generation_required`.
 
 ## Frontend Adapter Shapes
 
@@ -316,7 +419,7 @@ Current v1 behavior:
 - Non-R-18 text-only generation can run with the legacy global model settings.
 - R-18 generation requires a Provider Profile whose normalized `baseUrl` and `defaultModel` match the global `apiBaseUrl` and `modelName`.
 - The matching model capability record must have `allowsAdultGeneration: true`.
-- Future image routes must also have `supportsVision: true`; explicit/suggestive image routes must have `allowsAdultInput: true`.
+- Story Continue external image generation requires `supportsImageGeneration: true`; future routes that send reference image binary externally must also require `supportsVision: true`, and explicit/suggestive image routes must have `allowsAdultInput: true`.
 - Unknown or failed image safety classification blocks image routing.
 
 Blocked requests return HTTP 400 with:

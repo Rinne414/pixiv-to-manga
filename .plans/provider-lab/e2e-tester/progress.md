@@ -22,3 +22,14 @@
 - Expanded E2E coverage to include local image import, Analyze Story mock generation, Generate Page mock dialogue generation, dialogue edit persistence, lock toggle, layout adjustment, rendered PNG ZIP export, Project Backup export, and Project Backup restore.
 - Final E2E validation passed:
   - `npm run e2e`: 2 Chromium tests passed.
+
+## 2026-06-20 Story Continue slice
+
+- Added Playwright coverage for the new `Story Continue` entry:
+  - Switches from Manga Studio to Story Continue.
+  - Uploads a reference SVG with extractable title/desc tags.
+  - Verifies editable tags and reference row display.
+  - Generates a local continuation draft and checks the expanded prompt contains extracted tags.
+  - Confirms browser does not call the mock provider directly.
+- Final E2E validation passed:
+  - `npm run e2e`: 8 Chromium tests passed.

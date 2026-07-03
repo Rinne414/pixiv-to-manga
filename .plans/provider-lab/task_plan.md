@@ -55,6 +55,11 @@ Build the next development slice for Pixiv-to-Manga Studio: Provider Lab, Model 
 - E2E-reported keytar runtime bug and Provider Lab horizontal clipping were fixed.
 - First-class Playwright Chromium E2E now covers Provider Lab keyed provider creation, model discovery/test, redaction, and clipping checks.
 - First-class Playwright Chromium E2E now also covers local image import, Analyze Story, Generate Page, dialogue editing, layout adjustment, rendered ZIP export, backup export, and backup restore.
+- Story Continue slice added after Provider Lab phase completion:
+  - Separate top-level entry for reference-image continuation drafts.
+  - Local/Pixiv reference inspection and SD/ComfyUI/NovelAI metadata extraction.
+  - Image-generation capability flag added to Provider Lab route checks.
+  - Final validation passed: `npm run lint`, `npm test`, `npm run build`, and `npm run e2e`.
 
 ## Active Decisions
 
@@ -63,3 +68,4 @@ Build the next development slice for Pixiv-to-Manga Studio: Provider Lab, Model 
 - No secrets in URLs or logs.
 - Explicit NSFW opt-in and model/provider capability route checks.
 - Local models are preferred for explicit images unless an external provider is explicitly marked compatible by the user.
+- Image generation is separate from vision; Story Continue external calls require `supportsImageGeneration`.
