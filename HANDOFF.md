@@ -1,83 +1,109 @@
 # Agent Handoff Notes
 
-Last updated: 2026-07-04. Written after shipping the Story Continue feature plus a full
-code review and fix pass (10 confirmed findings, all resolved). Everything below is
-verified green: `npx tsc -b`, `npm test` (77 tests), `npm run lint`, `npm run build`,
-`npx playwright test` (8 E2E).
+Last updated: 2026-07-05. Written after shipping: infinite whiteboard canvas, dark mode,
+en/zh-TW i18n, keyless local provider (Ollama) support, and sidebar legibility fixes.
+Everything below is verified green: `npx tsc -b`, `npm test` (82 tests), `npm run lint`,
+`npm run build`, `npx playwright test` (11 E2E). A live run against local Ollama
+(qwen3-vl:8b, keyless, isLocal) produced a real Story Bible (`usedMock: false`).
 
-## What just landed
+## What just landed (2026-07-05 session)
 
-Story Continue mode: upload/Pixiv-import reference images, extract generation metadata
-(A1111 / NovelAI / ComfyUI, from PNG/JPEG/WebP/SVG), and generate continuation drafts via
-an image-capable provider or a local mock.
+1. **Keyless local providers.** `resolveAiTarget` (server/ai.ts) and
+   `resolveImageGenerationTarget` (server/continuation.ts) now accept providers with a
+   stored key OR `isLocal: true`. Keyless requests omit the `Authorization` header
+   entirely. Keyless EXTERNAL providers are still skipped (fail closed / mock fallback).
+   A keyless local provider whose model lacks `supportsImageGeneration` still 400s
+   continuation with `image_generation_required` — same invariant as keyed providers.
+2. **i18n (en / zh-TW).** `src/i18n/` — dependency-free dictionary layer.
+   `I18nProvider` (main.tsx) + `useI18n().t(key, params)`; strings in
+   `src/i18n/strings/{common,providerLab,storyContinue}.ts`, merged in
+   `src/i18n/messages.ts` (`MessageKey` is the compile-time union of all keys).
+   Locale persists to localStorage `ptm-locale`; auto-detects `zh*` browsers.
+   **The E2E suite asserts English copy verbatim — `en` values are contract.**
+   playwright.config.ts pins `locale: 'en-US'` for this reason.
+3. **Dark mode.** `src/theme.ts` `useTheme` → `<html data-theme>`; all colors are CSS
+   variables in src/index.css with a `:root[data-theme='dark']` block. index.html has a
+   pre-paint inline script to avoid theme flash. Persists to localStorage `ptm-theme`.
+   The log panel and trace box intentionally stay dark in both themes.
+4. **Infinite whiteboard.** `src/WhiteboardCanvas.tsx` replaced App's fixed-fit canvas.
+   Konva Stage fills the panel; wheel zoom anchors at the cursor; dragging the
+   background pans (bubbles stay draggable — Konva drags the innermost draggable node);
+   fit / 100% controls bottom-right; zoom state lives in App and is shared with the
+   Layout tab slider (range 0.1–4 via `WHITEBOARD_MIN/MAX_ZOOM`).
+   **Bubble geometry mirrors canvasExport.drawDialogue in page-pixel space** (34px base
+   font, +52/+56 padding) so the editor is WYSIWYG with PNG export — keep them in sync.
+   `toVerticalColumns` is shared from src/shared/text.ts (used by both).
+5. **Sidebar legibility.** Root font 15px, rails 288/416px, inspector tabs 12px, muted
+   contrast raised. `.field-hint` class exists for small helper copy.
 
-## Architecture decisions you should not accidentally undo
+## Traps for the next agent
+
+- **Do not reword `en` strings casually** — e2e matches them exactly (e.g.
+  '{count} image(s) imported.', 'Story Bible generated with local mock engine.',
+  provider-form labels). Change string + spec together or not at all.
+- **WhiteboardCanvas uses a callback ref** (`setContainer`) for its ResizeObserver
+  because the whiteboard div mounts only after a page exists. A plain ref + mount
+  effect silently never measures (stage never renders). Regression-tested by
+  e2e/ui-chrome.spec.ts.
+- **Wheel zoom pre-writes `prevZoomRef`** before calling `onZoomChange` so the
+  center-stable effect doesn't double-adjust the pan. Fit does the same.
+- Ollama vision rejects non-decodable images with HTTP 400 — the PNG builders in
+  tests/helpers/imageFixtures.ts are metadata fixtures, NOT valid rasters. Use a real
+  PNG when exercising a live vision model.
+- qwen3-vl (Ollama) returns a `reasoning` field next to `content`; the OpenAI parser
+  reads `message.content` only, which is correct — don't "fix" it to concatenate.
+
+## Architecture decisions you should not accidentally undo (carried forward)
 
 - **Provider resolution is shared.** `server/providerResolution.ts` is the single source
-  for provider/capability matching (`findMatchingProvider`, `findMatchingCapability`,
-  `normalizeBaseUrl`, `normalizeModelId`). Both `server/ai.ts` and
-  `server/continuation.ts` import it. Do not re-inline copies — they drifted once and it
-  caused real bugs.
-- **Generate requests never carry image bytes.** `continuationReferenceSchema`
-  (src/shared/schemas.ts) deliberately omits `previewDataUrl`; the client strips it via
-  `toReferenceInput` in `StoryContinuePanel.tsx`. Zod silently drops the field if an old
-  client still sends it. Previews exist only in the inspect response for thumbnails.
-- **Schema limits are the source of truth.** `CONTINUATION_LIMITS` and
-  `GENERATION_METADATA_LIMITS` in src/shared/schemas.ts drive both the zod schemas and
-  the UI caps. `server/imageMetadata.ts` clamps every parser result through
-  `clampMetadataToSchemaLimits` so an inspect response can never fail its own
-  /generate validation. If you add a metadata field, add its limit there, not inline.
-- **Image-generation target selection fails closed on purpose.**
-  `resolveImageGenerationTarget` (server/continuation.ts) picks the first keyed provider
-  whose default-model capability has `supportsImageGeneration`. If keyed providers exist
-  but none can generate images → 400 `image_generation_required`. If nothing usable is
-  configured at all → local mock. Global Settings without a matching Provider Lab
-  profile also falls back to mock (do not restore the old hard-throw).
-- **Capability upserts must not clobber user data.** `testProvider`/`discoverModels`
-  (server/providers.ts) only update flags for test kinds that actually ran; discovery
-  only seeds rows for unseen models; `supportsImageGeneration` and adult flags are
-  name-inference/user-only and are preserved on existing rows; `source: 'user'` is
-  sticky. `db.upsertModelCapability` filters `undefined` inputs — keep that.
-- **Safety classification excludes negative prompts.**
-  `buildSafetyClassificationText` (server/continuation.ts) classifies user prompt + tags
-  + positive prompts only. Negative prompts ("Avoid: nsfw, ...") describe what must NOT
-  appear; matching them blocked ordinary SFW references.
-- **Pixiv import streams.** `forEachPixivArtworkImage` (server/importers.ts) hands over
-  one page buffer at a time; the import path writes each page to disk immediately.
-  `downloadPixivArtworkImages` buffers and is only safe for callers that cap `maxPages`
-  (the continuation flow, max 8).
-- **EXIF is parsed as binary TIFF.** `readExifMetadata` in server/imageMetadata.ts walks
-  IFD0 → Exif IFD for UserComment (0x9286), ImageDescription, XPComment. UTF-16 byte
-  order is auto-detected by an ASCII-weighted printable score (A1111 writes UTF-16BE).
-  Do not replace with string-searching the payload — that never worked.
+  for provider/capability matching. Both `server/ai.ts` and `server/continuation.ts`
+  import it. Do not re-inline copies.
+- **Generate requests never carry image bytes.** `continuationReferenceSchema` omits
+  `previewDataUrl`; the client strips it via `toReferenceInput`.
+- **Schema limits are the source of truth.** `CONTINUATION_LIMITS` /
+  `GENERATION_METADATA_LIMITS` in src/shared/schemas.ts drive zod and the UI caps;
+  `clampMetadataToSchemaLimits` keeps inspect responses self-consistent.
+- **Image-generation target selection fails closed on purpose** (see item 1 above for
+  the keyless-local extension of this rule).
+- **Capability upserts must not clobber user data.** Only test kinds that ran update
+  flags; `supportsImageGeneration` + adult flags are name-inference/user-only;
+  `source: 'user'` is sticky; `db.upsertModelCapability` filters `undefined`.
+- **Safety classification excludes negative prompts** (`buildSafetyClassificationText`).
+- **Pixiv import streams** (`forEachPixivArtworkImage`); `downloadPixivArtworkImages`
+  buffers and is only safe for callers that cap `maxPages`.
+- **EXIF is parsed as binary TIFF** (`readExifMetadata`); do not string-search payloads.
 
 ## Known debts (deliberately deferred)
 
-1. `src/App.tsx` (~1350 lines) and `src/index.css` (~1220 lines) exceed the 800-line
-   guideline. Next structural task: extract a `StudioWorkspace` component so App renders
-   `entryMode === 'continue' ? <StoryContinuePanel/> : <StudioWorkspace/>`, and split
-   Story-Continue CSS into a feature-scoped file. Do it as an isolated refactor — E2E
-   selectors (`data-testid`) must keep working.
-2. Inspect responses still ship full-resolution base64 previews to the browser for
-   thumbnails. Fine for a localhost single-user tool; if large references become common,
-   store references through the existing asset pipeline and serve URLs instead.
-3. `server/secrets.ts` has its own `normalizeBaseUrl` (settings input normalizer) that
-   was not consolidated into providerResolution — semantically similar, low risk.
-4. `StoryContinuePanel` keeps a local `loadingLabel` state that mirrors App's busy
-   label; harmless duplication, candidate for cleanup during the App.tsx split.
-5. JIS-encoded EXIF UserComment is unsupported (rare; degrades to no metadata).
-6. No rate limiting anywhere — accepted convention for a 127.0.0.1-only tool.
+1. `src/App.tsx` (~1100 lines) still exceeds the 800-line guideline (whiteboard/canvas
+   code moved out, i18n added back). Next structural task remains extracting a
+   `StudioWorkspace` component. `src/index.css` (~1300 lines) likewise — split
+   Story-Continue + Provider-Lab CSS into feature files. Keep `data-testid`s working.
+2. Inspect responses still ship full-resolution base64 previews for thumbnails.
+3. `server/secrets.ts` has its own `normalizeBaseUrl` (settings normalizer), not
+   consolidated into providerResolution — semantically similar, low risk.
+4. `StoryContinuePanel` keeps a local `loadingLabel` mirroring App's busy label.
+5. JIS-encoded EXIF UserComment unsupported (rare; degrades to no metadata).
+6. No rate limiting anywhere — accepted for a 127.0.0.1-only tool.
+7. Log entries keep the language they were written in (history is not re-translated on
+   locale switch) — accepted behavior. Same for `useState(() => t(...))` default seeds
+   (create-title, continuation prompt) and in-flight busy-label spinner comparisons in
+   ProviderLabPanel: a locale switch mid-request shows the wrong icon until the request
+   ends. All self-correcting, reviewed and accepted.
+8. Vertical text columns don't apply CJK punctuation kinsoku rules (、。 can start a
+   column) — pre-existing; affects editor and export equally.
 
 ## Verification workflow
 
 ```
 npx tsc -b
-npm test
+npm test               # vitest, 82 tests
 npm run lint
 npm run build
-npx playwright test   # starts its own server; uses PTM_PIXIV_MOCK_BASE_URL for Pixiv
+npx playwright test    # 11 E2E; starts its own isolated servers; locale pinned en-US
 ```
 
-Test fixtures for binary image formats (PNG chunks, JPEG/WebP EXIF builders) live in
-`tests/helpers/imageFixtures.ts` — reuse them, do not hand-roll new byte builders in
-individual test files.
+E2E screenshots for visual review land in `.tmp-run/ui-preview/` (generated by
+e2e/ui-preview.spec.ts as part of the suite). Test fixtures for binary image formats
+live in `tests/helpers/imageFixtures.ts` — reuse them for metadata tests; use a real
+raster for live vision-model tests.

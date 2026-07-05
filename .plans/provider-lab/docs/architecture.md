@@ -82,11 +82,18 @@
 6. Test calls provider `/chat/completions` with selected capability probes, upserts tested capability records, and returns redacted traces.
 7. Capability edits patch SQLite records and default `source` to `user`.
 8. Story/page generation checks legacy global settings against provider/capability rows before R-18 external calls.
+   - Provider selection accepts a stored key OR `isLocal: true` (keyless local providers like Ollama at `http://127.0.0.1:11434/v1`); requests without a key omit the `Authorization` header. Keyless external profiles are never selected.
 9. Generation jobs pass `AbortSignal` through the AI service before provider fetches, so cancel requests can stop external calls when supported by the runtime/provider.
 10. User edits to Story Bible or characters are validated and persisted as a full Story Bible replacement.
 11. Invalid AI JSON output is repaired once; if it still fails, raw output is returned through the local job event stream and surfaced in the log panel.
 12. Story Continue reference inspection validates image uploads, extracts generation metadata, and keeps Pixiv cookie usage backend-only.
-13. Story Continue generation checks Provider Lab image-generation capability before calling external `/images/generations`; without a configured image provider it stays local with mock output.
+13. Story Continue generation checks Provider Lab image-generation capability before calling external `/images/generations`; without a configured image provider it stays local with mock output. Keyless local providers participate in target resolution the same way as keyed ones.
+
+## UI Chrome (theme / i18n / whiteboard)
+
+- Theme: `src/theme.ts` `useTheme` writes `<html data-theme="light|dark">`; `index.html` applies the persisted/OS theme before first paint. All colors flow through CSS custom properties in `src/index.css` with a `:root[data-theme='dark']` override block. Preference persists in `localStorage` (`ptm-theme`, non-secret).
+- i18n: `src/i18n/` holds a dependency-free dictionary layer (`en` / `zh-TW`). `I18nProvider` + `useI18n().t(key, params)`; strings live in `src/i18n/strings/{common,providerLab,storyContinue}.ts`. Locale persists in `localStorage` (`ptm-locale`) and auto-detects `zh*` browsers. Playwright pins `locale: 'en-US'` because the E2E suite asserts English copy.
+- Whiteboard: `src/WhiteboardCanvas.tsx` renders the active page on an infinite pan/zoom Konva stage (wheel zoom anchored at cursor, background drag pans, fit/100% controls). Bubble geometry mirrors `canvasExport.drawDialogue` (page-pixel space) so the editor is WYSIWYG with PNG export. The Layout tab zoom slider drives the same zoom state (0.1–4).
 
 ## Provider Lab Frontend Data Flow
 

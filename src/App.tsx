@@ -10,6 +10,7 @@ import {
   Loader2,
   Lock,
   MessageSquare,
+  Moon,
   PanelRight,
   Play,
   Plus,
@@ -17,22 +18,28 @@ import {
   Save,
   Settings,
   Sparkles,
+  Sun,
   Upload,
   Users,
   WandSparkles,
   Unlock,
 } from 'lucide-react'
-import { Circle, Ellipse, Group, Image as KonvaImage, Layer, Line, Rect, Stage, Text } from 'react-konva'
-import type { Asset, BubbleStyle, Character, Dialogue, JobEvent, Page, Project, ProjectDetail, SecretStatus, StoryBible } from './shared/types'
-import { estimateVerticalTextBox, resolveDialogueCollisions } from './shared/layout'
+import type { Asset, BubbleStyle, Character, Dialogue, JobEvent, Page, PageStatus, Project, ProjectDetail, ProjectMode, ProjectSource, SecretStatus, StoryBible } from './shared/types'
+import { resolveDialogueCollisions } from './shared/layout'
 import { renderProjectPages } from './canvasExport'
 import { ProviderLabPanel } from './ProviderLabPanel'
 import { StoryContinuePanel } from './StoryContinuePanel'
+import { WhiteboardCanvas, WHITEBOARD_MAX_ZOOM, WHITEBOARD_MIN_ZOOM } from './WhiteboardCanvas'
+import { useI18n } from './i18n/context'
+import type { MessageKey } from './i18n/messages'
+import type { MessageParams } from './i18n/types'
+import { useTheme } from './theme'
 import * as api from './api'
 
 type InspectorTab = 'story' | 'characters' | 'dialogue' | 'layout' | 'settings'
 type EntryMode = 'studio' | 'continue'
 type LogLevel = 'info' | 'success' | 'error'
+type Translator = (key: MessageKey, params?: MessageParams) => string
 
 interface LogEntry {
   id: string
@@ -46,17 +53,46 @@ interface RawOutputState {
   text: string
 }
 
-const tabItems: Array<{ id: InspectorTab; label: string; icon: ComponentType<IconProps> }> = [
-  { id: 'story', label: 'Story Bible', icon: BookOpen },
-  { id: 'characters', label: 'Characters', icon: Users },
-  { id: 'dialogue', label: 'Dialogue', icon: MessageSquare },
-  { id: 'layout', label: 'Layout', icon: PanelRight },
-  { id: 'settings', label: 'Settings', icon: Settings },
+const tabItems: Array<{ id: InspectorTab; labelKey: MessageKey; icon: ComponentType<IconProps> }> = [
+  { id: 'story', labelKey: 'tab.story', icon: BookOpen },
+  { id: 'characters', labelKey: 'tab.characters', icon: Users },
+  { id: 'dialogue', labelKey: 'tab.dialogue', icon: MessageSquare },
+  { id: 'layout', labelKey: 'tab.layout', icon: PanelRight },
+  { id: 'settings', labelKey: 'tab.settings', icon: Settings },
 ]
 
 const bubbleStyles: BubbleStyle[] = ['speech', 'soft', 'thought', 'caption']
 
+const modeKeys: Record<ProjectMode, MessageKey> = {
+  story: 'mode.story',
+  translation: 'mode.translation',
+}
+
+const sourceKeys: Record<ProjectSource, MessageKey> = {
+  pixiv: 'source.pixiv',
+  local: 'source.local',
+  mixed: 'source.mixed',
+  sample: 'source.sample',
+}
+
+const pageStatusKeys: Record<PageStatus, MessageKey> = {
+  ready: 'pageStatus.ready',
+  analyzing: 'pageStatus.analyzing',
+  generating: 'pageStatus.generating',
+  complete: 'pageStatus.complete',
+  error: 'pageStatus.error',
+}
+
+const bubbleStyleKeys: Record<BubbleStyle, MessageKey> = {
+  speech: 'bubble.speech',
+  soft: 'bubble.soft',
+  thought: 'bubble.thought',
+  caption: 'bubble.caption',
+}
+
 function App() {
+  const { locale, setLocale, t } = useI18n()
+  const { theme, toggleTheme } = useTheme()
   const fileInputRef = useRef<HTMLInputElement | null>(null)
   const backupInputRef = useRef<HTMLInputElement | null>(null)
   const [projects, setProjects] = useState<Project[]>([])
@@ -70,7 +106,7 @@ function App() {
   const [logs, setLogs] = useState<LogEntry[]>([])
   const [rawOutput, setRawOutput] = useState<RawOutputState | null>(null)
   const [entryMode, setEntryMode] = useState<EntryMode>('studio')
-  const [createTitle, setCreateTitle] = useState('Untitled Manga')
+  const [createTitle, setCreateTitle] = useState(() => t('studio.untitledManga'))
   const [createMode, setCreateMode] = useState<'story' | 'translation'>('story')
   const [pixivUrl, setPixivUrl] = useState('')
   const [userBrief, setUserBrief] = useState('')
@@ -116,9 +152,9 @@ function App() {
         if (projectList[0]) {
           setSelectedProjectId(projectList[0].id)
         }
-        pushLog('Studio ready. Local database loaded.', 'success')
+        pushLog(t('log.studioReady'), 'success')
       } catch (error) {
-        pushLog(errorMessage(error), 'error')
+        pushLog(describeError(error), 'error')
       }
     }
 
@@ -126,6 +162,7 @@ function App() {
     return () => {
       cancelled = true
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- boot runs once; log locale is captured at startup
   }, [])
 
   useEffect(() => {
@@ -140,7 +177,7 @@ function App() {
         setGenerateMode(next.project.mode)
         setSelectedPageId((current) => (next.pages.some((page) => page.id === current) ? current : next.pages[0]?.id || ''))
       })
-      .catch((error) => pushLog(errorMessage(error), 'error'))
+      .catch((error) => pushLog(describeError(error), 'error'))
       .finally(() => {
         if (!cancelled) {
           setBusy('')
@@ -150,7 +187,12 @@ function App() {
     return () => {
       cancelled = true
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- reload only when the selected project changes
   }, [selectedProjectId])
+
+  function describeError(error: unknown): string {
+    return error instanceof Error ? error.message : t('log.unknownError')
+  }
 
   function pushLog(message: string, level: LogLevel = 'info') {
     const time = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })
@@ -178,12 +220,13 @@ function App() {
     try {
       await task()
     } catch (error) {
-      const message = errorMessage(error)
-      const raw = rawOutputFromError(error)
+      const message = describeError(error)
+      const raw = rawOutputFromError(error, t)
       if (raw) {
         setRawOutput(raw)
       }
-      pushLog(message === 'Job cancelled' ? 'Job cancelled.' : message, message === 'Job cancelled' ? 'info' : 'error')
+      // 'Job cancelled' is the API sentinel thrown by cancelled jobs, not a display string.
+      pushLog(message === 'Job cancelled' ? t('log.jobCancelled') : message, message === 'Job cancelled' ? 'info' : 'error')
     } finally {
       setCurrentJobId('')
       setBusy('')
@@ -225,9 +268,9 @@ function App() {
     try {
       const next = await api.saveStoryBible(detail.project.id, storyBible)
       acceptDetail(next)
-      pushLog('Story Bible saved.', 'success')
+      pushLog(t('log.storyBibleSaved'), 'success')
     } catch (error) {
-      pushLog(errorMessage(error), 'error')
+      pushLog(describeError(error), 'error')
       acceptDetail(await api.getProject(detail.project.id))
     }
   }
@@ -237,9 +280,9 @@ function App() {
     try {
       const updated = await api.patchDialogue(id, patch)
       updateDialogueLocal(id, updated)
-      pushLog('Dialogue saved.', 'success')
+      pushLog(t('log.dialogueSaved'), 'success')
     } catch (error) {
-      pushLog(errorMessage(error), 'error')
+      pushLog(describeError(error), 'error')
       if (detail) {
         acceptDetail(await api.getProject(detail.project.id))
       }
@@ -248,10 +291,10 @@ function App() {
 
   async function handleCreateProject(event: FormEvent) {
     event.preventDefault()
-    await runTask('Creating project', async () => {
-      const next = await api.createProject({ title: createTitle.trim() || 'Untitled Manga', mode: createMode })
+    await runTask(t('log.creatingProject'), async () => {
+      const next = await api.createProject({ title: createTitle.trim() || t('studio.untitledManga'), mode: createMode })
       acceptDetail(next)
-      pushLog('Project created.', 'success')
+      pushLog(t('log.projectCreated'), 'success')
     })
   }
 
@@ -260,10 +303,10 @@ function App() {
     event.currentTarget.value = ''
     if (!files.length) return
 
-    await runTask('Importing local images', async () => {
+    await runTask(t('log.importingLocal'), async () => {
       const next = await api.importLocal(files, detail?.project.id)
       acceptDetail(next)
-      pushLog(`${files.length} image(s) imported.`, 'success')
+      pushLog(t('log.imagesImported', { count: files.length }), 'success')
     })
   }
 
@@ -272,21 +315,21 @@ function App() {
     event.currentTarget.value = ''
     if (!file) return
 
-    await runTask('Restoring project backup', async () => {
+    await runTask(t('log.restoringBackup'), async () => {
       const next = await api.importProjectBackup(file)
       acceptDetail(next)
-      pushLog(`Backup restored: ${next.project.title}`, 'success')
+      pushLog(t('log.backupRestored', { title: next.project.title }), 'success')
     })
   }
 
   async function handlePixivImport(event: FormEvent) {
     event.preventDefault()
     if (!pixivUrl.trim()) {
-      pushLog('Pixiv artwork URL or ID is required.', 'error')
+      pushLog(t('log.pixivUrlRequired'), 'error')
       return
     }
 
-    await runTask('Importing Pixiv artwork', async () => {
+    await runTask(t('log.importingPixiv'), async () => {
       const next = await api.importPixiv({
         projectId: detail?.project.id,
         url: pixivUrl.trim(),
@@ -294,49 +337,49 @@ function App() {
       })
       acceptDetail(next)
       setPixivUrl('')
-      pushLog('Pixiv artwork imported.', 'success')
+      pushLog(t('log.pixivImported'), 'success')
     })
   }
 
   async function handleAnalyzeStory() {
     if (!detail) return
-    await runTask('Analyze Story', async () => {
+    await runTask(t('toolbar.analyzeStory'), async () => {
       const next = await api.analyzeStory(
         { projectId: detail.project.id, userBrief, r18Enabled },
         { onJobId: setCurrentJobId, onEvent: handleJobEvent },
       )
       acceptDetail(next)
       if (next.raw) {
-        setRawOutput({ title: 'Story Bible Raw Output', text: next.raw })
+        setRawOutput({ title: t('raw.storyBibleTitle'), text: next.raw })
       }
-      pushLog(next.usedMock ? 'Story Bible generated with local mock engine.' : 'Story Bible generated.', 'success')
+      pushLog(next.usedMock ? t('log.storyBibleMock') : t('log.storyBibleGenerated'), 'success')
     })
   }
 
   async function handleGenerateActivePage() {
     if (!activePage) return
-    await runTask(`Generate Page ${activePage.index + 1}`, async () => {
+    await runTask(t('log.generatePageLabel', { n: activePage.index + 1 }), async () => {
       const next = await api.generatePage(activePage.id, { mode: generateMode, textDensity }, { onJobId: setCurrentJobId, onEvent: handleJobEvent })
       acceptDetail(next)
       if (next.raw) {
-        setRawOutput({ title: `Page ${activePage.index + 1} Raw Output`, text: next.raw })
+        setRawOutput({ title: t('raw.pageTitle', { n: activePage.index + 1 }), text: next.raw })
       }
-      pushLog(`Page ${activePage.index + 1} dialogue generated.`, 'success')
+      pushLog(t('log.pageDialogueGenerated', { n: activePage.index + 1 }), 'success')
     })
   }
 
   async function handleGenerateAll() {
     if (!detail) return
-    await runTask('Generate All', async () => {
+    await runTask(t('toolbar.generateAll'), async () => {
       for (const page of detail.pages) {
-        pushLog(`Generating page ${page.index + 1}`)
+        pushLog(t('log.generatingPage', { n: page.index + 1 }))
         const next = await api.generatePage(page.id, { mode: generateMode, textDensity }, { onJobId: setCurrentJobId, onEvent: handleJobEvent })
         acceptDetail(next)
         if (next.raw) {
-          setRawOutput({ title: `Page ${page.index + 1} Raw Output`, text: next.raw })
+          setRawOutput({ title: t('raw.pageTitle', { n: page.index + 1 }), text: next.raw })
         }
       }
-      pushLog('All pages generated.', 'success')
+      pushLog(t('log.allPagesGenerated'), 'success')
     })
   }
 
@@ -344,15 +387,15 @@ function App() {
     if (!currentJobId) return
     try {
       await api.cancelJob(currentJobId)
-      pushLog('Cancellation requested.')
+      pushLog(t('log.cancellationRequested'))
     } catch (error) {
-      pushLog(errorMessage(error), 'error')
+      pushLog(describeError(error), 'error')
     }
   }
 
   async function handleAvoidOverlap() {
     if (!activePage || !activeDialogues.length) return
-    await runTask('Resolving layout collisions', async () => {
+    await runTask(t('log.resolvingLayout'), async () => {
       const resolved = resolveDialogueCollisions(activeDialogues)
       const result = await api.patchPageLayout(
         activePage.id,
@@ -376,35 +419,35 @@ function App() {
             }
           : current,
       )
-      pushLog('Layout adjusted.', 'success')
+      pushLog(t('log.layoutAdjusted'), 'success')
     })
   }
 
   async function handleExportZip() {
     if (!detail) return
-    await runTask('Export ZIP', async () => {
+    await runTask(t('toolbar.exportZip'), async () => {
       const pages = await renderProjectPages(detail)
       if (!pages.length) {
-        throw new Error('No pages to export')
+        throw new Error(t('log.noPagesToExport'))
       }
       const result = await api.exportZip({ projectId: detail.project.id, pages })
-      pushLog(`Exported ${result.fileName}`, 'success')
+      pushLog(t('log.exported', { file: result.fileName }), 'success')
       window.open(result.url, '_blank', 'noopener,noreferrer')
     })
   }
 
   async function handleExportBackup() {
     if (!detail) return
-    await runTask('Export project backup', async () => {
+    await runTask(t('log.exportBackupTask'), async () => {
       const result = await api.exportProjectBackup({ projectId: detail.project.id })
-      pushLog(`Backup exported ${result.fileName}`, 'success')
+      pushLog(t('log.backupExported', { file: result.fileName }), 'success')
       window.open(result.url, '_blank', 'noopener,noreferrer')
     })
   }
 
   async function handleSaveSettings(event: FormEvent) {
     event.preventDefault()
-    await runTask('Saving settings', async () => {
+    await runTask(t('log.savingSettings'), async () => {
       const status = await api.saveSecrets({
         apiBaseUrl: settingsForm.apiBaseUrl,
         modelName: settingsForm.modelName,
@@ -413,7 +456,7 @@ function App() {
       })
       setSecretStatus(status)
       setSettingsForm((current) => ({ ...current, apiKey: '', pixivCookie: '' }))
-      pushLog('Settings saved to system credential store.', 'success')
+      pushLog(t('log.settingsSaved'), 'success')
     })
   }
 
@@ -426,35 +469,59 @@ function App() {
           <div className="brand-mark">P</div>
           <div>
             <h1>Pixiv-to-Manga Studio</h1>
-            <span>{detail ? `${detail.pages.length} pages / ${detail.project.mode}` : 'Local creative workspace'}</span>
+            <span>
+              {detail
+                ? t('header.projectSummary', { pages: detail.pages.length, mode: t(modeKeys[detail.project.mode]) })
+                : t('header.appSubtitle')}
+            </span>
           </div>
         </div>
         <div className="toolbar">
-          <div className="entry-switch" role="tablist" aria-label="Workspace entries">
+          <div className="entry-switch" role="tablist" aria-label={t('header.workspaceEntries')}>
             <button type="button" className={entryMode === 'studio' ? 'active' : ''} onClick={() => setEntryMode('studio')}>
-              Manga Studio
+              {t('header.entryStudio')}
             </button>
             <button type="button" className={entryMode === 'continue' ? 'active' : ''} data-testid="entry-story-continue" onClick={() => setEntryMode('continue')}>
-              Story Continue
+              {t('header.entryContinue')}
             </button>
           </div>
           {entryMode === 'studio' ? (
             <>
-              <ToolbarButton icon={ImagePlus} label="Import Pixiv" testId="toolbar-import-pixiv" disabled={!canRun} onClick={() => setActiveTab('story')} />
-              <ToolbarButton icon={Upload} label="Local Images" testId="toolbar-import-local" disabled={Boolean(busy)} onClick={() => fileInputRef.current?.click()} />
-              <ToolbarButton icon={WandSparkles} label="Analyze Story" testId="toolbar-analyze-story" disabled={!canRun} onClick={handleAnalyzeStory} />
-              <ToolbarButton icon={Play} label="Generate Page" testId="toolbar-generate-page" disabled={!canRun || !activePage} onClick={handleGenerateActivePage} />
-              <ToolbarButton icon={Sparkles} label="Generate All" testId="toolbar-generate-all" disabled={!canRun} onClick={handleGenerateAll} />
-              <ToolbarButton icon={CircleStop} label="Cancel" testId="toolbar-cancel-job" disabled={!currentJobId} onClick={handleCancelCurrentJob} />
-              <ToolbarButton icon={Download} label="Export ZIP" testId="toolbar-export-zip" disabled={!canRun || !detail?.pages.length} onClick={handleExportZip} />
-              <ToolbarButton icon={Save} label="Export Backup" testId="toolbar-export-backup" disabled={!canRun} onClick={handleExportBackup} />
-              <ToolbarButton icon={ArchiveRestore} label="Restore Backup" testId="toolbar-restore-backup" disabled={Boolean(busy)} onClick={() => backupInputRef.current?.click()} />
+              <ToolbarButton icon={ImagePlus} label={t('toolbar.importPixiv')} testId="toolbar-import-pixiv" disabled={!canRun} onClick={() => setActiveTab('story')} />
+              <ToolbarButton icon={Upload} label={t('toolbar.localImages')} testId="toolbar-import-local" disabled={Boolean(busy)} onClick={() => fileInputRef.current?.click()} />
+              <ToolbarButton icon={WandSparkles} label={t('toolbar.analyzeStory')} testId="toolbar-analyze-story" disabled={!canRun} onClick={handleAnalyzeStory} />
+              <ToolbarButton icon={Play} label={t('toolbar.generatePage')} testId="toolbar-generate-page" disabled={!canRun || !activePage} onClick={handleGenerateActivePage} />
+              <ToolbarButton icon={Sparkles} label={t('toolbar.generateAll')} testId="toolbar-generate-all" disabled={!canRun} onClick={handleGenerateAll} />
+              <ToolbarButton icon={CircleStop} label={t('toolbar.cancel')} testId="toolbar-cancel-job" disabled={!currentJobId} onClick={handleCancelCurrentJob} />
+              <ToolbarButton icon={Download} label={t('toolbar.exportZip')} testId="toolbar-export-zip" disabled={!canRun || !detail?.pages.length} onClick={handleExportZip} />
+              <ToolbarButton icon={Save} label={t('toolbar.exportBackup')} testId="toolbar-export-backup" disabled={!canRun} onClick={handleExportBackup} />
+              <ToolbarButton icon={ArchiveRestore} label={t('toolbar.restoreBackup')} testId="toolbar-restore-backup" disabled={Boolean(busy)} onClick={() => backupInputRef.current?.click()} />
             </>
           ) : null}
         </div>
-        <div className="status-pill" data-busy={Boolean(busy)} data-testid="studio-status" role="status" aria-live="polite">
-          {busy ? <Loader2 size={15} /> : <span />}
-          {busy || 'Ready'}
+        <div className="topbar-controls">
+          <div className="lang-switch" role="group" aria-label={t('header.language')}>
+            <button type="button" className={locale === 'en' ? 'active' : ''} data-testid="lang-en" onClick={() => setLocale('en')}>
+              EN
+            </button>
+            <button type="button" className={locale === 'zh-TW' ? 'active' : ''} data-testid="lang-zh" onClick={() => setLocale('zh-TW')}>
+              中文
+            </button>
+          </div>
+          <button
+            type="button"
+            className="icon-button"
+            data-testid="theme-toggle"
+            title={theme === 'dark' ? t('header.themeToLight') : t('header.themeToDark')}
+            aria-label={theme === 'dark' ? t('header.themeToLight') : t('header.themeToDark')}
+            onClick={toggleTheme}
+          >
+            {theme === 'dark' ? <Sun size={16} /> : <Moon size={16} />}
+          </button>
+          <div className="status-pill" data-busy={Boolean(busy)} data-testid="studio-status" role="status" aria-live="polite">
+            {busy ? <Loader2 size={15} /> : <span />}
+            {busy || t('status.ready')}
+          </div>
         </div>
         <input
           ref={fileInputRef}
@@ -463,7 +530,7 @@ function App() {
           type="file"
           accept="image/png,image/jpeg,image/webp,image/svg+xml"
           multiple
-          aria-label="Local image files"
+          aria-label={t('header.localImageFiles')}
           data-testid="local-image-input"
           onChange={handleLocalFiles}
         />
@@ -473,7 +540,7 @@ function App() {
           className="hidden-input"
           type="file"
           accept="application/zip,.zip"
-          aria-label="Project backup ZIP"
+          aria-label={t('header.projectBackupZip')}
           data-testid="project-backup-input"
           onChange={handleBackupFile}
         />
@@ -487,26 +554,26 @@ function App() {
           <form className="create-form" onSubmit={handleCreateProject}>
             <div className="panel-heading">
               <Plus size={16} />
-              <span>New Project</span>
+              <span>{t('studio.newProject')}</span>
             </div>
-            <input value={createTitle} onChange={(event) => setCreateTitle(event.target.value)} aria-label="Project title" />
+            <input value={createTitle} onChange={(event) => setCreateTitle(event.target.value)} aria-label={t('studio.projectTitle')} />
             <div className="segmented">
               <button type="button" className={createMode === 'story' ? 'active' : ''} onClick={() => setCreateMode('story')}>
-                Story
+                {t('mode.story')}
               </button>
               <button type="button" className={createMode === 'translation' ? 'active' : ''} onClick={() => setCreateMode('translation')}>
-                Translation
+                {t('mode.translation')}
               </button>
             </div>
             <button type="submit" className="primary-button" disabled={Boolean(busy)}>
-              Create
+              {t('studio.create')}
             </button>
           </form>
 
           <section className="project-list">
             <div className="panel-heading">
               <Images size={16} />
-              <span>Projects</span>
+              <span>{t('studio.projects')}</span>
             </div>
             {projects.map((project) => (
               <button
@@ -516,7 +583,9 @@ function App() {
                 onClick={() => setSelectedProjectId(project.id)}
               >
                 <strong>{project.title}</strong>
-                <span>{project.source} / {project.mode}</span>
+                <span>
+                  {t('studio.projectRowSummary', { source: t(sourceKeys[project.source]), mode: t(modeKeys[project.mode]) })}
+                </span>
               </button>
             ))}
           </section>
@@ -524,7 +593,7 @@ function App() {
           <section className="page-list">
             <div className="panel-heading">
               <BookOpen size={16} />
-              <span>Pages</span>
+              <span>{t('studio.pages')}</span>
             </div>
             {detail?.pages.map((page) => (
               <PageThumb
@@ -540,12 +609,13 @@ function App() {
         </aside>
 
         <section className="canvas-panel">
-          <CanvasWorkspace
+          <WhiteboardCanvas
             page={activePage}
             asset={activeAsset}
             dialogues={activeDialogues}
             characters={detail?.characters || []}
             zoom={zoom}
+            onZoomChange={setZoom}
             selectedDialogueId={selectedDialogueId}
             onSelectDialogue={(id) => {
               setSelectedDialogueId(id)
@@ -556,9 +626,10 @@ function App() {
         </section>
 
         <aside className="right-rail panel">
-          <div className="inspector-tabs" role="tablist" aria-label="Inspector panels">
+          <div className="inspector-tabs" role="tablist" aria-label={t('tab.inspectorPanels')}>
             {tabItems.map((item) => {
               const Icon = item.icon
+              const label = t(item.labelKey)
               return (
                 <button
                   key={item.id}
@@ -568,10 +639,10 @@ function App() {
                   data-testid={`tab-${item.id}`}
                   className={activeTab === item.id ? 'active' : ''}
                   onClick={() => setActiveTab(item.id)}
-                  title={item.label}
+                  title={label}
                 >
                   <Icon size={16} />
-                  <span>{item.label}</span>
+                  <span>{label}</span>
                 </button>
               )
             })}
@@ -641,11 +712,11 @@ function App() {
       <footer className="log-panel">
         <div className="panel-heading">
           <RefreshCw size={16} />
-          <span>Generation Log</span>
+          <span>{t('logPanel.title')}</span>
         </div>
         <div className="log-list">
           {logs.length === 0 ? (
-            <p className="empty-text">No events yet.</p>
+            <p className="empty-text">{t('logPanel.empty')}</p>
           ) : (
             logs.map((entry) => (
               <div key={entry.id} className={`log-row ${entry.level}`}>
@@ -697,154 +768,17 @@ function PageThumb(props: {
   dialogueCount: number
   onClick: () => void
 }) {
+  const { t } = useI18n()
   return (
     <button type="button" className={`page-thumb ${props.active ? 'active' : ''}`} data-testid="page-thumb" onClick={props.onClick}>
-      <div className="thumb-image">{props.asset ? <img src={props.asset.url} alt={`Page ${props.page.index + 1}`} /> : null}</div>
+      <div className="thumb-image">
+        {props.asset ? <img src={props.asset.url} alt={t('studio.pageLabel', { n: props.page.index + 1 })} /> : null}
+      </div>
       <div>
-        <strong>Page {props.page.index + 1}</strong>
-        <span>{props.dialogueCount} lines / {props.page.status}</span>
+        <strong>{t('studio.pageLabel', { n: props.page.index + 1 })}</strong>
+        <span>{t('studio.pageThumbSummary', { count: props.dialogueCount, status: t(pageStatusKeys[props.page.status]) })}</span>
       </div>
     </button>
-  )
-}
-
-function CanvasWorkspace(props: {
-  page?: Page
-  asset?: Asset
-  dialogues: Dialogue[]
-  characters: Character[]
-  zoom: number
-  selectedDialogueId: string
-  onSelectDialogue: (id: string) => void
-  onPatchDialogue: (id: string, patch: Partial<Dialogue>) => Promise<void>
-}) {
-  const image = useLoadedImage(props.asset?.url)
-
-  if (!props.page || !props.asset) {
-    return (
-      <div className="empty-canvas">
-        <ImagePlus size={34} />
-        <span>Import pages to start.</span>
-      </div>
-    )
-  }
-
-  const fitScale = Math.min(760 / props.page.width, 690 / props.page.height)
-  const stageScale = fitScale * props.zoom
-  const stageWidth = Math.round(props.page.width * stageScale)
-  const stageHeight = Math.round(props.page.height * stageScale)
-
-  return (
-    <div className="canvas-wrap">
-      <div className="canvas-meta">
-        <span>Page {props.page.index + 1}</span>
-        <span>{props.page.width}x{props.page.height}</span>
-      </div>
-      <div className="stage-shell" data-testid="manga-stage">
-        <Stage width={stageWidth} height={stageHeight}>
-          <Layer>
-            {image ? <KonvaImage image={image} width={stageWidth} height={stageHeight} /> : <Rect width={stageWidth} height={stageHeight} fill="#ffffff" />}
-            {props.dialogues.map((dialogue) => (
-              <BubbleNode
-                key={dialogue.id}
-                dialogue={dialogue}
-                stageWidth={stageWidth}
-                stageHeight={stageHeight}
-                character={props.characters.find((character) => character.id === dialogue.characterId)}
-                selected={dialogue.id === props.selectedDialogueId}
-                onSelect={() => props.onSelectDialogue(dialogue.id)}
-                onDragEnd={(x, y) => props.onPatchDialogue(dialogue.id, { x, y })}
-              />
-            ))}
-          </Layer>
-        </Stage>
-      </div>
-    </div>
-  )
-}
-
-function BubbleNode(props: {
-  dialogue: Dialogue
-  character?: Character
-  stageWidth: number
-  stageHeight: number
-  selected: boolean
-  onSelect: () => void
-  onDragEnd: (x: number, y: number) => void
-}) {
-  const box = estimateVerticalTextBox(props.dialogue)
-  const fontSize = Math.max(15, Math.round(19 * props.dialogue.scale))
-  const columns = toVerticalColumns(props.dialogue.text, 11)
-  const bubbleWidth = Math.max(box.width * props.stageWidth, columns.length * fontSize * 1.18 + 34)
-  const bubbleHeight = Math.max(
-    box.height * props.stageHeight,
-    Math.max(...columns.map((column) => column.length), 1) * fontSize * 1.1 + 38,
-  )
-  const stroke = props.selected ? '#c9282d' : props.dialogue.color || props.character?.color || '#111111'
-  const fill = props.dialogue.bubbleStyle === 'caption' ? 'rgba(255,255,255,0.9)' : '#ffffff'
-
-  return (
-    <Group
-      x={props.dialogue.x * props.stageWidth}
-      y={props.dialogue.y * props.stageHeight}
-      rotation={props.dialogue.rotation}
-      draggable={!props.dialogue.locked}
-      onClick={props.onSelect}
-      onTap={props.onSelect}
-      onDragEnd={(event) => {
-        props.onDragEnd(clamp01(event.target.x() / props.stageWidth), clamp01(event.target.y() / props.stageHeight))
-      }}
-    >
-      {props.dialogue.bubbleStyle === 'soft' || props.dialogue.bubbleStyle === 'thought' ? (
-        <>
-          <Ellipse radiusX={bubbleWidth / 2} radiusY={bubbleHeight / 2} fill={fill} stroke={stroke} strokeWidth={props.selected ? 4 : 2.5} />
-          {props.dialogue.bubbleStyle === 'thought' ? (
-            <Circle x={bubbleWidth * 0.3} y={bubbleHeight * 0.38} radius={5} fill="#ffffff" stroke={stroke} strokeWidth={2} />
-          ) : null}
-        </>
-      ) : (
-        <>
-          <Rect
-            x={-bubbleWidth / 2}
-            y={-bubbleHeight / 2}
-            width={bubbleWidth}
-            height={bubbleHeight}
-            fill={fill}
-            stroke={stroke}
-            strokeWidth={props.selected ? 4 : 2.5}
-            cornerRadius={props.dialogue.bubbleStyle === 'caption' ? 4 : 12}
-          />
-          {props.dialogue.bubbleStyle === 'speech' ? (
-            <Line
-              points={[bubbleWidth * 0.2, bubbleHeight / 2 - 4, bubbleWidth * 0.32, bubbleHeight / 2 + 20, bubbleWidth * 0.04, bubbleHeight / 2 - 2]}
-              closed
-              fill="#ffffff"
-              stroke={stroke}
-              strokeWidth={2.5}
-            />
-          ) : null}
-        </>
-      )}
-      {columns.map((column, index) => {
-        const x = (columns.length / 2 - index - 0.5) * fontSize * 1.12
-        return (
-          <Text
-            key={`${props.dialogue.id}-${index}`}
-            x={x - fontSize / 2}
-            y={-(column.length * fontSize * 1.1) / 2}
-            width={fontSize}
-            text={Array.from(column).join('\n')}
-            fontFamily={props.character?.fontFamily || 'Noto Serif SC, SimSun, serif'}
-            fontStyle="700"
-            fontSize={fontSize}
-            lineHeight={1.1}
-            align="center"
-            fill={props.dialogue.color || props.character?.color || '#111111'}
-            listening={false}
-          />
-        )
-      })}
-    </Group>
   )
 }
 
@@ -861,6 +795,7 @@ function StoryPanel(props: {
   onStoryBibleCommit: (storyBible: StoryBible) => void
   disabled: boolean
 }) {
+  const { t } = useI18n()
   const story = props.detail?.project.storyBible
   const updateStory = (patch: Partial<StoryBible>) => {
     if (!story) return
@@ -889,29 +824,29 @@ function StoryPanel(props: {
     <div className="inspector-body">
       <form className="pixiv-form" onSubmit={props.onPixivImport}>
         <label>
-          Pixiv Artwork URL / ID
-          <input value={props.pixivUrl} onChange={(event) => props.setPixivUrl(event.target.value)} placeholder="https://www.pixiv.net/artworks/..." />
+          {t('story.pixivUrlLabel')}
+          <input value={props.pixivUrl} onChange={(event) => props.setPixivUrl(event.target.value)} placeholder={t('story.pixivPlaceholder')} />
         </label>
         <button type="submit" className="secondary-button" disabled={props.disabled}>
           <ImagePlus size={15} />
-          Import Pixiv
+          {t('toolbar.importPixiv')}
         </button>
       </form>
 
       <label className="field-block">
-        User Brief
-        <textarea value={props.userBrief} onChange={(event) => props.setUserBrief(event.target.value)} rows={5} placeholder="故事方向、角色关系、语气或限制..." />
+        {t('story.userBrief')}
+        <textarea value={props.userBrief} onChange={(event) => props.setUserBrief(event.target.value)} rows={5} placeholder={t('story.userBriefPlaceholder')} />
       </label>
 
       <label className="toggle-row danger">
         <input type="checkbox" checked={props.r18Enabled} onChange={(event) => props.setR18Enabled(event.target.checked)} />
-        <span>R-18 enabled locally</span>
+        <span>{t('story.r18Local')}</span>
       </label>
 
       {story ? (
         <div className="edit-form story-editor">
           <label>
-            Synopsis
+            {t('story.synopsis')}
             <textarea
               value={story.synopsis}
               rows={4}
@@ -921,7 +856,7 @@ function StoryPanel(props: {
             />
           </label>
           <label>
-            Tone
+            {t('story.tone')}
             <textarea
               value={story.tone}
               rows={3}
@@ -940,14 +875,14 @@ function StoryPanel(props: {
                 props.onStoryBibleCommit(next)
               }}
             />
-            <span>Story Bible R-18</span>
+            <span>{t('story.bibleR18')}</span>
           </label>
           <div className="beat-list">
             {story.pageBeats.map((beat) => (
               <div key={`${beat.pageIndex}-${beat.summary}`} className="beat-row">
                 <strong>P{beat.pageIndex + 1}</strong>
                 <label>
-                  Summary
+                  {t('story.summary')}
                   <textarea
                     value={beat.summary}
                     rows={3}
@@ -957,7 +892,7 @@ function StoryPanel(props: {
                   />
                 </label>
                 <label>
-                  Intent
+                  {t('story.intent')}
                   <textarea
                     value={beat.intent}
                     rows={2}
@@ -970,7 +905,7 @@ function StoryPanel(props: {
           </div>
         </div>
       ) : (
-        <p className="empty-text">Run Analyze Story to create the Story Bible.</p>
+        <p className="empty-text">{t('story.empty')}</p>
       )}
     </div>
   )
@@ -981,6 +916,7 @@ function CharactersPanel(props: {
   onStoryBibleChange: (storyBible: StoryBible) => void
   onStoryBibleCommit: (storyBible: StoryBible) => void
 }) {
+  const { t } = useI18n()
   const characters = props.storyBible?.characters || []
   const updateCharacter = (characterId: string, patch: Partial<Character>, commit = false) => {
     const storyBible = props.storyBible
@@ -1003,7 +939,7 @@ function CharactersPanel(props: {
             <span className="swatch" style={{ background: character.color }} />
             <div>
               <label>
-                Name
+                {t('character.name')}
                 <input
                   value={character.name}
                   data-testid="character-name-input"
@@ -1012,7 +948,7 @@ function CharactersPanel(props: {
                 />
               </label>
               <label>
-                Description
+                {t('character.description')}
                 <textarea
                   value={character.description}
                   rows={3}
@@ -1021,7 +957,7 @@ function CharactersPanel(props: {
                 />
               </label>
               <label>
-                Voice
+                {t('character.voice')}
                 <textarea
                   value={character.voice}
                   rows={3}
@@ -1031,7 +967,7 @@ function CharactersPanel(props: {
               </label>
               <div className="two-col">
                 <label>
-                  Color
+                  {t('character.color')}
                   <input
                     type="color"
                     value={character.color}
@@ -1040,14 +976,14 @@ function CharactersPanel(props: {
                   />
                 </label>
                 <label>
-                  Bubble
+                  {t('character.bubble')}
                   <select
                     value={character.bubbleStyle}
                     onChange={(event) => updateCharacter(character.id, { bubbleStyle: event.target.value as BubbleStyle }, true)}
                   >
                     {bubbleStyles.map((style) => (
                       <option key={style} value={style}>
-                        {style}
+                        {t(bubbleStyleKeys[style])}
                       </option>
                     ))}
                   </select>
@@ -1057,7 +993,7 @@ function CharactersPanel(props: {
           </div>
         ))
       ) : (
-        <p className="empty-text">No characters yet.</p>
+        <p className="empty-text">{t('character.empty')}</p>
       )}
     </div>
   )
@@ -1070,6 +1006,7 @@ function DialoguePanel(props: {
   onLocalChange: (id: string, patch: Partial<Dialogue>) => void
   onCommit: (id: string, patch: Partial<Dialogue>) => void
 }) {
+  const { t } = useI18n()
   const dialogue = props.selectedDialogue
   return (
     <div className="inspector-body">
@@ -1091,7 +1028,7 @@ function DialoguePanel(props: {
       {dialogue ? (
         <div className="edit-form">
           <label>
-            Text
+            {t('dialogue.text')}
             <textarea
               value={dialogue.text}
               rows={5}
@@ -1100,7 +1037,7 @@ function DialoguePanel(props: {
             />
           </label>
           <label>
-            Character
+            {t('dialogue.character')}
             <input
               value={dialogue.characterName || ''}
               onChange={(event) => props.onLocalChange(dialogue.id, { characterName: event.target.value })}
@@ -1109,7 +1046,7 @@ function DialoguePanel(props: {
           </label>
           <div className="two-col">
             <label>
-              Color
+              {t('character.color')}
               <input
                 type="color"
                 value={dialogue.color}
@@ -1120,7 +1057,7 @@ function DialoguePanel(props: {
               />
             </label>
             <label>
-              Bubble
+              {t('character.bubble')}
               <select
                 value={dialogue.bubbleStyle}
                 onChange={(event) => {
@@ -1131,7 +1068,7 @@ function DialoguePanel(props: {
               >
                 {bubbleStyles.map((style) => (
                   <option key={style} value={style}>
-                    {style}
+                    {t(bubbleStyleKeys[style])}
                   </option>
                 ))}
               </select>
@@ -1145,11 +1082,11 @@ function DialoguePanel(props: {
             onClick={() => props.onCommit(dialogue.id, dialogue.locked ? { locked: false } : { locked: true })}
           >
             {dialogue.locked ? <Unlock size={15} /> : <Lock size={15} />}
-            {dialogue.locked ? 'Unlock' : 'Lock'}
+            {dialogue.locked ? t('dialogue.unlock') : t('dialogue.lock')}
           </button>
         </div>
       ) : (
-        <p className="empty-text">Generate or select dialogue.</p>
+        <p className="empty-text">{t('dialogue.empty')}</p>
       )}
     </div>
   )
@@ -1167,41 +1104,49 @@ function LayoutPanel(props: {
   onAvoidOverlap: () => void
   disabled: boolean
 }) {
+  const { t } = useI18n()
   const dialogue = props.selectedDialogue
   return (
     <div className="inspector-body">
       <div className="segmented">
         <button type="button" className={props.mode === 'story' ? 'active' : ''} onClick={() => props.setMode('story')}>
-          Story
+          {t('mode.story')}
         </button>
         <button type="button" className={props.mode === 'translation' ? 'active' : ''} onClick={() => props.setMode('translation')}>
-          Translation
+          {t('mode.translation')}
         </button>
       </div>
       <label className="range-row">
-        <span>Text density</span>
+        <span>{t('layout.textDensity')}</span>
         <input type="range" min="0" max="1" step="0.05" value={props.textDensity} onChange={(event) => props.setTextDensity(Number(event.target.value))} />
         <strong>{props.textDensity.toFixed(2)}</strong>
       </label>
       <label className="range-row">
-        <span>Canvas zoom</span>
-        <input type="range" min="0.65" max="1.45" step="0.05" value={props.zoom} onChange={(event) => props.setZoom(Number(event.target.value))} />
+        <span>{t('layout.canvasZoom')}</span>
+        <input
+          type="range"
+          min={WHITEBOARD_MIN_ZOOM}
+          max={WHITEBOARD_MAX_ZOOM}
+          step="0.05"
+          value={props.zoom}
+          onChange={(event) => props.setZoom(Number(event.target.value))}
+        />
         <strong>{Math.round(props.zoom * 100)}%</strong>
       </label>
       <button type="button" className="secondary-button" disabled={props.disabled} onClick={props.onAvoidOverlap}>
         <PanelRight size={15} />
-        Avoid overlap
+        {t('layout.avoidOverlap')}
       </button>
 
       {dialogue ? (
         <div className="edit-form compact">
           <div className="two-col">
-            <NumberField label="X" value={dialogue.x} min={0} max={1} step={0.01} onCommit={(x) => props.onCommit(dialogue.id, { x })} />
-            <NumberField label="Y" value={dialogue.y} min={0} max={1} step={0.01} onCommit={(y) => props.onCommit(dialogue.id, { y })} />
+            <NumberField label={t('layout.x')} value={dialogue.x} min={0} max={1} step={0.01} onCommit={(x) => props.onCommit(dialogue.id, { x })} />
+            <NumberField label={t('layout.y')} value={dialogue.y} min={0} max={1} step={0.01} onCommit={(y) => props.onCommit(dialogue.id, { y })} />
           </div>
           <div className="two-col">
-            <NumberField label="Scale" value={dialogue.scale} min={0.5} max={2.5} step={0.05} onCommit={(scale) => props.onCommit(dialogue.id, { scale })} />
-            <NumberField label="Rotation" value={dialogue.rotation} min={-45} max={45} step={1} onCommit={(rotation) => props.onCommit(dialogue.id, { rotation })} />
+            <NumberField label={t('layout.scale')} value={dialogue.scale} min={0.5} max={2.5} step={0.05} onCommit={(scale) => props.onCommit(dialogue.id, { scale })} />
+            <NumberField label={t('layout.rotation')} value={dialogue.rotation} min={-45} max={45} step={1} onCommit={(rotation) => props.onCommit(dialogue.id, { rotation })} />
           </div>
         </div>
       ) : null}
@@ -1227,7 +1172,7 @@ function NumberField(props: {
         max={props.max}
         step={props.step}
         defaultValue={Number(props.value.toFixed(3))}
-        onBlur={(event) => props.onCommit(clamp(Number(event.target.value), props.min, props.max))}
+        onBlur={(event) => props.onCommit(clampNumber(Number(event.target.value), props.min, props.max))}
       />
     </label>
   )
@@ -1240,84 +1185,58 @@ function SettingsPanel(props: {
   onSubmit: (event: FormEvent) => void
   disabled: boolean
 }) {
+  const { t } = useI18n()
   const update = (patch: Partial<typeof props.form>) => props.setForm({ ...props.form, ...patch })
   return (
     <form className="inspector-body settings-form" onSubmit={props.onSubmit}>
       <div className={`credential-status ${props.status?.keychainAvailable ? 'ok' : 'blocked'}`}>
-        <strong>{props.status?.keychainAvailable ? 'System keychain available' : 'System keychain blocked'}</strong>
-        <span>API key: {props.status?.hasApiKey ? 'saved' : 'not saved'} / Pixiv cookie: {props.status?.hasPixivCookie ? 'saved' : 'not saved'}</span>
+        <strong>{props.status?.keychainAvailable ? t('settings.keychainOk') : t('settings.keychainBlocked')}</strong>
+        <span>
+          {t('settings.secretSummary', {
+            apiKey: props.status?.hasApiKey ? t('settings.saved') : t('settings.notSaved'),
+            cookie: props.status?.hasPixivCookie ? t('settings.saved') : t('settings.notSaved'),
+          })}
+        </span>
       </div>
       <label>
-        OpenAI-compatible Base URL
-        <input value={props.form.apiBaseUrl} onChange={(event) => update({ apiBaseUrl: event.target.value })} placeholder="https://api.openai.com/v1" />
+        {t('settings.baseUrl')}
+        <input value={props.form.apiBaseUrl} onChange={(event) => update({ apiBaseUrl: event.target.value })} placeholder={t('settings.baseUrlPlaceholder')} />
       </label>
       <label>
-        Model
-        <input value={props.form.modelName} onChange={(event) => update({ modelName: event.target.value })} placeholder="gpt-4.1-mini" />
+        {t('settings.model')}
+        <input value={props.form.modelName} onChange={(event) => update({ modelName: event.target.value })} placeholder={t('settings.modelPlaceholder')} />
       </label>
       <label>
-        API Key
-        <input type="password" value={props.form.apiKey} onChange={(event) => update({ apiKey: event.target.value })} placeholder={props.status?.hasApiKey ? 'Saved in keychain' : 'Not saved'} />
+        {t('settings.apiKey')}
+        <input
+          type="password"
+          value={props.form.apiKey}
+          onChange={(event) => update({ apiKey: event.target.value })}
+          placeholder={props.status?.hasApiKey ? t('settings.savedInKeychain') : t('settings.notSavedPlaceholder')}
+        />
       </label>
       <label>
-        Pixiv Cookie
-        <textarea value={props.form.pixivCookie} onChange={(event) => update({ pixivCookie: event.target.value })} rows={4} placeholder={props.status?.hasPixivCookie ? 'Saved in keychain' : 'Required for private/R-18 imports'} />
+        {t('settings.pixivCookie')}
+        <textarea
+          value={props.form.pixivCookie}
+          onChange={(event) => update({ pixivCookie: event.target.value })}
+          rows={4}
+          placeholder={props.status?.hasPixivCookie ? t('settings.savedInKeychain') : t('settings.cookiePlaceholder')}
+        />
       </label>
       <button type="submit" className="primary-button" disabled={props.disabled || props.status?.keychainAvailable === false}>
         <Save size={15} />
-        Save Settings
+        {t('settings.save')}
       </button>
     </form>
   )
 }
 
-function useLoadedImage(src?: string) {
-  const [loaded, setLoaded] = useState<{ src: string; image: HTMLImageElement } | null>(null)
-
-  useEffect(() => {
-    if (!src) {
-      return
-    }
-
-    let cancelled = false
-    const next = new Image()
-    next.onload = () => {
-      if (!cancelled) setLoaded({ src, image: next })
-    }
-    next.onerror = () => {
-      if (!cancelled) setLoaded(null)
-    }
-    next.src = src
-    return () => {
-      cancelled = true
-    }
-  }, [src])
-
-  return loaded && loaded.src === src ? loaded.image : null
-}
-
-function toVerticalColumns(text: string, rowsPerColumn: number): string[] {
-  const chars = Array.from(text.replace(/\s+/g, ''))
-  const columns: string[] = []
-  for (let index = 0; index < chars.length; index += rowsPerColumn) {
-    columns.push(chars.slice(index, index + rowsPerColumn).join(''))
-  }
-  return columns.length ? columns : ['']
-}
-
-function clamp01(value: number): number {
-  return clamp(value, 0, 1)
-}
-
-function clamp(value: number, min: number, max: number): number {
+function clampNumber(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, Number.isFinite(value) ? value : min))
 }
 
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : 'Unknown error'
-}
-
-function rawOutputFromError(error: unknown): RawOutputState | null {
+function rawOutputFromError(error: unknown, t: Translator): RawOutputState | null {
   if (!(error instanceof api.JobFailedError)) {
     return null
   }
@@ -1328,15 +1247,15 @@ function rawOutputFromError(error: unknown): RawOutputState | null {
   const record = payload as { raw?: unknown; repairedRaw?: unknown; schemaHint?: unknown }
   const sections = []
   if (typeof record.raw === 'string' && record.raw) {
-    sections.push(`Original output:\n${record.raw}`)
+    sections.push(`${t('raw.original')}\n${record.raw}`)
   }
   if (typeof record.repairedRaw === 'string' && record.repairedRaw) {
-    sections.push(`Repair output:\n${record.repairedRaw}`)
+    sections.push(`${t('raw.repair')}\n${record.repairedRaw}`)
   }
   if (typeof record.schemaHint === 'string' && record.schemaHint) {
-    sections.push(`Expected schema:\n${record.schemaHint}`)
+    sections.push(`${t('raw.schema')}\n${record.schemaHint}`)
   }
-  return sections.length ? { title: 'Raw AI Output', text: sections.join('\n\n') } : null
+  return sections.length ? { title: t('raw.aiTitle'), text: sections.join('\n\n') } : null
 }
 
 function cryptoId(): string {

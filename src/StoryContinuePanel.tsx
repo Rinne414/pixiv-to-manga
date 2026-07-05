@@ -3,6 +3,7 @@ import type { ChangeEvent, FormEvent } from 'react'
 import { ImagePlus, Loader2, Plus, Sparkles, Trash2, Upload } from 'lucide-react'
 import type { ContinuationImage, ContinuationReference, ContinuationReferenceInput } from './shared/types'
 import { CONTINUATION_LIMITS, GENERATION_METADATA_LIMITS } from './shared/schemas'
+import { useI18n } from './i18n/context'
 import * as api from './api'
 
 type RunTask = (label: string, task: () => Promise<void>) => Promise<void>
@@ -12,11 +13,12 @@ export function StoryContinuePanel(props: {
   runTask: RunTask
   onLog: (message: string, level?: 'info' | 'success' | 'error') => void
 }) {
+  const { t } = useI18n()
   const fileInputRef = useRef<HTMLInputElement | null>(null)
   const [references, setReferences] = useState<ContinuationReference[]>([])
   const [selectedReferenceId, setSelectedReferenceId] = useState('')
   const [pixivUrl, setPixivUrl] = useState('')
-  const [prompt, setPrompt] = useState('Continue the story from these references with the same character identity and mood.')
+  const [prompt, setPrompt] = useState(() => t('continue.defaultPrompt'))
   const [r18Enabled, setR18Enabled] = useState(false)
   const [outputCount, setOutputCount] = useState(1)
   const [keepCharacterConsistency, setKeepCharacterConsistency] = useState(true)
@@ -45,21 +47,21 @@ export function StoryContinuePanel(props: {
     event.currentTarget.value = ''
     if (!files.length) return
 
-    await run('Inspecting continuation references', async () => {
+    await run(t('continue.inspectingRefs'), async () => {
       const result = await api.inspectContinuationLocal(files)
       acceptReferences(result.references)
-      props.onLog(`${result.references.length} reference image(s) inspected.`, 'success')
+      props.onLog(t('continue.refsInspected', { count: result.references.length }), 'success')
     })
   }
 
   async function handlePixivImport(event: FormEvent) {
     event.preventDefault()
     if (!pixivUrl.trim()) {
-      props.onLog('Pixiv artwork URL or ID is required.', 'error')
+      props.onLog(t('log.pixivUrlRequired'), 'error')
       return
     }
 
-    await run('Importing continuation Pixiv references', async () => {
+    await run(t('continue.importingPixivRefs'), async () => {
       const result = await api.inspectContinuationPixiv({
         url: pixivUrl.trim(),
         r18Enabled,
@@ -67,13 +69,13 @@ export function StoryContinuePanel(props: {
       })
       acceptReferences(result.references)
       setPixivUrl('')
-      props.onLog(`${result.references.length} Pixiv reference image(s) inspected.`, 'success')
+      props.onLog(t('continue.pixivRefsInspected', { count: result.references.length }), 'success')
     })
   }
 
   async function handleGenerate(event: FormEvent) {
     event.preventDefault()
-    await run('Generating continuation image', async () => {
+    await run(t('continue.generatingImage'), async () => {
       const result = await api.generateContinuation({
         prompt,
         r18Enabled,
@@ -85,19 +87,22 @@ export function StoryContinuePanel(props: {
       })
       setImages(result.images)
       setExpandedPrompt(result.expandedPrompt)
-      props.onLog(result.usedMock ? 'Continuation generated with local mock engine.' : 'Continuation image generated.', 'success')
+      props.onLog(result.usedMock ? t('continue.generatedMock') : t('continue.generated'), 'success')
     })
   }
 
   function acceptReferences(nextReferences: ContinuationReference[]) {
     const capacity = CONTINUATION_LIMITS.maxReferences - references.length
     if (capacity <= 0) {
-      props.onLog(`Reference limit is ${CONTINUATION_LIMITS.maxReferences} images. Remove one before adding more.`, 'error')
+      props.onLog(t('continue.limitReached', { max: CONTINUATION_LIMITS.maxReferences }), 'error')
       return
     }
     if (nextReferences.length > capacity) {
       props.onLog(
-        `Reference limit is ${CONTINUATION_LIMITS.maxReferences} images; ${nextReferences.length - capacity} image(s) were skipped.`,
+        t('continue.limitSkipped', {
+          max: CONTINUATION_LIMITS.maxReferences,
+          skipped: nextReferences.length - capacity,
+        }),
         'error',
       )
     }
@@ -134,7 +139,7 @@ export function StoryContinuePanel(props: {
         type="file"
         accept="image/png,image/jpeg,image/webp,image/svg+xml"
         multiple
-        aria-label="Continuation local images"
+        aria-label={t('continue.localImagesAria')}
         data-testid="continuation-local-input"
         onChange={handleLocalFiles}
       />
@@ -142,23 +147,29 @@ export function StoryContinuePanel(props: {
       <section className="continue-references panel">
         <div className="section-heading">
           <div>
-            <strong>References</strong>
-            <span>{references.length}/{CONTINUATION_LIMITS.maxReferences} images / {combinedTags.length} tags</span>
+            <strong>{t('continue.references')}</strong>
+            <span>
+              {t('continue.referencesSummary', {
+                count: references.length,
+                max: CONTINUATION_LIMITS.maxReferences,
+                tags: combinedTags.length,
+              })}
+            </span>
           </div>
           <button type="button" className="secondary-button" disabled={busy || referencesFull} onClick={() => fileInputRef.current?.click()}>
             <Upload size={15} />
-            Upload
+            {t('continue.upload')}
           </button>
         </div>
 
         <form className="pixiv-form" onSubmit={handlePixivImport}>
           <label>
-            Pixiv Artwork URL / ID
-            <input value={pixivUrl} onChange={(event) => setPixivUrl(event.target.value)} placeholder="https://www.pixiv.net/artworks/..." />
+            {t('story.pixivUrlLabel')}
+            <input value={pixivUrl} onChange={(event) => setPixivUrl(event.target.value)} placeholder={t('story.pixivPlaceholder')} />
           </label>
           <button type="submit" className="secondary-button" disabled={busy || referencesFull}>
-            {loadingLabel === 'Importing continuation Pixiv references' ? <Loader2 size={15} /> : <ImagePlus size={15} />}
-            Import Pixiv
+            {loadingLabel === t('continue.importingPixivRefs') ? <Loader2 size={15} /> : <ImagePlus size={15} />}
+            {t('toolbar.importPixiv')}
           </button>
         </form>
 
@@ -178,7 +189,7 @@ export function StoryContinuePanel(props: {
               </span>
             </button>
           ))}
-          {!references.length ? <p className="empty-text">No references yet.</p> : null}
+          {!references.length ? <p className="empty-text">{t('continue.noReferences')}</p> : null}
         </div>
       </section>
 
@@ -187,15 +198,15 @@ export function StoryContinuePanel(props: {
           <div className="generated-grid" data-testid="continuation-output">
             {images.map((image) => (
               <figure key={image.id} className="generated-frame">
-                {image.dataUrl ? <img src={image.dataUrl} alt="Generated continuation" /> : <img src={image.url} alt="Generated continuation" />}
-                <figcaption>{image.usedMock ? 'Local draft' : 'Generated'}</figcaption>
+                {image.dataUrl ? <img src={image.dataUrl} alt={t('continue.generatedAlt')} /> : <img src={image.url} alt={t('continue.generatedAlt')} />}
+                <figcaption>{image.usedMock ? t('continue.localDraft') : t('continue.generatedCaption')}</figcaption>
               </figure>
             ))}
           </div>
         ) : (
           <div className="continue-empty-state">
             <Sparkles size={22} />
-            <span>Story Continue</span>
+            <span>{t('continue.storyContinue')}</span>
           </div>
         )}
       </section>
@@ -204,23 +215,23 @@ export function StoryContinuePanel(props: {
         <form className="inspector-body" onSubmit={handleGenerate}>
           <div className="section-heading">
             <div>
-              <strong>Continue Story</strong>
-              <span>{busy ? loadingLabel : 'Ready'}</span>
+              <strong>{t('continue.continueStory')}</strong>
+              <span>{busy ? loadingLabel : t('status.ready')}</span>
             </div>
             <button type="submit" className="primary-button" disabled={busy || !prompt.trim()}>
-              {loadingLabel === 'Generating continuation image' ? <Loader2 size={15} /> : <Sparkles size={15} />}
-              Generate
+              {loadingLabel === t('continue.generatingImage') ? <Loader2 size={15} /> : <Sparkles size={15} />}
+              {t('continue.generate')}
             </button>
           </div>
 
           <label className="field-block">
-            Prompt
+            {t('continue.prompt')}
             <textarea value={prompt} rows={7} onChange={(event) => setPrompt(event.target.value)} data-testid="continuation-prompt" />
           </label>
 
           <div className="two-col">
             <label className="field-block">
-              Outputs
+              {t('continue.outputs')}
               <input
                 type="number"
                 min={1}
@@ -231,7 +242,7 @@ export function StoryContinuePanel(props: {
             </label>
             <label className="toggle-row danger continue-r18-toggle">
               <input type="checkbox" checked={r18Enabled} onChange={(event) => setR18Enabled(event.target.checked)} />
-              <span>R-18 enabled locally</span>
+              <span>{t('story.r18Local')}</span>
             </label>
           </div>
 
@@ -241,7 +252,7 @@ export function StoryContinuePanel(props: {
               checked={keepCharacterConsistency}
               onChange={(event) => setKeepCharacterConsistency(event.target.checked)}
             />
-            <span>Character consistency</span>
+            <span>{t('continue.characterConsistency')}</span>
           </label>
           <label className="toggle-row">
             <input
@@ -249,7 +260,7 @@ export function StoryContinuePanel(props: {
               checked={keepBackgroundConsistency}
               onChange={(event) => setKeepBackgroundConsistency(event.target.checked)}
             />
-            <span>Background consistency</span>
+            <span>{t('continue.backgroundConsistency')}</span>
           </label>
 
           {selectedReference ? (
@@ -261,16 +272,16 @@ export function StoryContinuePanel(props: {
                 </div>
                 <button type="button" className="secondary-button danger-button" onClick={() => removeReference(selectedReference.id)}>
                   <Trash2 size={15} />
-                  Remove
+                  {t('continue.remove')}
                 </button>
               </div>
               <label className="field-block">
-                Tags
+                {t('continue.tags')}
                 <textarea value={tagDraft} rows={5} onChange={(event) => updateSelectedTags(event.target.value)} />
               </label>
               {selectedReference.metadata.positivePrompt ? (
                 <label className="field-block">
-                  Extracted prompt
+                  {t('continue.extractedPrompt')}
                   <textarea readOnly value={selectedReference.metadata.positivePrompt} rows={5} />
                 </label>
               ) : null}
@@ -278,13 +289,13 @@ export function StoryContinuePanel(props: {
           ) : (
             <button type="button" className="secondary-button" disabled={busy} onClick={() => fileInputRef.current?.click()}>
               <Plus size={15} />
-              Add reference
+              {t('continue.addReference')}
             </button>
           )}
 
           {expandedPrompt ? (
             <details className="expanded-prompt">
-              <summary>Expanded prompt</summary>
+              <summary>{t('continue.expandedPrompt')}</summary>
               <textarea readOnly value={expandedPrompt} rows={8} data-testid="continuation-expanded-prompt" />
             </details>
           ) : null}

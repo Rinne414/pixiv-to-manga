@@ -12,6 +12,9 @@ export default defineConfig({
   reporter: [['list']],
   use: {
     baseURL: 'http://127.0.0.1:5173',
+    // The suite asserts English UI copy; pin the browser locale so zh systems don't flip the i18n default.
+    locale: 'en-US',
+    colorScheme: 'light',
     trace: 'retain-on-failure',
     screenshot: 'only-on-failure',
     video: 'retain-on-failure',

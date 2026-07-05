@@ -11,6 +11,9 @@ Pixiv-to-Manga Studio imports Pixiv or local image sets, asks an AI model to cre
 - Two-stage AI workflow: vision-assisted story analysis, then page dialogue generation.
 - Story Continue entry for uploading/Pixiv-importing reference images, extracting generation metadata/tags, and generating continuation drafts.
 - Editable Story Bible, character settings, and vertical manga dialogue bubbles with drag, scale, rotation, lock, and style controls.
+- Infinite whiteboard canvas: wheel zoom anchored at the cursor, drag-to-pan, fit/100% controls; WYSIWYG with PNG export.
+- Light/dark theme switch and English / Traditional Chinese (zh-TW) UI language switch, both persisted locally.
+- Keyless local providers: Ollama / LM Studio profiles (`isLocal`) work without an API key; external providers still require one.
 - Local project persistence in SQLite plus an asset folder.
 - API keys and Pixiv cookies saved through the system credential store with `keytar`.
 - PNG ZIP export with project manifest.
@@ -24,6 +27,15 @@ npm run dev
 ```
 
 Open [http://localhost:5173](http://localhost:5173).
+
+## Using a local Ollama model
+
+1. Start Ollama (default `http://127.0.0.1:11434`) and pull a vision-capable model, e.g. `ollama pull qwen3-vl:8b`.
+2. In the app: Settings tab → Provider Lab → Create provider:
+   - Base URL `http://127.0.0.1:11434/v1`, Default model `qwen3-vl:8b`, check **Local provider**, leave API key empty.
+3. Click **Discover** to list installed models, then **Run test** (enable `vision`) to verify capability flags.
+4. In the Capability Matrix, confirm **Vision**; for NSFW routing, explicitly enable **Adult input** / **Adult generation** on that model (user-confirmed only), and turn on R-18 in the Story panel per project. Routes fail closed without matching flags.
+5. Leave the global Settings Base URL/Model empty (or point them at the same profile) — generation picks the first usable provider automatically.
 
 ## Verification
 

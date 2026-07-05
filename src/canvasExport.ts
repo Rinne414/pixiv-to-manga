@@ -1,4 +1,5 @@
 import { estimateVerticalTextBox } from './shared/layout'
+import { toVerticalColumns } from './shared/text'
 import type { Asset, Dialogue, Page, ProjectDetail } from './shared/types'
 
 export async function renderProjectPages(detail: ProjectDetail): Promise<Array<{ pageId: string; dataUrl: string }>> {
@@ -110,15 +111,6 @@ function drawDialogue(context: CanvasRenderingContext2D, dialogue: Dialogue, pag
     })
   })
   context.restore()
-}
-
-function toVerticalColumns(text: string, rowsPerColumn: number): string[] {
-  const chars = Array.from(text.replace(/\s+/g, ''))
-  const columns: string[] = []
-  for (let index = 0; index < chars.length; index += rowsPerColumn) {
-    columns.push(chars.slice(index, index + rowsPerColumn).join(''))
-  }
-  return columns
 }
 
 function roundedRect(

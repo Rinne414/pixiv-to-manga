@@ -10,6 +10,8 @@ import type {
   ProviderTestResponse,
 } from './api'
 import * as api from './api'
+import { useI18n } from './i18n/context'
+import type { MessageKey } from './i18n/messages'
 
 const capabilityKeys: Array<keyof ModelCapabilityFlags> = [
   'supportsVision',
@@ -20,13 +22,27 @@ const capabilityKeys: Array<keyof ModelCapabilityFlags> = [
   'allowsAdultGeneration',
 ]
 
-const capabilityLabels: Record<keyof ModelCapabilityFlags, string> = {
-  supportsVision: 'Vision',
-  supportsImageGeneration: 'Image generation',
-  supportsStreaming: 'Streaming',
-  supportsJsonSchema: 'JSON Schema',
-  allowsAdultInput: 'Adult input',
-  allowsAdultGeneration: 'Adult generation',
+const capabilityLabelKeys: Record<keyof ModelCapabilityFlags, MessageKey> = {
+  supportsVision: 'providerLab.capVision',
+  supportsImageGeneration: 'providerLab.capImageGeneration',
+  supportsStreaming: 'providerLab.capStreaming',
+  supportsJsonSchema: 'providerLab.capJsonSchema',
+  allowsAdultInput: 'providerLab.capAdultInput',
+  allowsAdultGeneration: 'providerLab.capAdultGeneration',
+}
+
+const testKindLabelKeys: Record<keyof ProviderTestInput['tests'], MessageKey> = {
+  text: 'providerLab.testText',
+  vision: 'providerLab.testVision',
+  json: 'providerLab.testJson',
+  streaming: 'providerLab.testStreaming',
+}
+
+const capabilityStatusKeys: Partial<Record<string, MessageKey>> = {
+  unknown: 'providerLab.statusUnknown',
+  detected: 'providerLab.statusDetected',
+  'user-confirmed': 'providerLab.statusUserConfirmed',
+  unsupported: 'providerLab.statusUnsupported',
 }
 
 const emptyFlags: ModelCapabilityFlags = {
@@ -63,6 +79,7 @@ const emptyForm: ProviderFormState = {
 }
 
 export function ProviderLabPanel() {
+  const { t } = useI18n()
   const [providers, setProviders] = useState<ProviderProfile[]>([])
   const [capabilities, setCapabilities] = useState<ModelCapability[]>([])
   const [models, setModels] = useState<DiscoveredModel[]>([])
@@ -79,6 +96,12 @@ export function ProviderLabPanel() {
   const selectedCapability = capabilities.find(
     (capability) => capability.providerId === selectedProviderId && capability.modelId === selectedModelId,
   )
+
+  function capabilityStatusLabel(status: DiscoveredModel['capabilityStatus']): string {
+    const resolved = status || 'unknown'
+    const key = capabilityStatusKeys[resolved]
+    return key ? t(key) : resolved
+  }
 
   const modelsForMatrix = useMemo(() => {
     const capabilityModels = capabilities
@@ -104,7 +127,7 @@ export function ProviderLabPanel() {
     let cancelled = false
 
     async function loadProviderLab() {
-      setLoading('Loading Provider Lab')
+      setLoading(t('providerLab.loadingLab'))
       setError('')
       try {
         const [providerList, capabilityList] = await Promise.all([api.listProviders(), api.listModelCapabilities()])
@@ -117,7 +140,7 @@ export function ProviderLabPanel() {
         setForm(provider ? providerToForm(provider) : emptyForm)
         setCapabilityDraft(provider ? flagsFor(capabilityList, provider.id, provider.defaultModel) : emptyFlags)
       } catch (nextError) {
-        if (!cancelled) setError(errorMessage(nextError))
+        if (!cancelled) setError(errorMessage(nextError, t('providerLab.unknownError')))
       } finally {
         if (!cancelled) setLoading('')
       }
@@ -127,10 +150,11 @@ export function ProviderLabPanel() {
     return () => {
       cancelled = true
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- initial load runs once on mount
   }, [])
 
   async function refresh() {
-    await run('Loading Provider Lab', async () => {
+    await run(t('providerLab.loadingLab'), async () => {
       const [providerList, capabilityList] = await Promise.all([api.listProviders(), api.listModelCapabilities()])
       acceptProviderLabData(providerList, capabilityList)
     })
@@ -174,7 +198,7 @@ export function ProviderLabPanel() {
     try {
       await task()
     } catch (nextError) {
-      setError(errorMessage(nextError))
+      setError(errorMessage(nextError, t('providerLab.unknownError')))
     } finally {
       setLoading('')
     }
@@ -182,7 +206,7 @@ export function ProviderLabPanel() {
 
   async function saveProvider(event: FormEvent) {
     event.preventDefault()
-    await run(form.id ? 'Updating provider' : 'Creating provider', async () => {
+    await run(form.id ? t('providerLab.updatingProvider') : t('providerLab.creatingProvider'), async () => {
       const payload = {
         name: form.name.trim(),
         baseUrl: form.baseUrl.trim(),
@@ -191,7 +215,7 @@ export function ProviderLabPanel() {
         apiKey: form.apiKey.trim() || undefined,
       }
       if (!payload.name || !payload.baseUrl || !payload.defaultModel) {
-        throw new Error('Provider name, base URL, and default model are required.')
+        throw new Error(t('providerLab.errorRequiredFields'))
       }
 
       const saved = form.id ? await api.updateProvider(form.id, payload) : await api.createProvider(payload)
@@ -206,7 +230,7 @@ export function ProviderLabPanel() {
 
   async function deleteSelectedProvider() {
     if (!selectedProvider) return
-    await run('Deleting provider', async () => {
+    await run(t('providerLab.deletingProvider'), async () => {
       await api.deleteProvider(selectedProvider.id)
       setProviders((current) => current.filter((provider) => provider.id !== selectedProvider.id))
       setCapabilities((current) => current.filter((capability) => capability.providerId !== selectedProvider.id))
@@ -219,7 +243,7 @@ export function ProviderLabPanel() {
 
   async function discoverModels() {
     if (!selectedProvider) return
-    await run('Discovering models', async () => {
+    await run(t('providerLab.discoveringModels'), async () => {
       const discovered = await api.discoverProviderModels(selectedProvider.id)
       const capabilityList = await api.listModelCapabilities()
       setModels(discovered)
@@ -231,11 +255,11 @@ export function ProviderLabPanel() {
 
   async function saveCapabilities() {
     if (!selectedCapability) {
-      setError('Capability save requires a backend capability record from discovery or test first.')
+      setError(t('providerLab.errorCapabilityRecord'))
       return
     }
 
-    await run('Saving capabilities', async () => {
+    await run(t('providerLab.savingCapabilities'), async () => {
       const saved = await api.updateModelCapability(selectedCapability.id, capabilityDraft)
       setCapabilities((current) => current.map((capability) => (capability.id === saved.id ? saved : capability)))
     })
@@ -243,7 +267,7 @@ export function ProviderLabPanel() {
 
   async function runTest() {
     if (!selectedProvider || !selectedModelId) return
-    await run('Testing provider', async () => {
+    await run(t('providerLab.testingProvider'), async () => {
       const result = await api.testProvider(selectedProvider.id, { modelId: selectedModelId, tests })
       const capabilityList = await api.listModelCapabilities()
       setTestResult(result)
@@ -256,12 +280,12 @@ export function ProviderLabPanel() {
     <section className="provider-lab">
       <div className="section-heading">
         <div>
-          <strong>Provider Lab</strong>
-          <span>Profiles, capability checks, and NSFW route signals.</span>
+          <strong>{t('providerLab.title')}</strong>
+          <span>{t('providerLab.subtitle')}</span>
         </div>
         <button type="button" className="secondary-button" disabled={Boolean(loading)} onClick={refresh}>
-          {loading === 'Loading Provider Lab' ? <Loader2 size={15} /> : <Radar size={15} />}
-          Refresh
+          {loading === t('providerLab.loadingLab') ? <Loader2 size={15} /> : <Radar size={15} />}
+          {t('providerLab.refresh')}
         </button>
       </div>
 
@@ -274,7 +298,7 @@ export function ProviderLabPanel() {
 
       <div className="provider-grid">
         <div className="provider-list">
-          <div className="panel-heading">Providers</div>
+          <div className="panel-heading">{t('providerLab.providers')}</div>
           {providers.length ? (
             providers.map((provider) => (
               <button
@@ -285,53 +309,59 @@ export function ProviderLabPanel() {
               >
                 <strong>{provider.name}</strong>
                 <span>{provider.defaultModel}</span>
-                <small>{provider.isLocal ? 'Local' : 'External'} / {provider.hasApiKey ? 'key saved' : 'no key'}</small>
+                <small>
+                  {t('providerLab.providerRowMeta', {
+                    kind: provider.isLocal ? t('providerLab.kindLocal') : t('providerLab.kindExternal'),
+                    keyState: provider.hasApiKey ? t('providerLab.keySaved') : t('providerLab.noKey'),
+                  })}
+                </small>
               </button>
             ))
           ) : (
-            <p className="empty-text">No provider profiles yet.</p>
+            <p className="empty-text">{t('providerLab.emptyProviders')}</p>
           )}
         </div>
 
         <form className="provider-form" onSubmit={saveProvider}>
-          <div className="panel-heading">{form.id ? 'Edit provider' : 'Create provider'}</div>
+          <div className="panel-heading">{form.id ? t('providerLab.editProvider') : t('providerLab.createProvider')}</div>
           <label>
-            Name
-            <input value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} placeholder="OpenAI, LM Studio, OpenRouter..." />
+            {t('providerLab.name')}
+            <input value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} placeholder={t('providerLab.namePlaceholder')} />
           </label>
           <label>
-            Base URL
-            <input value={form.baseUrl} onChange={(event) => setForm({ ...form, baseUrl: event.target.value })} placeholder="https://api.openai.com/v1" />
+            {t('providerLab.baseUrl')}
+            <input value={form.baseUrl} onChange={(event) => setForm({ ...form, baseUrl: event.target.value })} placeholder={t('providerLab.baseUrlPlaceholder')} />
           </label>
           <label>
-            Default model
-            <input value={form.defaultModel} onChange={(event) => setForm({ ...form, defaultModel: event.target.value })} placeholder="gpt-4.1-mini" />
+            {t('providerLab.defaultModel')}
+            <input value={form.defaultModel} onChange={(event) => setForm({ ...form, defaultModel: event.target.value })} placeholder={t('providerLab.defaultModelPlaceholder')} />
           </label>
           <label>
-            API key
+            {t('providerLab.apiKey')}
             <input
               type="password"
               value={form.apiKey}
               onChange={(event) => setForm({ ...form, apiKey: event.target.value })}
-              placeholder={selectedProvider?.hasApiKey ? 'Saved; enter a new key to replace' : 'Write-only key'}
+              placeholder={selectedProvider?.hasApiKey ? t('providerLab.apiKeyPlaceholderSaved') : t('providerLab.apiKeyPlaceholderNew')}
               autoComplete="off"
             />
           </label>
           <label className="toggle-row">
             <input type="checkbox" checked={form.isLocal} onChange={(event) => setForm({ ...form, isLocal: event.target.checked })} />
-            <span>Local provider</span>
+            <span>{t('providerLab.localProvider')}</span>
           </label>
+          <span className="field-hint">{t('providerLab.localKeyHint')}</span>
           <div className="provider-actions">
             <button type="submit" className="primary-button" disabled={Boolean(loading)}>
               <Save size={15} />
-              Save
+              {t('providerLab.save')}
             </button>
             <button type="button" className="secondary-button" onClick={() => setForm(emptyForm)}>
-              New
+              {t('providerLab.new')}
             </button>
             <button type="button" className="secondary-button danger-button" disabled={!selectedProvider || Boolean(loading)} onClick={deleteSelectedProvider}>
               <Trash2 size={15} />
-              Delete
+              {t('providerLab.delete')}
             </button>
           </div>
         </form>
@@ -340,12 +370,12 @@ export function ProviderLabPanel() {
       <div className="provider-section">
         <div className="section-heading compact-heading">
           <div>
-            <strong>Model Discovery</strong>
-            <span>Capability status comes from backend discovery, tests, or user confirmation.</span>
+            <strong>{t('providerLab.modelDiscovery')}</strong>
+            <span>{t('providerLab.modelDiscoverySubtitle')}</span>
           </div>
           <button type="button" className="secondary-button" disabled={!selectedProvider || Boolean(loading)} onClick={discoverModels}>
-            {loading === 'Discovering models' ? <Loader2 size={15} /> : <Radar size={15} />}
-            Discover
+            {loading === t('providerLab.discoveringModels') ? <Loader2 size={15} /> : <Radar size={15} />}
+            {t('providerLab.discover')}
           </button>
         </div>
         <div className="model-list">
@@ -358,11 +388,11 @@ export function ProviderLabPanel() {
                 onClick={() => selectModel(model.id)}
               >
                 <strong>{model.name || model.id}</strong>
-                <span>{model.capabilityStatus || 'unknown'}</span>
+                <span>{capabilityStatusLabel(model.capabilityStatus)}</span>
               </button>
             ))
           ) : (
-            <p className="empty-text">Select a provider and run discovery when the backend endpoint is available.</p>
+            <p className="empty-text">{t('providerLab.emptyModels')}</p>
           )}
         </div>
       </div>
@@ -370,12 +400,12 @@ export function ProviderLabPanel() {
       <div className="provider-section">
         <div className="section-heading compact-heading">
           <div>
-            <strong>Capability Matrix</strong>
-            <span>{selectedModelId || 'No model selected'}</span>
+            <strong>{t('providerLab.capabilityMatrix')}</strong>
+            <span>{selectedModelId || t('providerLab.noModelSelected')}</span>
           </div>
           <button type="button" className="secondary-button" disabled={!selectedCapability || Boolean(loading)} onClick={saveCapabilities}>
             <Save size={15} />
-            Save flags
+            {t('providerLab.saveFlags')}
           </button>
         </div>
         <div className="capability-matrix">
@@ -386,7 +416,7 @@ export function ProviderLabPanel() {
                 checked={capabilityDraft[key]}
                 onChange={(event) => setCapabilityDraft({ ...capabilityDraft, [key]: event.target.checked })}
               />
-              <span>{capabilityLabels[key]}</span>
+              <span>{t(capabilityLabelKeys[key])}</span>
             </label>
           ))}
         </div>
@@ -396,44 +426,45 @@ export function ProviderLabPanel() {
       <div className="provider-section">
         <div className="section-heading compact-heading">
           <div>
-            <strong>Test Controls</strong>
-            <span>Runs through the local backend and returns redacted traces.</span>
+            <strong>{t('providerLab.testControls')}</strong>
+            <span>{t('providerLab.testControlsSubtitle')}</span>
           </div>
           <button type="button" className="primary-button" disabled={!selectedProvider || !selectedModelId || Boolean(loading)} onClick={runTest}>
-            {loading === 'Testing provider' ? <Loader2 size={15} /> : <FlaskConical size={15} />}
-            Run test
+            {loading === t('providerLab.testingProvider') ? <Loader2 size={15} /> : <FlaskConical size={15} />}
+            {t('providerLab.runTest')}
           </button>
         </div>
         <div className="test-toggle-grid">
           {(['text', 'vision', 'json', 'streaming'] as const).map((key) => (
             <label key={key} className="toggle-row">
               <input type="checkbox" checked={tests[key]} onChange={(event) => setTests({ ...tests, [key]: event.target.checked })} />
-              <span>{key}</span>
+              <span>{t(testKindLabelKeys[key])}</span>
             </label>
           ))}
         </div>
-        {testResult ? <ProviderTestReadout result={testResult} /> : <p className="empty-text">No test result yet.</p>}
+        {testResult ? <ProviderTestReadout result={testResult} /> : <p className="empty-text">{t('providerLab.emptyTestResult')}</p>}
       </div>
     </section>
   )
 }
 
 function NsfwRouteHint({ provider, flags }: { provider?: ProviderProfile; flags: ModelCapabilityFlags }) {
+  const { t } = useI18n()
   const hints: string[] = []
   if (!flags.supportsVision) {
-    hints.push('Images are blocked because this model is not marked Vision-capable.')
+    hints.push(t('providerLab.hintNoVision'))
   }
   if (!flags.supportsImageGeneration) {
-    hints.push('Story continuation image generation is blocked until image generation is enabled.')
+    hints.push(t('providerLab.hintNoImageGeneration'))
   }
   if (!provider?.isLocal && !flags.allowsAdultInput) {
-    hints.push('R-18 image input is blocked for external providers unless adult input is explicitly allowed.')
+    hints.push(t('providerLab.hintNoAdultInput'))
   }
   if (!flags.allowsAdultGeneration) {
-    hints.push('R-18 generation is blocked until adult generation is explicitly allowed.')
+    hints.push(t('providerLab.hintNoAdultGeneration'))
   }
   if (!hints.length) {
-    hints.push('Route can accept image and R-18 requests only when the user enables R-18 for that job.')
+    hints.push(t('providerLab.hintDefault'))
   }
 
   return (
@@ -445,30 +476,31 @@ function NsfwRouteHint({ provider, flags }: { provider?: ProviderProfile; flags:
 }
 
 function ProviderTestReadout({ result }: { result: ProviderTestResponse }) {
+  const { t } = useI18n()
   return (
     <div className="test-readout">
       <div className={`test-summary ${result.passed ? 'passed' : 'failed'}`}>
         {result.passed ? <CheckCircle2 size={16} /> : <XCircle size={16} />}
-        <strong>{result.passed ? 'Pass' : 'Fail'}</strong>
-        <span>{result.latencyMs} ms</span>
+        <strong>{result.passed ? t('providerLab.pass') : t('providerLab.fail')}</strong>
+        <span>{t('providerLab.latency', { ms: result.latencyMs })}</span>
       </div>
       <div className="test-result-grid">
         {result.results.map((item) => (
           <div key={item.kind} className={item.passed ? 'passed' : 'failed'}>
-            <strong>{item.kind}</strong>
-            <span>{item.message || (item.passed ? 'passed' : 'failed')}</span>
+            <strong>{t(testKindLabelKeys[item.kind])}</strong>
+            <span>{item.message || (item.passed ? t('providerLab.resultPassed') : t('providerLab.resultFailed'))}</span>
           </div>
         ))}
       </div>
       <div className="trace-box">
         <div className="panel-heading">
           <KeyRound size={14} />
-          Redacted trace
+          {t('providerLab.redactedTrace')}
         </div>
         {result.redactedTrace.length ? (
           result.redactedTrace.map((line) => <code key={line}>{line}</code>)
         ) : (
-          <span>No trace returned.</span>
+          <span>{t('providerLab.noTrace')}</span>
         )}
       </div>
     </div>
@@ -508,6 +540,6 @@ function capabilityStatusForSource(source: ModelCapability['source']): Discovere
   return 'unknown'
 }
 
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : 'Unknown error'
+function errorMessage(error: unknown, fallback: string): string {
+  return error instanceof Error ? error.message : fallback
 }
