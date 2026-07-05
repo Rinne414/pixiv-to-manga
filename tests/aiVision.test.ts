@@ -275,6 +275,115 @@ describe('AI vision generation', () => {
     expect(authorization).toBe('Bearer provider-only-key')
   })
 
+  it('uses a keyless local provider (Ollama-style) without an Authorization header', async () => {
+    const { db, dataDir } = createDb()
+    const secrets = new TestSecretStore(db, new MemoryKeytar())
+    const provider = db.createProvider({
+      name: 'Local Ollama',
+      baseUrl: 'http://127.0.0.1:11434/v1',
+      defaultModel: 'qwen3-vl:8b',
+      isLocal: true,
+    })
+    db.upsertModelCapability({
+      providerId: provider.id,
+      modelId: 'qwen3-vl:8b',
+      supportsVision: true,
+      allowsAdultInput: false,
+      allowsAdultGeneration: false,
+    })
+
+    const project = db.createProject({ title: 'Ollama Project', mode: 'story', source: 'local' })
+    const relativePath = path.join('projects', project.id, 'originals', 'page-001.png')
+    const absolutePath = path.join(dataDir, relativePath)
+    mkdirSync(path.dirname(absolutePath), { recursive: true })
+    writeFileSync(absolutePath, Buffer.from('png-bytes'))
+    const asset = db.createAsset({ projectId: project.id, kind: 'original', relativePath, mimeType: 'image/png' })
+    const page = db.createPage({ projectId: project.id, index: 0, originalAssetId: asset.id })
+
+    let requestUrl = ''
+    let headers: Record<string, string> = {}
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url, init) => {
+        requestUrl = String(url)
+        headers = { ...(init?.headers as Record<string, string>) }
+        return new Response(
+          JSON.stringify({
+            choices: [
+              {
+                message: {
+                  content: JSON.stringify({
+                    dialogues: [
+                      {
+                        text: '本地模型对白。',
+                        characterName: '夏海',
+                        x: 0.5,
+                        y: 0.25,
+                        scale: 1,
+                        rotation: 0,
+                        bubbleStyle: 'speech',
+                        color: '#141414',
+                        locked: false,
+                      },
+                    ],
+                  }),
+                },
+              },
+            ],
+          }),
+          { status: 200 },
+        )
+      }),
+    )
+
+    const result = await generateDialoguesWithAi({ secrets, db }, db.getProjectDetail(project.id), page, {
+      mode: 'story',
+      textDensity: 0.65,
+    })
+
+    expect(result.usedMock).toBe(false)
+    expect(result.dialogues[0].text).toBe('本地模型对白。')
+    expect(requestUrl).toBe('http://127.0.0.1:11434/v1/chat/completions')
+    expect(headers.Authorization).toBeUndefined()
+  })
+
+  it('ignores keyless external providers and falls back to the local mock engine', async () => {
+    const { db } = createDb()
+    const secrets = new TestSecretStore(db, new MemoryKeytar())
+    const provider = db.createProvider({
+      name: 'External provider without key',
+      baseUrl: 'https://api.example.test/v1',
+      defaultModel: 'gpt-4o',
+      isLocal: false,
+    })
+    db.upsertModelCapability({
+      providerId: provider.id,
+      modelId: 'gpt-4o',
+      supportsVision: true,
+      allowsAdultInput: false,
+      allowsAdultGeneration: false,
+    })
+
+    const project = db.createProject({ title: 'Keyless External Project', mode: 'story', source: 'local' })
+    const asset = db.createAsset({
+      projectId: project.id,
+      kind: 'original',
+      relativePath: path.join('projects', project.id, 'originals', 'page-001.svg'),
+      mimeType: 'image/svg+xml',
+    })
+    const page = db.createPage({ projectId: project.id, index: 0, originalAssetId: asset.id })
+    const fetchMock = vi.fn()
+    vi.stubGlobal('fetch', fetchMock)
+
+    const result = await generateDialoguesWithAi({ secrets, db }, db.getProjectDetail(project.id), page, {
+      mode: 'story',
+      textDensity: 0.65,
+    })
+
+    expect(result.usedMock).toBe(true)
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+
   it('blocks external image generation until the model is confirmed vision-capable', async () => {
     const { db, dataDir } = createDb()
     const secrets = new TestSecretStore(db, new MemoryKeytar())

@@ -146,14 +146,16 @@ async function resolveAiTarget(context: AiContext): Promise<AiTarget | null> {
     const capability = matchingProvider && context.db ? findMatchingCapability(context.db, matchingProvider.id, status.modelName) : undefined
     const providerApiKey = matchingProvider ? await context.secrets.getProviderApiKey(matchingProvider.id) : null
     const apiKey = globalApiKey || providerApiKey
-    return apiKey
-      ? {
-          apiBaseUrl: status.apiBaseUrl,
-          modelName: status.modelName,
-          apiKey,
-          supportsStreaming: Boolean(capability?.supportsStreaming),
-        }
-      : null
+    // Local providers (Ollama, LM Studio, ...) may run without an API key; external routes still require one.
+    if (!apiKey && !matchingProvider?.isLocal) {
+      return null
+    }
+    return {
+      apiBaseUrl: status.apiBaseUrl,
+      modelName: status.modelName,
+      apiKey: apiKey || '',
+      supportsStreaming: Boolean(capability?.supportsStreaming),
+    }
   }
 
   if (!context.db) {
@@ -165,12 +167,12 @@ async function resolveAiTarget(context: AiContext): Promise<AiTarget | null> {
       continue
     }
     const apiKey = await context.secrets.getProviderApiKey(provider.id)
-    if (apiKey) {
+    if (apiKey || provider.isLocal) {
       const capability = findMatchingCapability(context.db, provider.id, provider.defaultModel)
       return {
         apiBaseUrl: provider.baseUrl,
         modelName: provider.defaultModel,
-        apiKey,
+        apiKey: apiKey || '',
         supportsStreaming: Boolean(capability?.supportsStreaming),
       }
     }
@@ -246,7 +248,8 @@ async function openAiChatJson(
     method: 'POST',
     signal: options.signal,
     headers: {
-      Authorization: `Bearer ${apiKey}`,
+      // Keyless local providers (empty apiKey) get no Authorization header at all.
+      ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}),
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({

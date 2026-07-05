@@ -236,6 +236,97 @@ describe('story continuation backend', () => {
     expect(response.body).toContain('image_generation_required')
   })
 
+  it('uses a keyless local provider (Ollama-style) for image generation without an Authorization header', async () => {
+    const { db, secrets } = createTestContext()
+    const provider = db.createProvider({
+      name: 'Local Ollama',
+      baseUrl: 'http://127.0.0.1:11434/v1',
+      defaultModel: 'sdxl-local',
+      isLocal: true,
+    })
+    db.upsertModelCapability({
+      providerId: provider.id,
+      modelId: 'sdxl-local',
+      supportsImageGeneration: true,
+      source: 'user',
+    })
+
+    const capturedHeaders: Array<Record<string, string>> = []
+    const fetchImpl = (async (_url: Parameters<typeof fetch>[0], init?: RequestInit) => {
+      capturedHeaders.push({ ...(init?.headers as Record<string, string>) })
+      return new Response(JSON.stringify({ data: [{ b64_json: 'aWJt' }] }), { status: 200 })
+    }) as typeof fetch
+
+    const server = fastify()
+    registerContinuationRoutes(server, { db, secrets, fetchImpl })
+
+    const response = await server.inject({
+      method: 'POST',
+      url: '/api/continuation/generate',
+      payload: generatePayload({ prompt: 'Continue the scene.' }),
+    })
+    const body = response.json()
+
+    expect(response.statusCode).toBe(200)
+    expect(body.usedMock).toBe(false)
+    expect(capturedHeaders[0].Authorization).toBeUndefined()
+  })
+
+  it('fails closed when a keyless local provider lacks image generation capability', async () => {
+    const { db, secrets } = createTestContext()
+    const provider = db.createProvider({
+      name: 'Local chat-only Ollama',
+      baseUrl: 'http://127.0.0.1:11434/v1',
+      defaultModel: 'qwen3-vl:8b',
+      isLocal: true,
+    })
+    db.upsertModelCapability({
+      providerId: provider.id,
+      modelId: 'qwen3-vl:8b',
+      supportsImageGeneration: false,
+      source: 'user',
+    })
+    const server = fastify()
+    registerContinuationRoutes(server, { db, secrets })
+
+    const response = await server.inject({
+      method: 'POST',
+      url: '/api/continuation/generate',
+      payload: generatePayload({ prompt: 'Continue the scene.' }),
+    })
+
+    expect(response.statusCode).not.toBe(200)
+    expect(response.body).toContain('image_generation_required')
+  })
+
+  it('ignores keyless external providers and falls back to the local mock engine', async () => {
+    const { db, secrets } = createTestContext()
+    const provider = db.createProvider({
+      name: 'External provider without key',
+      baseUrl: 'https://api.example.test/v1',
+      defaultModel: 'gpt-image-1',
+      isLocal: false,
+    })
+    db.upsertModelCapability({
+      providerId: provider.id,
+      modelId: 'gpt-image-1',
+      supportsImageGeneration: true,
+      source: 'user',
+    })
+    const server = fastify()
+    registerContinuationRoutes(server, { db, secrets })
+
+    const response = await server.inject({
+      method: 'POST',
+      url: '/api/continuation/generate',
+      payload: generatePayload({ prompt: 'Continue the scene.' }),
+    })
+    const body = response.json()
+
+    expect(response.statusCode).toBe(200)
+    expect(body.usedMock).toBe(true)
+  })
+
   it('routes generation to an image-capable provider even when a chat-only provider sorts first', async () => {
     const { db, secrets } = createTestContext()
     const imageProvider = db.createProvider({

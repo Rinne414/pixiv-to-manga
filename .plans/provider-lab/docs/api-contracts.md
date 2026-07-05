@@ -331,6 +331,16 @@ Current v1 continuation behavior:
 - External image generation uses OpenAI-compatible `POST /images/generations` with `response_format: "b64_json"`.
 - Unknown image-generation capability fails closed with `image_generation_required`.
 
+## Keyless Local Providers (Ollama / LM Studio)
+
+Providers saved with `isLocal: true` are usable WITHOUT a stored API key:
+
+- `resolveAiTarget` (server/ai.ts) and `resolveImageGenerationTarget` (server/continuation.ts) accept a provider when it has a keytar key OR `isLocal: true`.
+- When no key exists, backend requests omit the `Authorization` header entirely (chat completions, image generations, discovery, and tests all share this rule via empty-key handling).
+- External providers (`isLocal: false`) still require a key; keyless external profiles are skipped and generation falls back to the local mock engine.
+- A keyless local provider whose default model lacks `supportsImageGeneration` still fails continuation closed with `image_generation_required` (same rule as keyed providers).
+- Typical Ollama profile: `baseUrl: http://127.0.0.1:11434/v1`, `isLocal: true`, no key, default model discovered via `/models`.
+
 ## Frontend Adapter Shapes
 
 `src/api.ts` intentionally normalizes some backend responses for UI components:

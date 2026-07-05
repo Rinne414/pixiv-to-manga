@@ -153,29 +153,30 @@ export class StoryContinuationService {
         const capability = findMatchingCapability(this.db, provider.id, status.modelName)
         if (capability?.supportsImageGeneration) {
           const apiKey = globalApiKey || (await this.secrets.getProviderApiKey(provider.id))
-          if (apiKey) {
-            return { provider, capability, apiKey }
+          // Local providers (Ollama, LM Studio, ...) may run keyless; external ones still need a key.
+          if (apiKey || provider.isLocal) {
+            return { provider, capability, apiKey: apiKey || '' }
           }
         }
       }
     }
 
-    // Global settings that don't resolve to an image-capable profile fall through here:
-    // pick the first keyed provider whose default model supports image generation.
-    let hasKeyedProvider = false
+    // Global settings that don't resolve to an image-capable profile fall through here: pick the
+    // first usable provider (keyed, or keyless local) whose default model supports image generation.
+    let hasUsableProvider = false
     for (const provider of providers) {
       if (!provider.baseUrl || !provider.defaultModel) continue
       const apiKey = await this.secrets.getProviderApiKey(provider.id)
-      if (!apiKey) continue
-      hasKeyedProvider = true
+      if (!apiKey && !provider.isLocal) continue
+      hasUsableProvider = true
       const capability = findMatchingCapability(this.db, provider.id, provider.defaultModel)
       if (!capability?.supportsImageGeneration) continue
-      return { provider, capability, apiKey }
+      return { provider, capability, apiKey: apiKey || '' }
     }
 
     // Fail closed only when real providers are configured but none may generate images;
     // with no usable provider at all, callers fall back to the local mock engine.
-    if (hasKeyedProvider) {
+    if (hasUsableProvider) {
       throw new Error('AI route blocked by provider safety policy: image_generation_required')
     }
     return null
@@ -210,7 +211,8 @@ export class StoryContinuationService {
     const response = await this.fetchImpl(`${target.provider.baseUrl.replace(/\/+$/, '')}/images/generations`, {
       method: 'POST',
       headers: {
-        Authorization: `Bearer ${target.apiKey}`,
+        // Keyless local providers (empty apiKey) get no Authorization header at all.
+        ...(target.apiKey ? { Authorization: `Bearer ${target.apiKey}` } : {}),
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
