@@ -61,7 +61,10 @@ export const commonStrings = {
   'whiteboard.zoomOut': { en: 'Zoom out', 'zh-TW': '縮小' },
   'whiteboard.fitPage': { en: 'Fit page', 'zh-TW': '適配頁面' },
   'whiteboard.actualSize': { en: 'Actual size (100%)', 'zh-TW': '原始大小 (100%)' },
-  'whiteboard.hint': { en: 'Drag background to pan · scroll to zoom', 'zh-TW': '拖曳背景平移 · 滾輪縮放' },
+  'whiteboard.hint': {
+    en: 'Drag to pan · scroll to zoom · double-click adds dialogue',
+    'zh-TW': '拖曳平移 · 滾輪縮放 · 雙擊新增對白',
+  },
 
   // Inspector tabs
   'tab.story': { en: 'Story Bible', 'zh-TW': '故事聖經' },
@@ -104,6 +107,8 @@ export const commonStrings = {
   'dialogue.character': { en: 'Character', 'zh-TW': '角色名' },
   'dialogue.lock': { en: 'Lock', 'zh-TW': '鎖定' },
   'dialogue.unlock': { en: 'Unlock', 'zh-TW': '解鎖' },
+  'dialogue.add': { en: 'Add dialogue', 'zh-TW': '新增對白' },
+  'dialogue.delete': { en: 'Delete', 'zh-TW': '刪除' },
   'dialogue.empty': { en: 'Generate or select dialogue.', 'zh-TW': '先生成或選擇對白。' },
 
   // Layout panel
@@ -153,6 +158,16 @@ export const commonStrings = {
   'log.pageDialogueGenerated': { en: 'Page {n} dialogue generated.', 'zh-TW': '第 {n} 頁對白已生成。' },
   'log.generatingPage': { en: 'Generating page {n}', 'zh-TW': '正在生成第 {n} 頁' },
   'log.allPagesGenerated': { en: 'All pages generated.', 'zh-TW': '全部頁面已生成。' },
+  'log.skippedCompletedPages': {
+    en: '{count} completed page(s) skipped (already generated).',
+    'zh-TW': '已略過 {count} 個已完成頁面（避免覆蓋已生成內容）。',
+  },
+  'log.allPagesAlreadyComplete': {
+    en: 'All pages are already complete. Use Generate Page to regenerate a page.',
+    'zh-TW': '所有頁面皆已完成。若要重新生成單頁，請使用「生成本頁」。',
+  },
+  'log.dialogueAdded': { en: 'Dialogue added.', 'zh-TW': '已新增對白。' },
+  'log.dialogueDeleted': { en: 'Dialogue deleted.', 'zh-TW': '已刪除對白。' },
   'log.cancellationRequested': { en: 'Cancellation requested.', 'zh-TW': '已要求取消。' },
   'log.jobCancelled': { en: 'Job cancelled.', 'zh-TW': '任務已取消。' },
   'log.resolvingLayout': { en: 'Resolving layout collisions', 'zh-TW': '調整版面避讓中' },

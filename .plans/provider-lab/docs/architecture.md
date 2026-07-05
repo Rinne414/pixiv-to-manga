@@ -89,6 +89,12 @@
 12. Story Continue reference inspection validates image uploads, extracts generation metadata, and keeps Pixiv cookie usage backend-only.
 13. Story Continue generation checks Provider Lab image-generation capability before calling external `/images/generations`; without a configured image provider it stays local with mock output. Keyless local providers participate in target resolution the same way as keyed ones.
 
+## Dialogue Editing
+
+- Dialogue CRUD + layout routes live in `server/dialogues.ts` (`registerDialogueRoutes`).
+- Manual bubbles: double-click the whiteboard page/background (WhiteboardCanvas `onDblClick`/`onDblTap`, page-space coordinates) or the Dialogue tab "Add dialogue" button; delete from the Dialogue tab. Defaults come from `dialogueCreateSchema` (`text: '……'`, center position).
+- Generate All only regenerates pages whose status is not `complete`; completed pages (which may hold hand-edited dialogue) are skipped and the skip count is logged. When all pages are complete it logs guidance instead of regenerating.
+
 ## UI Chrome (theme / i18n / whiteboard)
 
 - Theme: `src/theme.ts` `useTheme` writes `<html data-theme="light|dark">`; `index.html` applies the persisted/OS theme before first paint. All colors flow through CSS custom properties in `src/index.css` with a `:root[data-theme='dark']` override block. Preference persists in `localStorage` (`ptm-theme`, non-secret).

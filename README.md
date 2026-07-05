@@ -11,6 +11,7 @@ Pixiv-to-Manga Studio imports Pixiv or local image sets, asks an AI model to cre
 - Two-stage AI workflow: vision-assisted story analysis, then page dialogue generation.
 - Story Continue entry for uploading/Pixiv-importing reference images, extracting generation metadata/tags, and generating continuation drafts.
 - Editable Story Bible, character settings, and vertical manga dialogue bubbles with drag, scale, rotation, lock, and style controls.
+- Manual bubble add/delete: double-click the whiteboard (or use the Dialogue tab) to add, delete from the Dialogue tab; Generate All skips completed pages so hand-edited dialogue is never overwritten.
 - Infinite whiteboard canvas: wheel zoom anchored at the cursor, drag-to-pan, fit/100% controls; WYSIWYG with PNG export.
 - Light/dark theme switch and English / Traditional Chinese (zh-TW) UI language switch, both persisted locally.
 - Keyless local providers: Ollama / LM Studio profiles (`isLocal`) work without an API key; external providers still require one.

@@ -35,6 +35,16 @@ Everything below is verified green: `npx tsc -b`, `npm test` (82 tests), `npm ru
    `toVerticalColumns` is shared from src/shared/text.ts (used by both).
 5. **Sidebar legibility.** Root font 15px, rails 288/416px, inspector tabs 12px, muted
    contrast raised. `.field-hint` class exists for small helper copy.
+6. **Manual dialogue CRUD (P0).** `server/dialogues.ts` hosts POST
+   `/api/pages/:pageId/dialogues` + DELETE `/api/dialogues/:id` (plus the PATCH
+   dialogue/layout routes moved out of index.ts). UI: double-click the whiteboard
+   background/page to add a bubble at that spot (`onDblClick`/`onDblTap`, filtered to
+   Layer-child targets so bubbles don't trigger it), or the Dialogue tab Add/Delete
+   buttons. Defaults from `dialogueCreateSchema` (`text: '……'`).
+7. **Generate All overwrite protection (P0).** `handleGenerateAll` only generates pages
+   with `status !== 'complete'`, logs the skip count, and logs guidance when everything
+   is already complete. Regenerating a specific page stays explicit via Generate Page.
+   Covered by the main-workflow E2E (edited dialogue survives a second Generate All).
 
 ## Traps for the next agent
 

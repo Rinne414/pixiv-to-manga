@@ -331,6 +331,20 @@ Current v1 continuation behavior:
 - External image generation uses OpenAI-compatible `POST /images/generations` with `response_format: "b64_json"`.
 - Unknown image-generation capability fails closed with `image_generation_required`.
 
+## Dialogue CRUD
+
+Routes live in `server/dialogues.ts` (extracted from `server/index.ts`; also hosts the pre-existing PATCH dialogue/layout routes).
+
+### `POST /api/pages/:pageId/dialogues`
+
+Creates a manual dialogue bubble on a page. Body: `dialogueCreateSchema` — every field optional; `text` defaults to `……`, position defaults to page center (0.5/0.5). 400 when the page does not exist or coordinates are out of range.
+
+Response: the created `Dialogue`.
+
+### `DELETE /api/dialogues/:id`
+
+Deletes one dialogue. Response `{ "ok": true }`; 400 when the id does not exist.
+
 ## Keyless Local Providers (Ollama / LM Studio)
 
 Providers saved with `isLocal: true` are usable WITHOUT a stored API key:

@@ -47,6 +47,11 @@ export const dialogueListSchema = z.object({
   dialogues: z.array(dialogueSchema).max(12),
 })
 
+/** Manual bubble creation: every field optional; text defaults to a vertical ellipsis placeholder. */
+export const dialogueCreateSchema = dialogueSchema
+  .omit({ id: true, pageId: true })
+  .extend({ text: dialogueSchema.shape.text.default('……') })
+
 export const createProjectSchema = z.object({
   title: z.string().min(1).max(120).default('Untitled Manga'),
   mode: z.enum(['story', 'translation']).default('story'),

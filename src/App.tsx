@@ -19,6 +19,7 @@ import {
   Settings,
   Sparkles,
   Sun,
+  Trash2,
   Upload,
   Users,
   WandSparkles,
@@ -289,6 +290,32 @@ function App() {
     }
   }
 
+  async function handleAddDialogue(position?: { x: number; y: number }) {
+    if (!activePage) return
+    try {
+      const created = await api.createDialogue(activePage.id, position)
+      setDetail((current) => (current ? { ...current, dialogues: [...current.dialogues, created] } : current))
+      setSelectedDialogueId(created.id)
+      setActiveTab('dialogue')
+      pushLog(t('log.dialogueAdded'), 'success')
+    } catch (error) {
+      pushLog(describeError(error), 'error')
+    }
+  }
+
+  async function handleDeleteDialogue(id: string) {
+    try {
+      await api.deleteDialogue(id)
+      setDetail((current) =>
+        current ? { ...current, dialogues: current.dialogues.filter((dialogue) => dialogue.id !== id) } : current,
+      )
+      setSelectedDialogueId((current) => (current === id ? '' : current))
+      pushLog(t('log.dialogueDeleted'), 'success')
+    } catch (error) {
+      pushLog(describeError(error), 'error')
+    }
+  }
+
   async function handleCreateProject(event: FormEvent) {
     event.preventDefault()
     await runTask(t('log.creatingProject'), async () => {
@@ -371,13 +398,23 @@ function App() {
   async function handleGenerateAll() {
     if (!detail) return
     await runTask(t('toolbar.generateAll'), async () => {
-      for (const page of detail.pages) {
+      // Completed pages may hold hand-edited dialogue; bulk generation must not overwrite them.
+      const pendingPages = detail.pages.filter((page) => page.status !== 'complete')
+      const skippedCount = detail.pages.length - pendingPages.length
+      if (!pendingPages.length) {
+        pushLog(t('log.allPagesAlreadyComplete'))
+        return
+      }
+      for (const page of pendingPages) {
         pushLog(t('log.generatingPage', { n: page.index + 1 }))
         const next = await api.generatePage(page.id, { mode: generateMode, textDensity }, { onJobId: setCurrentJobId, onEvent: handleJobEvent })
         acceptDetail(next)
         if (next.raw) {
           setRawOutput({ title: t('raw.pageTitle', { n: page.index + 1 }), text: next.raw })
         }
+      }
+      if (skippedCount > 0) {
+        pushLog(t('log.skippedCompletedPages', { count: skippedCount }))
       }
       pushLog(t('log.allPagesGenerated'), 'success')
     })
@@ -622,6 +659,7 @@ function App() {
               setActiveTab('dialogue')
             }}
             onPatchDialogue={commitDialogue}
+            onAddDialogue={(x, y) => handleAddDialogue({ x, y })}
           />
         </section>
 
@@ -674,6 +712,9 @@ function App() {
             <DialoguePanel
               dialogues={activeDialogues}
               selectedDialogue={selectedDialogue}
+              canAdd={Boolean(activePage) && !busy}
+              onAdd={() => handleAddDialogue()}
+              onDelete={handleDeleteDialogue}
               onSelect={setSelectedDialogueId}
               onLocalChange={updateDialogueLocal}
               onCommit={commitDialogue}
@@ -1002,6 +1043,9 @@ function CharactersPanel(props: {
 function DialoguePanel(props: {
   dialogues: Dialogue[]
   selectedDialogue?: Dialogue
+  canAdd: boolean
+  onAdd: () => void
+  onDelete: (id: string) => void
   onSelect: (id: string) => void
   onLocalChange: (id: string, patch: Partial<Dialogue>) => void
   onCommit: (id: string, patch: Partial<Dialogue>) => void
@@ -1010,6 +1054,10 @@ function DialoguePanel(props: {
   const dialogue = props.selectedDialogue
   return (
     <div className="inspector-body">
+      <button type="button" className="secondary-button" data-testid="dialogue-add" disabled={!props.canAdd} onClick={props.onAdd}>
+        <Plus size={15} />
+        {t('dialogue.add')}
+      </button>
       <div className="dialogue-stack">
         {props.dialogues.map((item) => (
           <button
@@ -1074,16 +1122,27 @@ function DialoguePanel(props: {
               </select>
             </label>
           </div>
-          <button
-            type="button"
-            className="secondary-button"
-            aria-pressed={dialogue.locked}
-            data-testid="dialogue-lock-toggle"
-            onClick={() => props.onCommit(dialogue.id, dialogue.locked ? { locked: false } : { locked: true })}
-          >
-            {dialogue.locked ? <Unlock size={15} /> : <Lock size={15} />}
-            {dialogue.locked ? t('dialogue.unlock') : t('dialogue.lock')}
-          </button>
+          <div className="two-col">
+            <button
+              type="button"
+              className="secondary-button"
+              aria-pressed={dialogue.locked}
+              data-testid="dialogue-lock-toggle"
+              onClick={() => props.onCommit(dialogue.id, dialogue.locked ? { locked: false } : { locked: true })}
+            >
+              {dialogue.locked ? <Unlock size={15} /> : <Lock size={15} />}
+              {dialogue.locked ? t('dialogue.unlock') : t('dialogue.lock')}
+            </button>
+            <button
+              type="button"
+              className="secondary-button danger-button"
+              data-testid="dialogue-delete"
+              onClick={() => props.onDelete(dialogue.id)}
+            >
+              <Trash2 size={15} />
+              {t('dialogue.delete')}
+            </button>
+          </div>
         </div>
       ) : (
         <p className="empty-text">{t('dialogue.empty')}</p>

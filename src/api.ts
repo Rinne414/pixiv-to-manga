@@ -269,6 +269,19 @@ export function patchDialogue(id: string, patch: Partial<Dialogue>): Promise<Dia
   })
 }
 
+export function createDialogue(pageId: string, input: Partial<Dialogue> = {}): Promise<Dialogue> {
+  return request<Dialogue>(`/api/pages/${pageId}/dialogues`, {
+    method: 'POST',
+    body: JSON.stringify(input),
+  })
+}
+
+export function deleteDialogue(id: string): Promise<{ ok: boolean }> {
+  return request<{ ok: boolean }>(`/api/dialogues/${id}`, {
+    method: 'DELETE',
+  })
+}
+
 export function patchPageLayout(
   pageId: string,
   dialogues: Array<Partial<Dialogue> & { id: string }>,

@@ -16,10 +16,10 @@ import { exportProjectBackup, exportRenderedZip } from './exporter'
 import { importLocalImages, importPixivArtwork, importProjectBackup } from './importers'
 import { registerProviderLabRoutes } from './providers'
 import { registerContinuationRoutes } from './continuation'
+import { registerDialogueRoutes } from './dialogues'
 import {
   analyzeStorySchema,
   createProjectSchema,
-  dialogueSchema,
   exportZipSchema,
   exportProjectBackupSchema,
   generatePageSchema,
@@ -69,6 +69,7 @@ server.get('/api/health', async () => ({ ok: true, dataDir: appDataDir }))
 
 registerProviderLabRoutes(server, { db, secrets })
 registerContinuationRoutes(server, { db, secrets })
+registerDialogueRoutes(server, { db })
 
 server.get('/api/settings/secrets', async () => secrets.status())
 
@@ -187,22 +188,6 @@ server.post('/api/pages/:pageId/generate', async (request) => {
     }
   })()
   return { jobId }
-})
-
-server.patch('/api/dialogues/:id', async (request) => {
-  const { id } = request.params as { id: string }
-  const patch = dialogueSchema.partial().parse(request.body)
-  return db.updateDialogue(id, patch)
-})
-
-server.patch('/api/pages/:pageId/layout', async (request) => {
-  const { pageId } = request.params as { pageId: string }
-  const items = (request.body as { dialogues?: unknown[] }).dialogues || []
-  const updated = items.map((item) => {
-    const parsed = dialogueSchema.partial().required({ id: true }).parse(item)
-    return db.updateDialogue(parsed.id, parsed)
-  })
-  return { pageId, dialogues: updated }
 })
 
 server.post('/api/export/zip', async (request) => {

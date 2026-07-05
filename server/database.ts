@@ -244,6 +244,13 @@ export class StudioDatabase {
     return this.listDialogues(pageId).find((dialogue) => dialogue.id === id)!
   }
 
+  deleteDialogue(id: string): void {
+    const result = this.db.prepare('DELETE FROM dialogues WHERE id = ?').run(id)
+    if (!result.changes) {
+      throw new Error('Dialogue not found')
+    }
+  }
+
   updateDialogue(id: string, patch: Partial<Dialogue>): Dialogue {
     const current = this.db.prepare('SELECT * FROM dialogues WHERE id = ?').get(id) as Row | undefined
     if (!current) throw new Error('Dialogue not found')

@@ -443,6 +443,7 @@ test('main manga workflow imports local art, generates editable dialogue, export
   await expect(page.getByTestId('page-thumb').first()).toContainText('3 lines / complete')
   await page.getByTestId('toolbar-generate-all').click()
   await expect(page.getByText('All pages generated.')).toBeVisible()
+  await expect(page.getByText('1 completed page(s) skipped (already generated).')).toBeVisible()
   await expect(page.getByTestId('page-thumb').filter({ hasText: '3 lines / complete' })).toHaveCount(2)
   await page.getByTestId('tab-dialogue').click()
   await expect(page.getByTestId('dialogue-chip')).toHaveCount(3)
@@ -462,6 +463,11 @@ test('main manga workflow imports local art, generates editable dialogue, export
   await rightRail.getByTestId('dialogue-lock-toggle').click()
   await lockResponse
   await expect(rightRail.getByTestId('dialogue-lock-toggle')).toHaveAttribute('aria-pressed', 'true')
+
+  // Bulk generation must not overwrite pages that already hold (possibly hand-edited) dialogue.
+  await page.getByTestId('toolbar-generate-all').click()
+  await expect(page.getByText('All pages are already complete. Use Generate Page to regenerate a page.')).toBeVisible()
+  await expect(rightRail.getByTestId('dialogue-chip').filter({ hasText: '测试对白已经手动改过。' })).toBeVisible()
 
   await page.getByTestId('tab-layout').click()
   const layoutResponse = page.waitForResponse(

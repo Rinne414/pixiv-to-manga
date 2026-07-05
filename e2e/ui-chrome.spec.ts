@@ -62,6 +62,46 @@ test('whiteboard canvas zooms with controls, wheel, and fit', async ({ page }) =
     .toBeGreaterThan(parseInt(fitValue, 10))
 })
 
+test('dialogue bubbles can be added by double-click and deleted from the panel', async ({ page }) => {
+  await openStudio(page)
+  await page.getByLabel('Project title').fill(`Bubble CRUD ${Date.now()}`)
+  await page.getByRole('button', { name: /^Create$/ }).click()
+  await expect(page.getByText('Project created.')).toBeVisible()
+
+  const localImportResponse = page.waitForResponse(
+    (response) => response.url().includes('/api/import/local') && response.status() === 200,
+  )
+  await page.getByTestId('local-image-input').setInputFiles({
+    name: 'crud-page.svg',
+    mimeType: 'image/svg+xml',
+    buffer: Buffer.from(whiteboardSvg()),
+  })
+  await localImportResponse
+  await expect(page.locator('.canvas-meta')).toContainText('Page 1')
+
+  const stageBox = await page.getByTestId('manga-stage').boundingBox()
+  expect(stageBox).toBeTruthy()
+  const createResponse = page.waitForResponse(
+    (response) => response.url().includes('/dialogues') && response.request().method() === 'POST' && response.status() === 200,
+  )
+  await page.mouse.dblclick(stageBox!.x + stageBox!.width / 2, stageBox!.y + stageBox!.height / 2)
+  await createResponse
+  await expect(page.getByText('Dialogue added.')).toBeVisible()
+  await expect(page.getByTestId('dialogue-chip')).toHaveCount(1)
+  await expect(page.getByTestId('dialogue-chip')).toContainText('……')
+
+  await page.getByTestId('dialogue-add').click()
+  await expect(page.getByTestId('dialogue-chip')).toHaveCount(2)
+
+  const deleteResponse = page.waitForResponse(
+    (response) => response.url().includes('/api/dialogues/') && response.request().method() === 'DELETE' && response.status() === 200,
+  )
+  await page.getByTestId('dialogue-delete').click()
+  await deleteResponse
+  await expect(page.getByText('Dialogue deleted.')).toBeVisible()
+  await expect(page.getByTestId('dialogue-chip')).toHaveCount(1)
+})
+
 async function openStudio(page: Page) {
   await page.addInitScript(() => {
     window.open = () => null

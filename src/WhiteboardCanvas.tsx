@@ -29,6 +29,7 @@ interface WhiteboardCanvasProps {
   selectedDialogueId: string
   onSelectDialogue: (id: string) => void
   onPatchDialogue: (id: string, patch: Partial<Dialogue>) => Promise<void>
+  onAddDialogue: (x: number, y: number) => void
 }
 
 /**
@@ -122,6 +123,21 @@ export function WhiteboardCanvas(props: WhiteboardCanvasProps) {
     props.onZoomChange(next)
   }
 
+  // Double-clicking (or double-tapping) the page/background — not a bubble — drops a new dialogue there.
+  function handleStageDblClick(event: Konva.KonvaEventObject<MouseEvent | TouchEvent>) {
+    const stage = event.target.getStage()
+    const page = props.page
+    if (!stage || !page) return
+    // Bubble shapes live inside draggable Groups; page image/backdrop are direct Layer children.
+    const isBackground = event.target === stage || event.target.getParent()?.getType() === 'Layer'
+    if (!isBackground) return
+    const pointer = stage.getPointerPosition()
+    if (!pointer) return
+    const worldX = (pointer.x - stage.x()) / stage.scaleX()
+    const worldY = (pointer.y - stage.y()) / stage.scaleY()
+    props.onAddDialogue(clamp01(worldX / page.width), clamp01(worldY / page.height))
+  }
+
   // Sync during the drag (not just at the end) so the grid pans live and a mid-drag
   // re-render can't reconcile a stale stage position.
   function handleStageDragMove(event: Konva.KonvaEventObject<DragEvent>) {
@@ -178,6 +194,8 @@ export function WhiteboardCanvas(props: WhiteboardCanvasProps) {
           scaleY={props.zoom}
           draggable
           onWheel={handleWheel}
+          onDblClick={handleStageDblClick}
+          onDblTap={handleStageDblClick}
           onDragMove={handleStageDragMove}
           onDragEnd={handleStageDragEnd}
         >
