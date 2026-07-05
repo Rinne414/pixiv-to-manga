@@ -9,7 +9,7 @@ export const characterSchema = z.object({
   description: z.string().max(2000).default(''),
   voice: z.string().max(1200).default(''),
   color: z.string().regex(/^#[0-9a-fA-F]{6}$/).default('#141414'),
-  fontFamily: z.string().optional(),
+  fontFamily: z.string().max(300).optional(),
   bubbleStyle: bubbleStyleSchema.default('speech'),
 })
 
@@ -25,6 +25,7 @@ export const storyBibleSchema = z.object({
   characters: z.array(characterSchema).min(1).max(20),
   pageBeats: z.array(pageBeatSchema).min(1).max(300),
   userBrief: z.string().max(5000).optional(),
+  stylePrompt: z.string().max(2000).optional(),
   r18Enabled: z.boolean().default(false),
 })
 

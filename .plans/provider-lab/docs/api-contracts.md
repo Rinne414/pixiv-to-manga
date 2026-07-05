@@ -370,6 +370,12 @@ Providers saved with `isLocal: true` are usable WITHOUT a stored API key:
 
 `PUT /api/projects/:projectId/story-bible` saves user-edited AI output. The request body is a full `StoryBible` object validated by schema. Backend normalizes character `projectId` and fills any missing character IDs before persisting.
 
+`storyBibleSchema` optional fields (no migration needed; the bible is stored as a JSON blob in `projects.storyBibleJson`):
+
+- `stylePrompt?: string` (max 2000 chars) — reusable style rules. When present (after trim), both `analyzeStoryWithAi` and `generateDialoguesWithAi` inject it into the prompt as `风格要求（必须遵守）：<stylePrompt>。`. Re-analysis (`POST /api/story/analyze`) preserves the saved value: the model/mock response never includes `stylePrompt`, so the server re-attaches it before persisting.
+- `characters[].fontFamily?: string` (max 300 chars) — CSS font-family stack used by the whiteboard bubble renderer and PNG export (`canvasExport`). Empty/absent falls back to `DEFAULT_DIALOGUE_FONT` from `src/fonts.ts`; UI presets live in `FONT_PRESETS` (same file).
+- `characters` stays `min(1).max(20)`; the Characters panel mirrors these bounds (add disabled at 20, delete disabled at 1).
+
 Response: updated `ProjectDetail`.
 
 Both endpoints are asynchronous local jobs. The POST response returns immediately:

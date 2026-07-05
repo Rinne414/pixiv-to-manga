@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { AiJsonOutputError, generateDialoguesWithAi } from '../server/ai'
+import { AiJsonOutputError, analyzeStoryWithAi, generateDialoguesWithAi } from '../server/ai'
 import { StudioDatabase } from '../server/database'
 import { SecretStore, type KeytarModule } from '../server/secrets'
 
@@ -345,6 +345,215 @@ describe('AI vision generation', () => {
     expect(result.dialogues[0].text).toBe('本地模型对白。')
     expect(requestUrl).toBe('http://127.0.0.1:11434/v1/chat/completions')
     expect(headers.Authorization).toBeUndefined()
+  })
+
+  it('injects the reusable story bible style prompt into dialogue generation requests', async () => {
+    const { db, dataDir } = createDb()
+    const secrets = new TestSecretStore(db, new MemoryKeytar())
+    await secrets.save({
+      apiBaseUrl: 'https://api.example.test/v1',
+      modelName: 'gpt-4o',
+      apiKey: 'test-api-key',
+    })
+    const provider = db.createProvider({
+      name: 'Vision Provider',
+      baseUrl: 'https://api.example.test/v1',
+      defaultModel: 'gpt-4o',
+      isLocal: false,
+    })
+    db.upsertModelCapability({
+      providerId: provider.id,
+      modelId: 'gpt-4o',
+      supportsVision: true,
+      allowsAdultInput: false,
+      allowsAdultGeneration: false,
+    })
+
+    const project = db.createProject({ title: 'Style Prompt Project', mode: 'story', source: 'local' })
+    const relativePath = path.join('projects', project.id, 'originals', 'page-001.png')
+    const absolutePath = path.join(dataDir, relativePath)
+    mkdirSync(path.dirname(absolutePath), { recursive: true })
+    writeFileSync(absolutePath, Buffer.from('png-bytes'))
+    const asset = db.createAsset({ projectId: project.id, kind: 'original', relativePath, mimeType: 'image/png' })
+    const page = db.createPage({ projectId: project.id, index: 0, originalAssetId: asset.id })
+    db.saveStoryBible(project.id, {
+      synopsis: '测试故事。',
+      tone: '轻松',
+      characters: [
+        {
+          id: 'char-1',
+          projectId: project.id,
+          name: '夏海',
+          description: '主角',
+          voice: '直率',
+          color: '#c9282d',
+          bubbleStyle: 'speech',
+        },
+      ],
+      pageBeats: [{ pageIndex: 0, summary: '开场', intent: 'setup' }],
+      stylePrompt: '  全部对白使用文言文，句尾加“也”。  ',
+      r18Enabled: false,
+    })
+
+    let promptText = ''
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (_url, init) => {
+        const body = JSON.parse(String(init?.body)) as {
+          messages?: Array<{ content?: Array<{ type?: string; text?: string }> }>
+        }
+        promptText = body.messages?.[0]?.content?.find((part) => part.type === 'text')?.text || ''
+        return new Response(
+          JSON.stringify({
+            choices: [
+              {
+                message: {
+                  content: JSON.stringify({
+                    dialogues: [
+                      {
+                        text: '风格化对白也。',
+                        characterName: '夏海',
+                        x: 0.5,
+                        y: 0.25,
+                        scale: 1,
+                        rotation: 0,
+                        bubbleStyle: 'speech',
+                        color: '#141414',
+                        locked: false,
+                      },
+                    ],
+                  }),
+                },
+              },
+            ],
+          }),
+          { status: 200 },
+        )
+      }),
+    )
+
+    const result = await generateDialoguesWithAi({ secrets, db }, db.getProjectDetail(project.id), page, {
+      mode: 'story',
+      textDensity: 0.65,
+    })
+
+    expect(result.usedMock).toBe(false)
+    // Trimmed style prompt must be injected verbatim as a mandatory style rule.
+    expect(promptText).toContain('风格要求（必须遵守）：全部对白使用文言文，句尾加“也”。')
+    // Models only return characterName; the server must resolve the ID so fonts/colors apply.
+    expect(result.dialogues[0].characterId).toBe('char-1')
+  })
+
+  it('preserves the saved style prompt when the story is re-analyzed', async () => {
+    const { db } = createDb()
+    const secrets = new TestSecretStore(db, new MemoryKeytar())
+    await secrets.save({
+      apiBaseUrl: 'https://api.example.test/v1',
+      modelName: 'gpt-4o',
+      apiKey: 'test-api-key',
+    })
+    const provider = db.createProvider({
+      name: 'Vision Provider',
+      baseUrl: 'https://api.example.test/v1',
+      defaultModel: 'gpt-4o',
+      isLocal: false,
+    })
+    db.upsertModelCapability({
+      providerId: provider.id,
+      modelId: 'gpt-4o',
+      supportsVision: true,
+      allowsAdultInput: false,
+      allowsAdultGeneration: false,
+    })
+
+    const project = db.createProject({ title: 'Re-analysis Project', mode: 'story', source: 'local' })
+    db.saveStoryBible(project.id, {
+      synopsis: '初版故事。',
+      tone: '轻松',
+      characters: [
+        {
+          id: 'char-1',
+          projectId: project.id,
+          name: '夏海',
+          description: '主角',
+          voice: '直率',
+          color: '#c9282d',
+          bubbleStyle: 'speech',
+        },
+      ],
+      pageBeats: [{ pageIndex: 0, summary: '开场', intent: 'setup' }],
+      stylePrompt: '全部对白使用文言文。',
+      r18Enabled: false,
+    })
+
+    // The model's re-analysis response omits stylePrompt (it is user config, not model output).
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => {
+        return new Response(
+          JSON.stringify({
+            choices: [
+              {
+                message: {
+                  content: JSON.stringify({
+                    synopsis: '重新分析后的故事。',
+                    tone: '热血',
+                    characters: [
+                      { name: '夏海', description: '主角', voice: '直率', color: '#c9282d', bubbleStyle: 'speech' },
+                    ],
+                    pageBeats: [{ pageIndex: 0, summary: '新开场', intent: 'setup' }],
+                    userBrief: '',
+                    r18Enabled: false,
+                  }),
+                },
+              },
+            ],
+          }),
+          { status: 200 },
+        )
+      }),
+    )
+
+    const result = await analyzeStoryWithAi({ secrets, db }, db.getProjectDetail(project.id), {
+      userBrief: '',
+      r18Enabled: false,
+    })
+
+    expect(result.usedMock).toBe(false)
+    expect(result.storyBible.synopsis).toBe('重新分析后的故事。')
+    expect(result.storyBible.stylePrompt).toBe('全部对白使用文言文。')
+  })
+
+  it('preserves the saved style prompt when the mock analysis engine runs', async () => {
+    const { db } = createDb()
+    const secrets = new TestSecretStore(db, new MemoryKeytar())
+    const project = db.createProject({ title: 'Mock Re-analysis Project', mode: 'story', source: 'local' })
+    db.saveStoryBible(project.id, {
+      synopsis: '初版故事。',
+      tone: '轻松',
+      characters: [
+        {
+          id: 'char-1',
+          projectId: project.id,
+          name: '夏海',
+          description: '主角',
+          voice: '直率',
+          color: '#c9282d',
+          bubbleStyle: 'speech',
+        },
+      ],
+      pageBeats: [{ pageIndex: 0, summary: '开场', intent: 'setup' }],
+      stylePrompt: '全部对白使用文言文。',
+      r18Enabled: false,
+    })
+
+    const result = await analyzeStoryWithAi({ secrets, db }, db.getProjectDetail(project.id), {
+      userBrief: '',
+      r18Enabled: false,
+    })
+
+    expect(result.usedMock).toBe(true)
+    expect(result.storyBible.stylePrompt).toBe('全部对白使用文言文。')
   })
 
   it('ignores keyless external providers and falls back to the local mock engine', async () => {

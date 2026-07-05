@@ -3,6 +3,8 @@ import type Konva from 'konva'
 import { Circle, Ellipse, Group, Image as KonvaImage, Layer, Line, Rect, Stage, Text } from 'react-konva'
 import { Frame, ImagePlus, Minus, Plus, Scan } from 'lucide-react'
 import type { Asset, Character, Dialogue, Page } from './shared/types'
+import { findDialogueCharacter } from './shared/characters'
+import { DEFAULT_DIALOGUE_FONT } from './fonts'
 import { clamp, clamp01, estimateVerticalTextBox } from './shared/layout'
 import { toVerticalColumns } from './shared/text'
 import { useI18n } from './i18n/context'
@@ -215,7 +217,7 @@ export function WhiteboardCanvas(props: WhiteboardCanvasProps) {
                 dialogue={dialogue}
                 pageWidth={page.width}
                 pageHeight={page.height}
-                character={props.characters.find((character) => character.id === dialogue.characterId)}
+                character={findDialogueCharacter(props.characters, dialogue)}
                 selected={dialogue.id === props.selectedDialogueId}
                 onSelect={() => props.onSelectDialogue(dialogue.id)}
                 onDragEnd={(x, y) => props.onPatchDialogue(dialogue.id, { x, y })}
@@ -344,7 +346,7 @@ function BubbleNode(props: {
             y={-(column.length * fontSize * 1.08) / 2}
             width={fontSize}
             text={Array.from(column).join('\n')}
-            fontFamily={props.character?.fontFamily || 'Noto Serif SC, SimSun, serif'}
+            fontFamily={props.character?.fontFamily || DEFAULT_DIALOGUE_FONT}
             fontStyle="700"
             fontSize={fontSize}
             lineHeight={1.08}

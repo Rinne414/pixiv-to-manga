@@ -95,6 +95,13 @@
 - Manual bubbles: double-click the whiteboard page/background (WhiteboardCanvas `onDblClick`/`onDblTap`, page-space coordinates) or the Dialogue tab "Add dialogue" button; delete from the Dialogue tab. Defaults come from `dialogueCreateSchema` (`text: '……'`, center position).
 - Generate All only regenerates pages whose status is not `complete`; completed pages (which may hold hand-edited dialogue) are skipped and the skip count is logged. When all pages are complete it logs guidance instead of regenerating.
 
+## Character Tools & Style Prompt
+
+- Fonts: `src/fonts.ts` owns `DEFAULT_DIALOGUE_FONT` and `FONT_PRESETS` (CJK system stacks). `Character.fontFamily` flows Characters tab select → `WhiteboardCanvas` BubbleNode → `canvasExport.drawDialogue`, so the editor and PNG export always agree. Unknown stored values render as an extra `<option>` instead of being dropped.
+- Dialogue→character resolution: AI responses only carry `characterName`, so `generateDialoguesWithAi` resolves `characterId` by name before saving. Renderers resolve via `findDialogueCharacter` (`src/shared/characters.ts`): id first, name fallback — manually edited dialogues and dangling ids (after character delete) degrade to the default styling instead of crashing.
+- Manual characters: Characters tab add/delete mutates the Story Bible immutably and commits via `PUT /api/projects/:projectId/story-bible`. UI mirrors `storyBibleSchema` bounds — add disabled at 20 characters, delete disabled at 1.
+- Style prompt: `StoryBible.stylePrompt` (Story tab textarea, max 2000 chars) is injected into both `analyzeStoryWithAi` and `generateDialoguesWithAi` prompts as a mandatory style rule when non-empty. Stored inside `projects.storyBibleJson`, so no schema migration.
+
 ## UI Chrome (theme / i18n / whiteboard)
 
 - Theme: `src/theme.ts` `useTheme` writes `<html data-theme="light|dark">`; `index.html` applies the persisted/OS theme before first paint. All colors flow through CSS custom properties in `src/index.css` with a `:root[data-theme='dark']` override block. Preference persists in `localStorage` (`ptm-theme`, non-secret).

@@ -102,6 +102,65 @@ test('dialogue bubbles can be added by double-click and deleted from the panel',
   await expect(page.getByTestId('dialogue-chip')).toHaveCount(1)
 })
 
+test('style prompt persists and characters support add, font choice, and delete', async ({ page }) => {
+  await openStudio(page)
+  await page.getByLabel('Project title').fill(`Character Tools ${Date.now()}`)
+  await page.getByRole('button', { name: /^Create$/ }).click()
+  await expect(page.getByText('Project created.')).toBeVisible()
+
+  const localImportResponse = page.waitForResponse(
+    (response) => response.url().includes('/api/import/local') && response.status() === 200,
+  )
+  await page.getByTestId('local-image-input').setInputFiles({
+    name: 'character-page.svg',
+    mimeType: 'image/svg+xml',
+    buffer: Buffer.from(whiteboardSvg()),
+  })
+  await localImportResponse
+  await expect(page.locator('.canvas-meta')).toContainText('Page 1')
+
+  await page.getByTestId('toolbar-analyze-story').click()
+  await expect(page.getByText('Story Bible generated with local mock engine.')).toBeVisible()
+
+  const styleSaveResponse = page.waitForResponse(
+    (response) => response.url().includes('/story-bible') && response.status() === 200,
+  )
+  await page.getByTestId('story-style-prompt-input').fill('全部对白使用文言文。')
+  await page.getByTestId('story-style-prompt-input').blur()
+  await styleSaveResponse
+  await expect(page.getByText('Story Bible saved.').first()).toBeVisible()
+  await page.reload()
+  await expect(page.getByText('Studio ready. Local database loaded.')).toBeVisible()
+  await expect(page.getByTestId('story-style-prompt-input')).toHaveValue('全部对白使用文言文。')
+
+  await page.getByTestId('tab-characters').click()
+  await expect(page.getByTestId('character-name-input')).toHaveCount(2)
+
+  const addSaveResponse = page.waitForResponse(
+    (response) => response.url().includes('/story-bible') && response.status() === 200,
+  )
+  await page.getByTestId('character-add').click()
+  await addSaveResponse
+  await expect(page.getByTestId('character-name-input')).toHaveCount(3)
+  await expect(page.getByTestId('character-name-input').nth(2)).toHaveValue('New Character')
+
+  const fontSaveResponse = page.waitForResponse(
+    (response) => response.url().includes('/story-bible') && response.status() === 200,
+  )
+  await page.getByTestId('character-font-select').first().selectOption({ label: 'Kaiti (brush)' })
+  await fontSaveResponse
+  await expect(page.getByTestId('character-font-select').first()).toHaveValue(/KaiTi/)
+
+  const deleteSaveResponse = page.waitForResponse(
+    (response) => response.url().includes('/story-bible') && response.status() === 200,
+  )
+  await page.getByTestId('character-delete').nth(2).click()
+  await deleteSaveResponse
+  await expect(page.getByTestId('character-name-input')).toHaveCount(2)
+  // The font picked before the delete must survive the round-trip.
+  await expect(page.getByTestId('character-font-select').first()).toHaveValue(/KaiTi/)
+})
+
 async function openStudio(page: Page) {
   await page.addInitScript(() => {
     window.open = () => null

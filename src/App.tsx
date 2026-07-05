@@ -31,6 +31,7 @@ import { renderProjectPages } from './canvasExport'
 import { ProviderLabPanel } from './ProviderLabPanel'
 import { StoryContinuePanel } from './StoryContinuePanel'
 import { WhiteboardCanvas, WHITEBOARD_MAX_ZOOM, WHITEBOARD_MIN_ZOOM } from './WhiteboardCanvas'
+import { FONT_PRESETS } from './fonts'
 import { useI18n } from './i18n/context'
 import type { MessageKey } from './i18n/messages'
 import type { MessageParams } from './i18n/types'
@@ -906,6 +907,17 @@ function StoryPanel(props: {
               onBlur={(event) => commitStory({ tone: event.target.value })}
             />
           </label>
+          <label>
+            {t('story.stylePrompt')}
+            <textarea
+              value={story.stylePrompt || ''}
+              rows={3}
+              data-testid="story-style-prompt-input"
+              placeholder={t('story.stylePromptPlaceholder')}
+              onChange={(event) => updateStory({ stylePrompt: event.target.value })}
+              onBlur={(event) => commitStory({ stylePrompt: event.target.value })}
+            />
+          </label>
           <label className="toggle-row danger">
             <input
               type="checkbox"
@@ -952,15 +964,22 @@ function StoryPanel(props: {
   )
 }
 
+const CHARACTER_COLOR_PALETTE = ['#c9282d', '#1d5f9f', '#217a4f', '#7c3aed', '#b45309', '#0f766e']
+const MAX_CHARACTERS = 20
+
 function CharactersPanel(props: {
   storyBible?: StoryBible
   onStoryBibleChange: (storyBible: StoryBible) => void
   onStoryBibleCommit: (storyBible: StoryBible) => void
 }) {
   const { t } = useI18n()
-  const characters = props.storyBible?.characters || []
+  const storyBible = props.storyBible
+  const characters = storyBible?.characters || []
+  // storyBibleSchema enforces 1..20 characters; mirror those bounds in the UI.
+  const canAdd = Boolean(storyBible) && characters.length < MAX_CHARACTERS
+  const canDelete = characters.length > 1
+
   const updateCharacter = (characterId: string, patch: Partial<Character>, commit = false) => {
-    const storyBible = props.storyBible
     if (!storyBible) return
     const next = {
       ...storyBible,
@@ -972,8 +991,43 @@ function CharactersPanel(props: {
     }
   }
 
+  const addCharacter = () => {
+    if (!storyBible || !canAdd) return
+    const next = {
+      ...storyBible,
+      characters: [
+        ...storyBible.characters,
+        {
+          id: cryptoId(),
+          projectId: storyBible.characters[0]?.projectId || '',
+          name: t('character.newName'),
+          description: '',
+          voice: '',
+          color: CHARACTER_COLOR_PALETTE[storyBible.characters.length % CHARACTER_COLOR_PALETTE.length],
+          bubbleStyle: 'speech' as BubbleStyle,
+        },
+      ],
+    }
+    props.onStoryBibleChange(next)
+    props.onStoryBibleCommit(next)
+  }
+
+  const deleteCharacter = (characterId: string) => {
+    if (!storyBible || !canDelete) return
+    const next = {
+      ...storyBible,
+      characters: storyBible.characters.filter((character) => character.id !== characterId),
+    }
+    props.onStoryBibleChange(next)
+    props.onStoryBibleCommit(next)
+  }
+
   return (
     <div className="inspector-body">
+      <button type="button" className="secondary-button" data-testid="character-add" disabled={!canAdd} onClick={addCharacter}>
+        <Plus size={15} />
+        {t('character.add')}
+      </button>
       {characters.length ? (
         characters.map((character) => (
           <div key={character.id} className="character-row character-editor">
@@ -1030,6 +1084,33 @@ function CharactersPanel(props: {
                   </select>
                 </label>
               </div>
+              <label>
+                {t('character.font')}
+                <select
+                  value={character.fontFamily || ''}
+                  data-testid="character-font-select"
+                  onChange={(event) => updateCharacter(character.id, { fontFamily: event.target.value || undefined }, true)}
+                >
+                  {FONT_PRESETS.map((preset) => (
+                    <option key={preset.labelKey} value={preset.value}>
+                      {t(preset.labelKey)}
+                    </option>
+                  ))}
+                  {character.fontFamily && !FONT_PRESETS.some((preset) => preset.value === character.fontFamily) ? (
+                    <option value={character.fontFamily}>{character.fontFamily}</option>
+                  ) : null}
+                </select>
+              </label>
+              <button
+                type="button"
+                className="secondary-button danger-button"
+                data-testid="character-delete"
+                disabled={!canDelete}
+                onClick={() => deleteCharacter(character.id)}
+              >
+                <Trash2 size={15} />
+                {t('character.delete')}
+              </button>
             </div>
           </div>
         ))

@@ -1,6 +1,8 @@
+import { DEFAULT_DIALOGUE_FONT } from './fonts'
+import { findDialogueCharacter } from './shared/characters'
 import { estimateVerticalTextBox } from './shared/layout'
 import { toVerticalColumns } from './shared/text'
-import type { Asset, Dialogue, Page, ProjectDetail } from './shared/types'
+import type { Asset, Character, Dialogue, Page, ProjectDetail } from './shared/types'
 
 export async function renderProjectPages(detail: ProjectDetail): Promise<Array<{ pageId: string; dataUrl: string }>> {
   const rendered: Array<{ pageId: string; dataUrl: string }> = []
@@ -15,14 +17,19 @@ export async function renderProjectPages(detail: ProjectDetail): Promise<Array<{
     const dialogues = detail.dialogues.filter((dialogue) => dialogue.pageId === page.id)
     rendered.push({
       pageId: page.id,
-      dataUrl: await renderPage(page, asset, dialogues),
+      dataUrl: await renderPage(page, asset, dialogues, detail.characters),
     })
   }
 
   return rendered
 }
 
-async function renderPage(page: Page, asset: Asset, dialogues: Dialogue[]): Promise<string> {
+async function renderPage(
+  page: Page,
+  asset: Asset,
+  dialogues: Dialogue[],
+  characters: Character[],
+): Promise<string> {
   const width = page.width || asset.width || 1200
   const height = page.height || asset.height || 1600
   const canvas = document.createElement('canvas')
@@ -40,7 +47,8 @@ async function renderPage(page: Page, asset: Asset, dialogues: Dialogue[]): Prom
   context.drawImage(image, 0, 0, width, height)
 
   for (const dialogue of dialogues) {
-    drawDialogue(context, dialogue, width, height)
+    const character = findDialogueCharacter(characters, dialogue)
+    drawDialogue(context, dialogue, width, height, character?.fontFamily)
   }
 
   return canvas.toDataURL('image/png')
@@ -55,7 +63,13 @@ function loadImage(src: string): Promise<HTMLImageElement> {
   })
 }
 
-function drawDialogue(context: CanvasRenderingContext2D, dialogue: Dialogue, pageWidth: number, pageHeight: number): void {
+function drawDialogue(
+  context: CanvasRenderingContext2D,
+  dialogue: Dialogue,
+  pageWidth: number,
+  pageHeight: number,
+  fontFamily?: string,
+): void {
   const box = estimateVerticalTextBox(dialogue)
   const fontSize = Math.round(34 * dialogue.scale)
   const columns = toVerticalColumns(dialogue.text, 11)
@@ -98,7 +112,7 @@ function drawDialogue(context: CanvasRenderingContext2D, dialogue: Dialogue, pag
   }
 
   context.fillStyle = dialogue.color || '#111111'
-  context.font = `700 ${fontSize}px "Noto Serif SC", SimSun, serif`
+  context.font = `700 ${fontSize}px ${fontFamily || DEFAULT_DIALOGUE_FONT}`
   context.textAlign = 'center'
   context.textBaseline = 'top'
 

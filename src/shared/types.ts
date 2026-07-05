@@ -58,6 +58,8 @@ export interface StoryBible {
   characters: Character[]
   pageBeats: PageBeat[]
   userBrief?: string
+  /** Reusable style rules injected into every story/dialogue generation prompt. */
+  stylePrompt?: string
   r18Enabled: boolean
 }
 

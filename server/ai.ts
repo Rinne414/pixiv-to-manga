@@ -49,9 +49,13 @@ export async function analyzeStoryWithAi(
   input: { userBrief: string; r18Enabled: boolean },
 ): Promise<{ storyBible: StoryBible; raw: string; usedMock: boolean }> {
   const target = await resolveAiTarget(context)
+  // The style prompt is user-authored config, not model output; re-analysis must never drop it.
+  const preservedStylePrompt = detail.project.storyBible?.stylePrompt
+    ? { stylePrompt: detail.project.storyBible.stylePrompt }
+    : {}
 
   if (!target) {
-    const mock = mockStoryBible(detail, input)
+    const mock = { ...mockStoryBible(detail, input), ...preservedStylePrompt }
     return { storyBible: mock, raw: JSON.stringify(mock, null, 2), usedMock: true }
   }
 
@@ -64,7 +68,8 @@ export async function analyzeStoryWithAi(
     safetyClass: input.r18Enabled ? 'explicit' : 'safe',
   })
 
-  const prompt = `你是漫画编剧。请先观察随后的漫画页面图片，再基于画面、项目页数和用户补充，创建中文 Story Bible。必须只返回 JSON，字段为 synopsis, tone, characters, pageBeats, userBrief, r18Enabled。characters 每项包含 name, description, voice, color, bubbleStyle。pageBeats 每项包含 pageIndex, summary, intent。项目标题：${detail.project.title}。页数：${detail.pages.length}。用户补充：${input.userBrief || '无'}。R18: ${input.r18Enabled ? 'true' : 'false'}。`
+  const stylePrompt = detail.project.storyBible?.stylePrompt?.trim()
+  const prompt = `你是漫画编剧。请先观察随后的漫画页面图片，再基于画面、项目页数和用户补充，创建中文 Story Bible。必须只返回 JSON，字段为 synopsis, tone, characters, pageBeats, userBrief, r18Enabled。characters 每项包含 name, description, voice, color, bubbleStyle。pageBeats 每项包含 pageIndex, summary, intent。项目标题：${detail.project.title}。页数：${detail.pages.length}。用户补充：${input.userBrief || '无'}。${stylePrompt ? `风格要求（必须遵守）：${stylePrompt}。` : ''}R18: ${input.r18Enabled ? 'true' : 'false'}。`
   const raw = await openAiChatJson(target.apiBaseUrl, target.modelName, target.apiKey, [{ type: 'text', text: prompt }, ...imageParts], {
     signal: context.signal,
     stream: target.supportsStreaming,
@@ -79,7 +84,11 @@ export async function analyzeStoryWithAi(
     schemaHint: 'StoryBible JSON: synopsis, tone, characters[], pageBeats[], userBrief, r18Enabled',
     signal: context.signal,
   })
-  return { storyBible: normalizeStoryBible(repaired.parsed, detail.project.id), raw: repaired.raw, usedMock: false }
+  return {
+    storyBible: { ...normalizeStoryBible(repaired.parsed, detail.project.id), ...preservedStylePrompt },
+    raw: repaired.raw,
+    usedMock: false,
+  }
 }
 
 export async function generateDialoguesWithAi(
@@ -107,7 +116,8 @@ export async function generateDialoguesWithAi(
 
   const beat = storyBible.pageBeats.find((item) => item.pageIndex === page.index)
   const characters = storyBible.characters.map((character) => `${character.name}: ${character.voice}`).join('\n')
-  const prompt = `你是漫画对白创作者。请先观察随后的本页漫画图片，再生成叠字对白。模式：${input.mode === 'translation' ? '视觉翻译/改写，不原创大剧情' : '原创故事对白'}。请为第 ${page.index + 1} 页生成中文漫画对白。故事：${storyBible.synopsis}。本页剧情：${beat?.summary || '未指定'}。角色声音：${characters}。文本密度：${input.textDensity}。必须只返回 JSON：{"dialogues":[{"text":"...","characterName":"...","x":0.5,"y":0.5,"scale":1,"rotation":0,"bubbleStyle":"speech","color":"#141414","locked":false}]}. x/y 是 0-1 画面坐标，避免挡脸、遮住关键画面和互相重叠。`
+  const stylePrompt = storyBible.stylePrompt?.trim()
+  const prompt = `你是漫画对白创作者。请先观察随后的本页漫画图片，再生成叠字对白。模式：${input.mode === 'translation' ? '视觉翻译/改写，不原创大剧情' : '原创故事对白'}。请为第 ${page.index + 1} 页生成中文漫画对白。故事：${storyBible.synopsis}。本页剧情：${beat?.summary || '未指定'}。角色声音：${characters}。${stylePrompt ? `风格要求（必须遵守）：${stylePrompt}。` : ''}文本密度：${input.textDensity}。必须只返回 JSON：{"dialogues":[{"text":"...","characterName":"...","x":0.5,"y":0.5,"scale":1,"rotation":0,"bubbleStyle":"speech","color":"#141414","locked":false}]}. x/y 是 0-1 画面坐标，避免挡脸、遮住关键画面和互相重叠。`
   const raw = await openAiChatJson(target.apiBaseUrl, target.modelName, target.apiKey, [{ type: 'text', text: prompt }, ...pageImageParts], {
     signal: context.signal,
     stream: target.supportsStreaming,
@@ -123,11 +133,14 @@ export async function generateDialoguesWithAi(
     signal: context.signal,
   })
   const parsed = repaired.parsed
+  // Models only return characterName; resolve the ID so per-character styling (font, color) applies.
+  const characterIdsByName = new Map(storyBible.characters.map((character) => [character.name, character.id]))
   const dialogues = resolveDialogueCollisions(
     parsed.dialogues.map((dialogue) => ({
       ...dialogue,
       id: dialogue.id || randomUUID(),
       pageId: page.id,
+      characterId: dialogue.characterId || (dialogue.characterName ? characterIdsByName.get(dialogue.characterName) : undefined),
       color: dialogue.color || '#141414',
       raw: repaired.raw,
     })),
