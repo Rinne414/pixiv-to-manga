@@ -1,6 +1,7 @@
 # Agent Handoff Notes
 
-Last updated: 2026-07-05. Written after shipping: infinite whiteboard canvas, dark mode,
+Last updated: 2026-07-11 (dependency refresh — see Known debts item 9; full suite green).
+Previous update 2026-07-05. Written after shipping: infinite whiteboard canvas, dark mode,
 en/zh-TW i18n, keyless local provider (Ollama) support, sidebar legibility fixes,
 character font picker + manual character add/delete + reusable style prompt.
 Everything below is verified green: `npx tsc -b`, `npm test` (94 tests), `npm run lint`,
@@ -125,6 +126,11 @@ Everything below is verified green: `npx tsc -b`, `npm test` (94 tests), `npm ru
    ends. All self-correcting, reviewed and accepted.
 8. Vertical text columns don't apply CJK punctuation kinsoku rules (、。 can start a
    column) — pre-existing; affects editor and export equally.
+9. TypeScript stays on 6.0.x. TS 7.0.2 (native compiler) was tried 2026-07-11:
+   `tsc -b` passes, but typescript-eslint ≤8.63 declares peer `typescript <6.1.0` and
+   its typescript-estree crashes at lint (`ModuleKind.Cjs` undefined). Retry the bump
+   once typescript-eslint ships TS7 support. `@types/node` tracks the runtime major
+   (Node 25 → `^25`); don't jump to 26 until the runtime does.
 
 ## Verification workflow
 
