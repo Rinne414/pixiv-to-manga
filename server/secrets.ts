@@ -1,5 +1,6 @@
 import type { SecretStatus } from '../src/shared/types'
 import type { StudioDatabase } from './database'
+import { normalizeBaseUrl } from './providerResolution'
 
 const SERVICE = 'Pixiv-to-Manga Studio'
 const API_KEY_ACCOUNT = 'openai-compatible-api-key'
@@ -147,13 +148,4 @@ function isKeytarModule(value: unknown): value is KeytarModule {
 
 function providerApiKeyAccount(providerId: string): string {
   return `${PROVIDER_API_KEY_PREFIX}${providerId}`
-}
-
-function normalizeBaseUrl(value: string): string {
-  const trimmed = value.trim().replace(/\/+$/, '')
-  if (!trimmed) return ''
-  if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) {
-    return trimmed
-  }
-  return `https://${trimmed}`
 }

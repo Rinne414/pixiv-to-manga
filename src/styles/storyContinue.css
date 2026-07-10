@@ -1,0 +1,155 @@
+/*
+ * Story Continue feature styles (StoryContinuePanel.tsx).
+ * Load order matters: import AFTER providerLab.css — .reference-row rules here
+ * override the compact row group defined there.
+ */
+
+.continue-workspace {
+  display: grid;
+  grid-template-columns: 336px minmax(0, 1fr) 416px;
+  min-height: 0;
+  background: var(--canvas-bg);
+}
+
+.continue-references,
+.continue-controls {
+  min-width: 0;
+  overflow: auto;
+  padding: 14px;
+}
+
+.continue-references {
+  display: grid;
+  align-content: start;
+  gap: 14px;
+  border-right: 1px solid var(--line);
+}
+
+.continue-controls {
+  border-left: 1px solid var(--line);
+}
+
+.reference-list {
+  display: grid;
+  gap: 8px;
+}
+
+.reference-row {
+  grid-template-columns: 56px minmax(0, 1fr);
+  align-items: center;
+  gap: 9px;
+}
+
+.reference-row img {
+  width: 46px;
+  height: 58px;
+  display: block;
+  object-fit: cover;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--panel);
+}
+
+.reference-row span {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.continue-output {
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+  padding: 18px;
+  background:
+    linear-gradient(90deg, var(--grid-line) 1px, transparent 1px),
+    linear-gradient(var(--grid-line) 1px, transparent 1px),
+    var(--canvas-bg);
+  background-size: 28px 28px;
+}
+
+.generated-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 14px;
+  align-content: start;
+}
+
+.generated-frame {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+}
+
+.generated-frame img {
+  width: 100%;
+  aspect-ratio: 1;
+  object-fit: contain;
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  background: var(--panel);
+  box-shadow: var(--shadow);
+}
+
+.generated-frame figcaption {
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.continue-empty-state {
+  display: grid;
+  place-items: center;
+  align-content: center;
+  gap: 10px;
+  min-height: 100%;
+  color: var(--muted);
+  font-size: 16px;
+  font-weight: 800;
+}
+
+.metadata-editor {
+  display: grid;
+  gap: 10px;
+  padding-top: 4px;
+  border-top: 1px solid var(--line);
+}
+
+.expanded-prompt {
+  display: grid;
+  gap: 8px;
+}
+
+.expanded-prompt summary {
+  cursor: pointer;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.continue-r18-toggle {
+  align-self: end;
+  min-height: 35px;
+}
+
+@media (max-width: 1120px) {
+  .continue-workspace {
+    grid-template-columns: 1fr;
+  }
+
+  .continue-references,
+  .continue-controls {
+    border: 0;
+    border-bottom: 1px solid var(--line);
+  }
+
+  .continue-output {
+    min-height: 640px;
+  }
+}
+
+@media (max-width: 640px) {
+  .continue-output {
+    padding: 10px;
+  }
+}

@@ -10,6 +10,7 @@ type RunTask = (label: string, task: () => Promise<void>) => Promise<void>
 
 export function StoryContinuePanel(props: {
   disabled: boolean
+  busyLabel: string
   runTask: RunTask
   onLog: (message: string, level?: 'info' | 'success' | 'error') => void
 }) {
@@ -25,7 +26,6 @@ export function StoryContinuePanel(props: {
   const [keepBackgroundConsistency, setKeepBackgroundConsistency] = useState(true)
   const [expandedPrompt, setExpandedPrompt] = useState('')
   const [images, setImages] = useState<ContinuationImage[]>([])
-  const [loadingLabel, setLoadingLabel] = useState('')
 
   const selectedReference =
     references.find((reference) => reference.id === selectedReferenceId) || references[0]
@@ -36,18 +36,12 @@ export function StoryContinuePanel(props: {
     [references],
   )
 
-  async function run(label: string, task: () => Promise<void>) {
-    setLoadingLabel(label)
-    await props.runTask(label, task)
-    setLoadingLabel('')
-  }
-
   async function handleLocalFiles(event: ChangeEvent<HTMLInputElement>) {
     const files = Array.from(event.currentTarget.files || [])
     event.currentTarget.value = ''
     if (!files.length) return
 
-    await run(t('continue.inspectingRefs'), async () => {
+    await props.runTask(t('continue.inspectingRefs'), async () => {
       const result = await api.inspectContinuationLocal(files)
       acceptReferences(result.references)
       props.onLog(t('continue.refsInspected', { count: result.references.length }), 'success')
@@ -61,7 +55,7 @@ export function StoryContinuePanel(props: {
       return
     }
 
-    await run(t('continue.importingPixivRefs'), async () => {
+    await props.runTask(t('continue.importingPixivRefs'), async () => {
       const result = await api.inspectContinuationPixiv({
         url: pixivUrl.trim(),
         r18Enabled,
@@ -75,7 +69,7 @@ export function StoryContinuePanel(props: {
 
   async function handleGenerate(event: FormEvent) {
     event.preventDefault()
-    await run(t('continue.generatingImage'), async () => {
+    await props.runTask(t('continue.generatingImage'), async () => {
       const result = await api.generateContinuation({
         prompt,
         r18Enabled,
@@ -109,6 +103,19 @@ export function StoryContinuePanel(props: {
     const accepted = nextReferences.slice(0, capacity)
     setReferences((current) => [...current, ...accepted].slice(0, CONTINUATION_LIMITS.maxReferences))
     setSelectedReferenceId((current) => current || accepted[0]?.id || '')
+    // Inspect responses carry full-resolution previews; swap in thumbnails in the background.
+    void shrinkAcceptedPreviews(accepted)
+  }
+
+  async function shrinkAcceptedPreviews(accepted: ContinuationReference[]) {
+    for (const reference of accepted) {
+      const preview = await downscalePreview(reference.previewDataUrl, reference.mimeType)
+      if (preview !== reference.previewDataUrl) {
+        setReferences((current) =>
+          current.map((item) => (item.id === reference.id ? { ...item, previewDataUrl: preview } : item)),
+        )
+      }
+    }
   }
 
   function updateSelectedTags(value: string) {
@@ -128,7 +135,7 @@ export function StoryContinuePanel(props: {
     setSelectedReferenceId((current) => (current === id ? '' : current))
   }
 
-  const busy = props.disabled || Boolean(loadingLabel)
+  const busy = props.disabled
   const referencesFull = references.length >= CONTINUATION_LIMITS.maxReferences
 
   return (
@@ -168,7 +175,7 @@ export function StoryContinuePanel(props: {
             <input value={pixivUrl} onChange={(event) => setPixivUrl(event.target.value)} placeholder={t('story.pixivPlaceholder')} />
           </label>
           <button type="submit" className="secondary-button" disabled={busy || referencesFull}>
-            {loadingLabel === t('continue.importingPixivRefs') ? <Loader2 size={15} /> : <ImagePlus size={15} />}
+            {props.busyLabel === t('continue.importingPixivRefs') ? <Loader2 size={15} /> : <ImagePlus size={15} />}
             {t('toolbar.importPixiv')}
           </button>
         </form>
@@ -216,10 +223,10 @@ export function StoryContinuePanel(props: {
           <div className="section-heading">
             <div>
               <strong>{t('continue.continueStory')}</strong>
-              <span>{busy ? loadingLabel : t('status.ready')}</span>
+              <span>{busy ? props.busyLabel : t('status.ready')}</span>
             </div>
             <button type="submit" className="primary-button" disabled={busy || !prompt.trim()}>
-              {loadingLabel === t('continue.generatingImage') ? <Loader2 size={15} /> : <Sparkles size={15} />}
+              {props.busyLabel === t('continue.generatingImage') ? <Loader2 size={15} /> : <Sparkles size={15} />}
               {t('continue.generate')}
             </button>
           </div>
@@ -307,6 +314,44 @@ export function StoryContinuePanel(props: {
 
 function clampInt(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, Number.isFinite(value) ? Math.round(value) : min))
+}
+
+const PREVIEW_MAX_EDGE = 256
+
+/** Downscales a full-resolution preview data URL to thumbnail size; falls back to the original on any failure. */
+async function downscalePreview(dataUrl: string, mimeType: string): Promise<string> {
+  // SVG previews are compact text and scale losslessly; skip rasterizing them.
+  if (mimeType === 'image/svg+xml' || typeof document === 'undefined') {
+    return dataUrl
+  }
+  try {
+    const image = await loadImageElement(dataUrl)
+    const longestEdge = Math.max(image.naturalWidth, image.naturalHeight)
+    if (!longestEdge || longestEdge <= PREVIEW_MAX_EDGE) {
+      return dataUrl
+    }
+    const scale = PREVIEW_MAX_EDGE / longestEdge
+    const canvas = document.createElement('canvas')
+    canvas.width = Math.max(1, Math.round(image.naturalWidth * scale))
+    canvas.height = Math.max(1, Math.round(image.naturalHeight * scale))
+    const context = canvas.getContext('2d')
+    if (!context) {
+      return dataUrl
+    }
+    context.drawImage(image, 0, 0, canvas.width, canvas.height)
+    return canvas.toDataURL('image/png')
+  } catch {
+    return dataUrl
+  }
+}
+
+function loadImageElement(src: string): Promise<HTMLImageElement> {
+  return new Promise((resolve, reject) => {
+    const image = new Image()
+    image.onload = () => resolve(image)
+    image.onerror = () => reject(new Error('Preview image failed to decode'))
+    image.src = src
+  })
 }
 
 function toReferenceInput(reference: ContinuationReference): ContinuationReferenceInput {

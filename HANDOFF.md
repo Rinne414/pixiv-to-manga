@@ -1,10 +1,11 @@
 # Agent Handoff Notes
 
-Last updated: 2026-07-11. Two sessions that day: a dependency refresh (see Known debts
-item 9) and a feature session shipping next-page vision context, batch page-range
-generation, and the first-run onboarding checklist (see "What just landed 2026-07-11").
-Full suite green after both: `npx tsc -b`, `npm test` (95 tests), `npm run lint`,
-`npm run build`, `npx playwright test` (15 E2E).
+Last updated: 2026-07-11. Three sessions that day: a dependency refresh (see Known
+debts), a feature session (next-page vision context, batch page-range, onboarding
+checklist), and a debt-clearing session (App.tsx/index.css god-file split, CJK kinsoku,
+small debts — see "What just landed 2026-07-11 #2"). Full suite green after each:
+`npx tsc -b`, `npm test` (102 tests), `npm run lint`, `npm run build`,
+`npx playwright test` (15 E2E).
 Previous update 2026-07-05. Written after shipping: infinite whiteboard canvas, dark mode,
 en/zh-TW i18n, keyless local provider (Ollama) support, sidebar legibility fixes,
 character font picker + manual character add/delete + reusable style prompt.
@@ -12,7 +13,34 @@ Everything below is verified green: `npx tsc -b`, `npm test` (94 tests), `npm ru
 `npm run build`, `npx playwright test` (13 E2E). A live run against local Ollama
 (qwen3-vl:8b, keyless, isLocal) produced a real Story Bible (`usedMock: false`).
 
-## What just landed (2026-07-11 session)
+## What just landed (2026-07-11 session #2 — structure & quality)
+
+1. **God-file split.** `src/App.tsx` (1506 lines) is now a 409-line view shell.
+   All state/handlers moved verbatim into the `useStudio()` container hook
+   (`src/useStudio.ts`); inspector panels live in `src/panels/` (StoryPanel,
+   CharactersPanel, DialoguePanel, LayoutPanel+NumberField, SettingsPanel, PageThumb,
+   labels.ts for the enum→MessageKey maps); `src/uiUtils.ts` has cryptoId/clampNumber/
+   IconProps. All data-testids and en strings unchanged (E2E verified).
+2. **CSS split.** `src/index.css` (1412→~1080) plus `src/styles/providerLab.css` and
+   `src/styles/storyContinue.css`. **Import order in main.tsx is a contract**:
+   index.css → providerLab.css → storyContinue.css (the `.reference-row` cascade layers
+   base → compact → continue-specific). Media-query rules for extracted selectors moved
+   INTO the feature files so base-before-media order holds. Shared `.section-heading` /
+   `.compact-heading` / `.danger-button` stayed in index.css.
+3. **CJK kinsoku for vertical text** (`src/shared/text.ts`). Line-start-prohibited
+   punctuation/small kana hangs at the bottom of the previous column (max 2 hanging
+   chars); opening brackets never end a column (carried forward). Both renderers size
+   bubbles from the actual max column length, so editor and PNG export stay WYSIWYG.
+   Unit tests in tests/verticalText.test.ts.
+4. **Small debts cleared.** Dead `src/App.css` deleted (Vite template leftover, zero
+   imports). `server/secrets.ts` imports `normalizeBaseUrl` from providerResolution
+   (copies were byte-identical). StoryContinuePanel's local `loadingLabel` mirror is
+   gone — App passes `busyLabel` (= `busy`) down. Continuation reference previews are
+   downscaled client-side to ≤256px in the background after inspect (SVG skipped,
+   failure falls back to the original); network payload is unchanged — a server-side
+   downscale would need an image codec dependency, deliberately not added.
+
+## What landed earlier (2026-07-11 session #1 — features)
 
 1. **Next-page vision context.** `generateDialoguesWithAi` (server/ai.ts) now sends the
    next page's image + beat summary and the previous page's dialogue lines (last
@@ -137,34 +165,36 @@ Everything below is verified green: `npx tsc -b`, `npm test` (94 tests), `npm ru
 
 ## Known debts (deliberately deferred)
 
-1. `src/App.tsx` (~1100 lines) still exceeds the 800-line guideline (whiteboard/canvas
-   code moved out, i18n added back). Next structural task remains extracting a
-   `StudioWorkspace` component. `src/index.css` (~1300 lines) likewise — split
-   Story-Continue + Provider-Lab CSS into feature files. Keep `data-testid`s working.
-2. Inspect responses still ship full-resolution base64 previews for thumbnails.
-3. `server/secrets.ts` has its own `normalizeBaseUrl` (settings normalizer), not
-   consolidated into providerResolution — semantically similar, low risk.
-4. `StoryContinuePanel` keeps a local `loadingLabel` mirroring App's busy label.
-5. JIS-encoded EXIF UserComment unsupported (rare; degrades to no metadata).
-6. No rate limiting anywhere — accepted for a 127.0.0.1-only tool.
-7. Log entries keep the language they were written in (history is not re-translated on
+Resolved 2026-07-11 session #2 (kept here so nobody re-reports them): god-file split,
+CSS split, normalizeBaseUrl consolidation, loadingLabel mirror, kinsoku rules,
+client-side preview downscale.
+
+1. Inspect responses still ship full-resolution base64 over the wire (client now
+   downscales for display/memory). A true fix needs a server-side image codec (sharp/
+   jimp) — deliberately not added for a loopback-only tool.
+2. JIS-encoded EXIF UserComment unsupported (rare; degrades to no metadata).
+3. No rate limiting anywhere — accepted for a 127.0.0.1-only tool.
+4. Log entries keep the language they were written in (history is not re-translated on
    locale switch) — accepted behavior. Same for `useState(() => t(...))` default seeds
-   (create-title, continuation prompt) and in-flight busy-label spinner comparisons in
-   ProviderLabPanel: a locale switch mid-request shows the wrong icon until the request
-   ends. All self-correcting, reviewed and accepted.
-8. Vertical text columns don't apply CJK punctuation kinsoku rules (、。 can start a
-   column) — pre-existing; affects editor and export equally.
-9. TypeScript stays on 6.0.x. TS 7.0.2 (native compiler) was tried 2026-07-11:
+   (create-title, continuation prompt) and in-flight busy-label spinner comparisons
+   (ProviderLabPanel, StoryContinuePanel): a locale switch mid-request shows the wrong
+   icon until the request ends. All self-correcting, reviewed and accepted. Also
+   accepted: the Story Continue status pill reads the global busy label, so a studio
+   task that is still running shows its label after switching entries mid-task.
+5. TypeScript stays on 6.0.x. TS 7.0.2 (native compiler) was tried 2026-07-11:
    `tsc -b` passes, but typescript-eslint ≤8.63 declares peer `typescript <6.1.0` and
    its typescript-estree crashes at lint (`ModuleKind.Cjs` undefined). Retry the bump
    once typescript-eslint ships TS7 support. `@types/node` tracks the runtime major
    (Node 25 → `^25`); don't jump to 26 until the runtime does.
+6. Vertical punctuation renders with horizontal glyph forms (、。 are not swapped to
+   vertical presentation forms and full-width brackets are not rotated) — kinsoku
+   placement is fixed, glyph orientation is not. Affects editor and export equally.
 
 ## Verification workflow
 
 ```
 npx tsc -b
-npm test               # vitest, 95 tests
+npm test               # vitest, 102 tests
 npm run lint
 npm run build
 npx playwright test    # 15 E2E; starts its own isolated servers; locale pinned en-US
