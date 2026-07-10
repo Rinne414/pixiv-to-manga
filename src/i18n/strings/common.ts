@@ -135,6 +135,22 @@ export const commonStrings = {
   'layout.y': { en: 'Y', 'zh-TW': 'Y' },
   'layout.scale': { en: 'Scale', 'zh-TW': '縮放' },
   'layout.rotation': { en: 'Rotation', 'zh-TW': '旋轉' },
+  'layout.rangeFrom': { en: 'From page', 'zh-TW': '起始頁' },
+  'layout.rangeTo': { en: 'To page', 'zh-TW': '結束頁' },
+  'layout.generateRange': { en: 'Generate Page Range', 'zh-TW': '生成頁面範圍' },
+  'layout.generateRangeHint': {
+    en: 'Completed pages are skipped to protect edits.',
+    'zh-TW': '已完成頁面會自動略過，避免覆蓋編輯。',
+  },
+
+  // Onboarding checklist
+  'onboarding.title': { en: 'Getting Started', 'zh-TW': '快速上手' },
+  'onboarding.dismiss': { en: 'Dismiss guide', 'zh-TW': '關閉指南' },
+  'onboarding.stepImport': { en: 'Import Pixiv or local images', 'zh-TW': '匯入 Pixiv 或本機圖片' },
+  'onboarding.stepProvider': { en: 'Connect an AI provider (Settings tab)', 'zh-TW': '連接 AI 供應商（設定分頁）' },
+  'onboarding.stepAnalyze': { en: 'Run Analyze Story to build the Story Bible', 'zh-TW': '執行「分析故事」建立故事聖經' },
+  'onboarding.stepGenerate': { en: 'Generate dialogue for your pages', 'zh-TW': '為頁面生成對白' },
+  'onboarding.stepExport': { en: 'Export rendered pages as ZIP', 'zh-TW': '匯出渲染頁面為 ZIP' },
 
   // Settings panel
   'settings.keychainOk': { en: 'System keychain available', 'zh-TW': '系統金鑰圈可用' },
@@ -182,6 +198,13 @@ export const commonStrings = {
     en: 'All pages are already complete. Use Generate Page to regenerate a page.',
     'zh-TW': '所有頁面皆已完成。若要重新生成單頁，請使用「生成本頁」。',
   },
+  'log.generateRangeLabel': { en: 'Generate pages {from}-{to}', 'zh-TW': '生成第 {from}–{to} 頁' },
+  'log.invalidPageRange': { en: 'Invalid page range.', 'zh-TW': '頁面範圍無效。' },
+  'log.rangeAlreadyComplete': {
+    en: 'All pages in the range are already complete. Use Generate Page to regenerate.',
+    'zh-TW': '範圍內頁面皆已完成。若要重新生成單頁，請使用「生成本頁」。',
+  },
+  'log.rangeGenerated': { en: 'Pages {from}-{to} generated.', 'zh-TW': '第 {from}–{to} 頁已生成。' },
   'log.dialogueAdded': { en: 'Dialogue added.', 'zh-TW': '已新增對白。' },
   'log.dialogueDeleted': { en: 'Dialogue deleted.', 'zh-TW': '已刪除對白。' },
   'log.cancellationRequested': { en: 'Cancellation requested.', 'zh-TW': '已要求取消。' },

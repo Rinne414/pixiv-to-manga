@@ -355,6 +355,53 @@ select:focus {
   border-bottom: 1px solid var(--line);
 }
 
+.onboarding-card {
+  display: grid;
+  gap: 10px;
+  padding: 14px;
+  border-bottom: 1px solid var(--line);
+  background: var(--active-tint);
+}
+
+.onboarding-dismiss {
+  width: 26px;
+  height: 26px;
+  margin-left: auto;
+}
+
+.onboarding-steps {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.onboarding-steps li {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+.onboarding-steps li svg {
+  flex: 0 0 auto;
+  margin-top: 1px;
+}
+
+.onboarding-steps li[data-done='true'] {
+  color: var(--green);
+}
+
+.onboarding-steps li[data-done='true'] span {
+  text-decoration: line-through;
+  text-decoration-thickness: 1px;
+  opacity: 0.85;
+}
+
 .project-list,
 .page-list {
   display: grid;

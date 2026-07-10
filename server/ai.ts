@@ -106,19 +106,31 @@ export async function generateDialoguesWithAi(
   }
 
   const pageImageParts = await pageImagePartsForDetail(detail, page)
+  const nextPage = detail.pages.find((item) => item.index === page.index + 1)
+  const nextPageImageParts = nextPage ? await pageImagePartsForDetail(detail, nextPage) : []
   ensureAiGenerationAllowed(context, {
     apiBaseUrl: target.apiBaseUrl,
     modelName: target.modelName,
     r18Enabled: storyBible.r18Enabled,
-    imagePresent: pageImageParts.length > 0,
+    imagePresent: pageImageParts.length + nextPageImageParts.length > 0,
     safetyClass: storyBible.r18Enabled ? 'explicit' : 'safe',
   })
 
   const beat = storyBible.pageBeats.find((item) => item.pageIndex === page.index)
+  const nextBeat = nextPage ? storyBible.pageBeats.find((item) => item.pageIndex === nextPage.index) : undefined
   const characters = storyBible.characters.map((character) => `${character.name}: ${character.voice}`).join('\n')
   const stylePrompt = storyBible.stylePrompt?.trim()
-  const prompt = `你是漫画对白创作者。请先观察随后的本页漫画图片，再生成叠字对白。模式：${input.mode === 'translation' ? '视觉翻译/改写，不原创大剧情' : '原创故事对白'}。请为第 ${page.index + 1} 页生成中文漫画对白。故事：${storyBible.synopsis}。本页剧情：${beat?.summary || '未指定'}。角色声音：${characters}。${stylePrompt ? `风格要求（必须遵守）：${stylePrompt}。` : ''}文本密度：${input.textDensity}。必须只返回 JSON：{"dialogues":[{"text":"...","characterName":"...","x":0.5,"y":0.5,"scale":1,"rotation":0,"bubbleStyle":"speech","color":"#141414","locked":false}]}. x/y 是 0-1 画面坐标，避免挡脸、遮住关键画面和互相重叠。`
-  const raw = await openAiChatJson(target.apiBaseUrl, target.modelName, target.apiKey, [{ type: 'text', text: prompt }, ...pageImageParts], {
+  const previousLines = previousPageDialogueLines(detail, page)
+  const flowContext = nextPage
+    ? `下一页剧情：${nextBeat?.summary || '未指定'}。本页最后一句要自然引向下一页。`
+    : '本页是最后一页，对白要有收束感。'
+  const continuityContext = previousLines ? `上一页对白（延续语气与话题，不要重复）：\n${previousLines}\n` : ''
+  const prompt = `你是漫画对白创作者。请先观察图片：第一张是本页画面${nextPageImageParts.length ? '，第二张是下一页画面（仅用于衔接剧情，不要为它生成对白）' : ''}。模式：${input.mode === 'translation' ? '视觉翻译/改写，不原创大剧情' : '原创故事对白'}。请为第 ${page.index + 1} 页生成中文漫画对白。故事：${storyBible.synopsis}。本页剧情：${beat?.summary || '未指定'}。${flowContext}${continuityContext}角色声音：${characters}。${stylePrompt ? `风格要求（必须遵守）：${stylePrompt}。` : ''}文本密度：${input.textDensity}。必须只返回 JSON：{"dialogues":[{"text":"...","characterName":"...","x":0.5,"y":0.5,"scale":1,"rotation":0,"bubbleStyle":"speech","color":"#141414","locked":false}]}. x/y 是 0-1 画面坐标，避免挡脸、遮住关键画面和互相重叠。`
+  const content: ChatContentPart[] = [{ type: 'text', text: prompt }, ...pageImageParts]
+  if (nextPageImageParts.length) {
+    content.push({ type: 'text', text: '下一页画面（仅供衔接参考，不要为它生成对白）：' }, ...nextPageImageParts)
+  }
+  const raw = await openAiChatJson(target.apiBaseUrl, target.modelName, target.apiKey, content, {
     signal: context.signal,
     stream: target.supportsStreaming,
   })
@@ -365,6 +377,20 @@ async function projectImageParts(detail: ProjectDetail, maxImages: number): Prom
 async function pageImagePartsForDetail(detail: ProjectDetail, page: Page): Promise<ChatContentPart[]> {
   const asset = detail.assets.find((item) => item.id === page.originalAssetId)
   return asset ? [await assetToImagePart(asset)] : []
+}
+
+const MAX_PREVIOUS_DIALOGUE_LINES = 8
+
+function previousPageDialogueLines(detail: ProjectDetail, page: Page): string {
+  const previousPage = detail.pages.find((item) => item.index === page.index - 1)
+  if (!previousPage) {
+    return ''
+  }
+  return detail.dialogues
+    .filter((dialogue) => dialogue.pageId === previousPage.id)
+    .slice(-MAX_PREVIOUS_DIALOGUE_LINES)
+    .map((dialogue) => `${dialogue.characterName || '旁白'}：${dialogue.text}`)
+    .join('\n')
 }
 
 async function assetToImagePart(asset: Asset): Promise<ChatContentPart> {

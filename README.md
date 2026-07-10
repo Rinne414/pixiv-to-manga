@@ -9,6 +9,9 @@ Pixiv-to-Manga Studio imports Pixiv or local image sets, asks an AI model to cre
 - Local web service with React, Vite, TypeScript, Fastify, and SQLite.
 - Pixiv artwork import and local image import.
 - Two-stage AI workflow: vision-assisted story analysis, then page dialogue generation.
+- Continuity-aware dialogue generation: each page request carries the previous page's dialogue lines plus the next page's image and beat summary (the last page gets closure guidance instead).
+- Batch page-range generation on the Layout tab (from/to page inputs); completed pages are always skipped so hand-edited dialogue survives.
+- First-run onboarding checklist in the left rail with progress derived from project state and a persistent dismiss.
 - Story Continue entry for uploading/Pixiv-importing reference images, extracting generation metadata/tags, and generating continuation drafts.
 - Editable Story Bible, character settings, and vertical manga dialogue bubbles with drag, scale, rotation, lock, and style controls.
 - Manual bubble add/delete: double-click the whiteboard (or use the Dialogue tab) to add, delete from the Dialogue tab; Generate All skips completed pages so hand-edited dialogue is never overwritten.

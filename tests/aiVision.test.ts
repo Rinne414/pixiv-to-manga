@@ -739,4 +739,134 @@ describe('AI vision generation', () => {
       })
     }
   })
+
+  it('sends next-page vision context and previous-page dialogue lines for continuity', async () => {
+    const { db, dataDir } = createDb()
+    const secrets = new TestSecretStore(db, new MemoryKeytar())
+    await secrets.save({
+      apiBaseUrl: 'https://api.example.test/v1',
+      modelName: 'gpt-4o',
+      apiKey: 'test-api-key',
+    })
+    const provider = db.createProvider({
+      name: 'Vision Provider',
+      baseUrl: 'https://api.example.test/v1',
+      defaultModel: 'gpt-4o',
+      isLocal: false,
+    })
+    db.upsertModelCapability({
+      providerId: provider.id,
+      modelId: 'gpt-4o',
+      supportsVision: true,
+      allowsAdultInput: false,
+      allowsAdultGeneration: false,
+    })
+
+    const project = db.createProject({ title: 'Continuity Project', mode: 'story', source: 'local' })
+    const pages = [0, 1, 2].map((index) => {
+      const relativePath = path.join('projects', project.id, 'originals', `page-00${index + 1}.png`)
+      const absolutePath = path.join(dataDir, relativePath)
+      mkdirSync(path.dirname(absolutePath), { recursive: true })
+      writeFileSync(absolutePath, Buffer.from(`png-bytes-${index}`))
+      const asset = db.createAsset({ projectId: project.id, kind: 'original', relativePath, mimeType: 'image/png' })
+      return db.createPage({ projectId: project.id, index, originalAssetId: asset.id })
+    })
+    db.saveStoryBible(project.id, {
+      synopsis: '测试故事。',
+      tone: '轻松',
+      characters: [
+        {
+          id: 'char-1',
+          projectId: project.id,
+          name: '夏海',
+          description: '主角',
+          voice: '直率',
+          color: '#c9282d',
+          bubbleStyle: 'speech',
+        },
+      ],
+      pageBeats: [
+        { pageIndex: 0, summary: '开场', intent: 'setup' },
+        { pageIndex: 1, summary: '相遇', intent: 'build' },
+        { pageIndex: 2, summary: '出发去海边', intent: 'payoff' },
+      ],
+      r18Enabled: false,
+    })
+    db.replaceDialogues(pages[0].id, [
+      {
+        id: 'prev-1',
+        pageId: pages[0].id,
+        characterId: 'char-1',
+        characterName: '夏海',
+        text: '那一天的车站好安静。',
+        x: 0.2,
+        y: 0.2,
+        scale: 1,
+        rotation: 0,
+        bubbleStyle: 'speech',
+        color: '#141414',
+        locked: false,
+      },
+    ])
+
+    let promptText = ''
+    let imagePartCount = 0
+    let contentParts: Array<{ type?: string; text?: string }> = []
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (_url, init) => {
+        const body = JSON.parse(String(init?.body)) as {
+          messages?: Array<{ content?: Array<{ type?: string; text?: string }> }>
+        }
+        contentParts = body.messages?.[0]?.content || []
+        promptText = contentParts.find((part) => part.type === 'text')?.text || ''
+        imagePartCount = contentParts.filter((part) => part.type === 'image_url').length
+        return new Response(
+          JSON.stringify({
+            choices: [
+              {
+                message: {
+                  content: JSON.stringify({
+                    dialogues: [
+                      {
+                        text: '衔接对白。',
+                        characterName: '夏海',
+                        x: 0.5,
+                        y: 0.25,
+                        scale: 1,
+                        rotation: 0,
+                        bubbleStyle: 'speech',
+                        color: '#141414',
+                        locked: false,
+                      },
+                    ],
+                  }),
+                },
+              },
+            ],
+          }),
+          { status: 200 },
+        )
+      }),
+    )
+
+    // Middle page: current + next page image, next beat, previous page dialogue lines.
+    await generateDialoguesWithAi({ secrets, db }, db.getProjectDetail(project.id), pages[1], {
+      mode: 'story',
+      textDensity: 0.65,
+    })
+    expect(imagePartCount).toBe(2)
+    expect(promptText).toContain('下一页剧情：出发去海边')
+    expect(promptText).toContain('夏海：那一天的车站好安静。')
+    expect(contentParts.some((part) => part.type === 'text' && part.text?.includes('下一页画面'))).toBe(true)
+
+    // Last page: single image and closure guidance instead of next-page context.
+    await generateDialoguesWithAi({ secrets, db }, db.getProjectDetail(project.id), pages[2], {
+      mode: 'story',
+      textDensity: 0.65,
+    })
+    expect(imagePartCount).toBe(1)
+    expect(promptText).toContain('本页是最后一页')
+    expect(promptText).not.toContain('下一页剧情')
+  })
 })

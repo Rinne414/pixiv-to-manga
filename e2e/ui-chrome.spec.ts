@@ -161,6 +161,71 @@ test('style prompt persists and characters support add, font choice, and delete'
   await expect(page.getByTestId('character-font-select').first()).toHaveValue(/KaiTi/)
 })
 
+test('page-range generation only generates pages inside the range', async ({ page }) => {
+  await openStudio(page)
+  await page.getByLabel('Project title').fill(`Range Project ${Date.now()}`)
+  await page.getByRole('button', { name: /^Create$/ }).click()
+  await expect(page.getByText('Project created.')).toBeVisible()
+
+  const localImportResponse = page.waitForResponse(
+    (response) => response.url().includes('/api/import/local') && response.status() === 200,
+  )
+  await page.getByTestId('local-image-input').setInputFiles([
+    { name: 'range-page-1.svg', mimeType: 'image/svg+xml', buffer: Buffer.from(whiteboardSvg()) },
+    { name: 'range-page-2.svg', mimeType: 'image/svg+xml', buffer: Buffer.from(whiteboardSvg()) },
+  ])
+  await localImportResponse
+  await expect(page.getByTestId('page-thumb')).toHaveCount(2)
+
+  await page.getByTestId('tab-layout').click()
+  await page.getByTestId('generate-range-from').fill('2')
+  await page.getByTestId('generate-range-to').fill('2')
+  await page.getByTestId('generate-range-run').click()
+
+  await expect(page.getByText('Pages 2-2 generated.')).toBeVisible()
+  // Page 1 sits outside the range and must remain untouched.
+  await expect(page.getByTestId('page-thumb').nth(0)).toContainText('0 lines / ready')
+  await expect(page.getByTestId('page-thumb').nth(1)).toContainText('complete')
+
+  // Re-running the same range only reports already-complete pages.
+  await page.getByTestId('generate-range-run').click()
+  await expect(page.getByText('All pages in the range are already complete. Use Generate Page to regenerate.')).toBeVisible()
+  await expect(page.getByTestId('page-thumb').nth(0)).toContainText('0 lines / ready')
+})
+
+test('onboarding checklist tracks progress and dismissal persists across reloads', async ({ page }) => {
+  await openStudio(page)
+  const card = page.getByTestId('onboarding-card')
+  await expect(card).toBeVisible()
+  await expect(card).toContainText('Getting Started')
+
+  await page.getByLabel('Project title').fill(`Onboarding ${Date.now()}`)
+  await page.getByRole('button', { name: /^Create$/ }).click()
+  await expect(page.getByText('Project created.')).toBeVisible()
+
+  const importStep = page.getByTestId('onboarding-step').first()
+  await expect(importStep).toContainText('Import Pixiv or local images')
+  await expect(importStep).toHaveAttribute('data-done', 'false')
+
+  const localImportResponse = page.waitForResponse(
+    (response) => response.url().includes('/api/import/local') && response.status() === 200,
+  )
+  await page.getByTestId('local-image-input').setInputFiles({
+    name: 'onboarding-page.svg',
+    mimeType: 'image/svg+xml',
+    buffer: Buffer.from(whiteboardSvg()),
+  })
+  await localImportResponse
+  await expect(importStep).toHaveAttribute('data-done', 'true')
+
+  await page.getByTestId('onboarding-dismiss').click()
+  await expect(page.getByTestId('onboarding-card')).toHaveCount(0)
+
+  await page.reload()
+  await expect(page.getByText('Studio ready. Local database loaded.')).toBeVisible()
+  await expect(page.getByTestId('onboarding-card')).toHaveCount(0)
+})
+
 async function openStudio(page: Page) {
   await page.addInitScript(() => {
     window.open = () => null

@@ -28,6 +28,7 @@ import {
 import type { Asset, BubbleStyle, Character, Dialogue, JobEvent, Page, PageStatus, Project, ProjectDetail, ProjectMode, ProjectSource, SecretStatus, StoryBible } from './shared/types'
 import { resolveDialogueCollisions } from './shared/layout'
 import { renderProjectPages } from './canvasExport'
+import { OnboardingChecklist } from './OnboardingChecklist'
 import { ProviderLabPanel } from './ProviderLabPanel'
 import { StoryContinuePanel } from './StoryContinuePanel'
 import { WhiteboardCanvas, WHITEBOARD_MAX_ZOOM, WHITEBOARD_MIN_ZOOM } from './WhiteboardCanvas'
@@ -115,8 +116,12 @@ function App() {
   const [r18Enabled, setR18Enabled] = useState(false)
   const [generateMode, setGenerateMode] = useState<'story' | 'translation'>('story')
   const [textDensity, setTextDensity] = useState(0.65)
+  const [rangeFromInput, setRangeFromInput] = useState('1')
+  const [rangeToInput, setRangeToInput] = useState('')
   const [zoom, setZoom] = useState(1)
   const [secretStatus, setSecretStatus] = useState<SecretStatus | null>(null)
+  const [providers, setProviders] = useState<api.ProviderProfile[]>([])
+  const [hasExported, setHasExported] = useState(false)
   const [settingsForm, setSettingsForm] = useState({
     apiBaseUrl: '',
     modelName: '',
@@ -142,10 +147,16 @@ function App() {
 
     async function boot() {
       try {
-        const [projectList, status] = await Promise.all([api.listProjects(), api.getSecretStatus()])
+        const [projectList, status, providerList] = await Promise.all([
+          api.listProjects(),
+          api.getSecretStatus(),
+          // Provider profiles only feed the onboarding hints; their failure must not block boot.
+          api.listProviders().catch(() => [] as api.ProviderProfile[]),
+        ])
         if (cancelled) return
         setProjects(projectList)
         setSecretStatus(status)
+        setProviders(providerList)
         setSettingsForm((current) => ({
           ...current,
           apiBaseUrl: status.apiBaseUrl,
@@ -396,14 +407,13 @@ function App() {
     })
   }
 
-  async function handleGenerateAll() {
-    if (!detail) return
-    await runTask(t('toolbar.generateAll'), async () => {
+  async function runGenerateBatch(label: string, pages: Page[], messages: { allComplete: string; done: string }) {
+    await runTask(label, async () => {
       // Completed pages may hold hand-edited dialogue; bulk generation must not overwrite them.
-      const pendingPages = detail.pages.filter((page) => page.status !== 'complete')
-      const skippedCount = detail.pages.length - pendingPages.length
+      const pendingPages = pages.filter((page) => page.status !== 'complete')
+      const skippedCount = pages.length - pendingPages.length
       if (!pendingPages.length) {
-        pushLog(t('log.allPagesAlreadyComplete'))
+        pushLog(messages.allComplete)
         return
       }
       for (const page of pendingPages) {
@@ -417,7 +427,31 @@ function App() {
       if (skippedCount > 0) {
         pushLog(t('log.skippedCompletedPages', { count: skippedCount }))
       }
-      pushLog(t('log.allPagesGenerated'), 'success')
+      pushLog(messages.done, 'success')
+    })
+  }
+
+  async function handleGenerateAll() {
+    if (!detail) return
+    await runGenerateBatch(t('toolbar.generateAll'), detail.pages, {
+      allComplete: t('log.allPagesAlreadyComplete'),
+      done: t('log.allPagesGenerated'),
+    })
+  }
+
+  async function handleGenerateRange() {
+    if (!detail || !detail.pages.length) return
+    const pageCount = detail.pages.length
+    const from = clampNumber(Math.round(Number(rangeFromInput) || 1), 1, pageCount)
+    const to = rangeToInput.trim() === '' ? pageCount : clampNumber(Math.round(Number(rangeToInput) || pageCount), 1, pageCount)
+    if (from > to) {
+      pushLog(t('log.invalidPageRange'), 'error')
+      return
+    }
+    const rangePages = detail.pages.filter((page) => page.index + 1 >= from && page.index + 1 <= to)
+    await runGenerateBatch(t('log.generateRangeLabel', { from, to }), rangePages, {
+      allComplete: t('log.rangeAlreadyComplete'),
+      done: t('log.rangeGenerated', { from, to }),
     })
   }
 
@@ -469,6 +503,7 @@ function App() {
         throw new Error(t('log.noPagesToExport'))
       }
       const result = await api.exportZip({ projectId: detail.project.id, pages })
+      setHasExported(true)
       pushLog(t('log.exported', { file: result.fileName }), 'success')
       window.open(result.url, '_blank', 'noopener,noreferrer')
     })
@@ -589,6 +624,17 @@ function App() {
       ) : (
       <main className="workspace-grid">
         <aside className="left-rail panel">
+          <OnboardingChecklist
+            hasPages={Boolean(detail?.pages.length)}
+            hasProvider={Boolean(
+              secretStatus?.hasApiKey ||
+                secretStatus?.apiBaseUrl ||
+                providers.some((provider) => provider.hasApiKey || provider.isLocal),
+            )}
+            hasStoryBible={Boolean(detail?.project.storyBible)}
+            hasDialogues={Boolean(detail?.dialogues.length)}
+            hasExported={hasExported}
+          />
           <form className="create-form" onSubmit={handleCreateProject}>
             <div className="panel-heading">
               <Plus size={16} />
@@ -729,6 +775,12 @@ function App() {
               setTextDensity={setTextDensity}
               zoom={zoom}
               setZoom={setZoom}
+              pageCount={detail?.pages.length || 0}
+              rangeFrom={rangeFromInput}
+              rangeTo={rangeToInput}
+              setRangeFrom={setRangeFromInput}
+              setRangeTo={setRangeToInput}
+              onGenerateRange={handleGenerateRange}
               selectedDialogue={selectedDialogue}
               onCommit={commitDialogue}
               onAvoidOverlap={handleAvoidOverlap}
@@ -1239,6 +1291,12 @@ function LayoutPanel(props: {
   setTextDensity: (value: number) => void
   zoom: number
   setZoom: (value: number) => void
+  pageCount: number
+  rangeFrom: string
+  rangeTo: string
+  setRangeFrom: (value: string) => void
+  setRangeTo: (value: string) => void
+  onGenerateRange: () => void
   selectedDialogue?: Dialogue
   onCommit: (id: string, patch: Partial<Dialogue>) => void
   onAvoidOverlap: () => void
@@ -1261,6 +1319,44 @@ function LayoutPanel(props: {
         <input type="range" min="0" max="1" step="0.05" value={props.textDensity} onChange={(event) => props.setTextDensity(Number(event.target.value))} />
         <strong>{props.textDensity.toFixed(2)}</strong>
       </label>
+      <div className="edit-form compact generate-range-block">
+        <div className="two-col">
+          <label>
+            {t('layout.rangeFrom')}
+            <input
+              type="number"
+              min={1}
+              max={props.pageCount || 1}
+              value={props.rangeFrom}
+              data-testid="generate-range-from"
+              onChange={(event) => props.setRangeFrom(event.target.value)}
+            />
+          </label>
+          <label>
+            {t('layout.rangeTo')}
+            <input
+              type="number"
+              min={1}
+              max={props.pageCount || 1}
+              value={props.rangeTo}
+              placeholder={props.pageCount ? String(props.pageCount) : ''}
+              data-testid="generate-range-to"
+              onChange={(event) => props.setRangeTo(event.target.value)}
+            />
+          </label>
+        </div>
+        <button
+          type="button"
+          className="secondary-button"
+          data-testid="generate-range-run"
+          disabled={props.disabled || !props.pageCount}
+          onClick={props.onGenerateRange}
+        >
+          <Play size={15} />
+          {t('layout.generateRange')}
+        </button>
+        <span className="field-hint">{t('layout.generateRangeHint')}</span>
+      </div>
       <label className="range-row">
         <span>{t('layout.canvasZoom')}</span>
         <input
