@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { toVerticalColumns } from '../src/shared/text'
+import { toVerticalColumns, toVerticalGlyphs } from '../src/shared/text'
 
 describe('toVerticalColumns kinsoku rules', () => {
   it('splits plain text into fixed-height columns', () => {
@@ -32,5 +32,22 @@ describe('toVerticalColumns kinsoku rules', () => {
 
   it('keeps degenerate all-bracket input in one overlong column instead of looping', () => {
     expect(toVerticalColumns('「「「あ', 2)).toEqual(['「「「あ'])
+  })
+})
+
+describe('toVerticalGlyphs', () => {
+  it('swaps punctuation to vertical presentation forms', () => {
+    expect(toVerticalGlyphs('你好，世界。')).toBe('你好︐世界︒')
+    expect(toVerticalGlyphs('「加油！」')).toBe('﹁加油︕﹂')
+    expect(toVerticalGlyphs('等等……')).toBe('等等︙︙')
+  })
+
+  it('rotates the long vowel mark to a vertical bar', () => {
+    expect(toVerticalGlyphs('えーと')).toBe('え｜と')
+  })
+
+  it('keeps regular characters and the char count unchanged', () => {
+    expect(toVerticalGlyphs('ABC漫画abc')).toBe('ABC漫画abc')
+    expect(Array.from(toVerticalGlyphs('你好，世界。')).length).toBe(Array.from('你好，世界。').length)
   })
 })

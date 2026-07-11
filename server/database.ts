@@ -14,6 +14,7 @@ import type {
   BubbleStyle,
   Character,
   Dialogue,
+  FontAsset,
   ModelCapability,
   Page,
   Project,
@@ -185,6 +186,59 @@ export class StudioDatabase {
     this.touchProject(page.projectId)
   }
 
+  /** Swaps a page with its neighbor in reading order; no-op at the edges. Story-bible beats follow their pages. */
+  movePage(pageId: string, offset: -1 | 1): void {
+    const page = this.getPage(pageId)
+    const pages = this.listPages(page.projectId)
+    const currentPosition = pages.findIndex((item) => item.id === pageId)
+    const targetPosition = currentPosition + offset
+    if (targetPosition < 0 || targetPosition >= pages.length) {
+      return
+    }
+    const neighbor = pages[targetPosition]
+    this.db.prepare('UPDATE pages SET pageIndex = ? WHERE id = ?').run(neighbor.index, page.id)
+    this.db.prepare('UPDATE pages SET pageIndex = ? WHERE id = ?').run(page.index, neighbor.id)
+    this.swapStoryBibleBeats(page.projectId, page.index, neighbor.index)
+    this.touchProject(page.projectId)
+  }
+
+  /** Deletes a page and its dialogues, closes the index gap, and shifts story-bible beats down. */
+  deletePage(pageId: string): void {
+    const page = this.getPage(pageId)
+    this.db.prepare('DELETE FROM dialogues WHERE pageId = ?').run(pageId)
+    this.db.prepare('DELETE FROM pages WHERE id = ?').run(pageId)
+    this.db
+      .prepare('UPDATE pages SET pageIndex = pageIndex - 1 WHERE projectId = ? AND pageIndex > ?')
+      .run(page.projectId, page.index)
+    this.removeStoryBibleBeat(page.projectId, page.index)
+    this.touchProject(page.projectId)
+  }
+
+  private swapStoryBibleBeats(projectId: string, indexA: number, indexB: number): void {
+    const bible = this.getProject(projectId).storyBible
+    if (!bible) return
+    const pageBeats = bible.pageBeats.map((beat) =>
+      beat.pageIndex === indexA
+        ? { ...beat, pageIndex: indexB }
+        : beat.pageIndex === indexB
+          ? { ...beat, pageIndex: indexA }
+          : beat,
+    )
+    this.saveStoryBible(projectId, { ...bible, pageBeats })
+  }
+
+  private removeStoryBibleBeat(projectId: string, removedIndex: number): void {
+    const bible = this.getProject(projectId).storyBible
+    if (!bible) return
+    const pageBeats = bible.pageBeats
+      .filter((beat) => beat.pageIndex !== removedIndex)
+      .map((beat) => (beat.pageIndex > removedIndex ? { ...beat, pageIndex: beat.pageIndex - 1 } : beat))
+    // storyBibleSchema requires at least one beat; when the last one goes, keep the stale
+    // bible untouched — the next Analyze Story rebuilds it.
+    if (!pageBeats.length) return
+    this.saveStoryBible(projectId, { ...bible, pageBeats })
+  }
+
   createCharacter(projectId: string, input: Partial<Character> & { name: string }): Character {
     const id = input.id || randomUUID()
     this.db
@@ -211,12 +265,12 @@ export class StudioDatabase {
       .map((row) => characterFromRow(row as Row))
   }
 
-  replaceDialogues(pageId: string, dialogues: Dialogue[]): Dialogue[] {
+  replaceDialogues(pageId: string, dialogues: Dialogue[], status: Page['status'] = 'complete'): Dialogue[] {
     this.db.prepare('DELETE FROM dialogues WHERE pageId = ?').run(pageId)
     for (const dialogue of dialogues) {
       this.createDialogue(pageId, dialogue)
     }
-    this.updatePageStatus(pageId, 'complete')
+    this.updatePageStatus(pageId, status)
     return this.listDialogues(pageId)
   }
 
@@ -224,7 +278,7 @@ export class StudioDatabase {
     const id = input.id || randomUUID()
     this.db
       .prepare(
-        'INSERT INTO dialogues (id, pageId, characterId, characterName, text, x, y, scale, rotation, bubbleStyle, color, locked, rawJson) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+        'INSERT INTO dialogues (id, pageId, characterId, characterName, text, x, y, scale, rotation, bubbleStyle, color, locked, tailX, tailY, rawJson) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
       )
       .run(
         id,
@@ -239,6 +293,8 @@ export class StudioDatabase {
         input.bubbleStyle,
         input.color,
         input.locked ? 1 : 0,
+        input.tailX ?? null,
+        input.tailY ?? null,
         input.raw || null,
       )
     return this.listDialogues(pageId).find((dialogue) => dialogue.id === id)!
@@ -257,7 +313,7 @@ export class StudioDatabase {
     const merged = { ...dialogueFromRow(current), ...patch }
     this.db
       .prepare(
-        'UPDATE dialogues SET text = ?, x = ?, y = ?, scale = ?, rotation = ?, bubbleStyle = ?, color = ?, locked = ? WHERE id = ?',
+        'UPDATE dialogues SET text = ?, x = ?, y = ?, scale = ?, rotation = ?, bubbleStyle = ?, color = ?, locked = ?, tailX = ?, tailY = ? WHERE id = ?',
       )
       .run(
         merged.text,
@@ -268,6 +324,8 @@ export class StudioDatabase {
         merged.bubbleStyle,
         merged.color,
         merged.locked ? 1 : 0,
+        merged.tailX ?? null,
+        merged.tailY ?? null,
         id,
       )
     return this.listDialogues(merged.pageId).find((dialogue) => dialogue.id === id)!
@@ -463,6 +521,35 @@ export class StudioDatabase {
     return this.getModelCapability(id)
   }
 
+  createFont(input: { familyName: string; fileName: string; relativePath: string; format: string }): FontAsset {
+    const id = randomUUID()
+    this.db
+      .prepare('INSERT INTO fonts (id, familyName, fileName, filePath, format, createdAt) VALUES (?, ?, ?, ?, ?, ?)')
+      .run(id, input.familyName, input.fileName, input.relativePath, input.format, new Date().toISOString())
+    return this.getFont(id)
+  }
+
+  getFont(fontId: string): FontAsset {
+    const row = this.db.prepare('SELECT * FROM fonts WHERE id = ?').get(fontId) as Row | undefined
+    if (!row) throw new Error('Font not found')
+    return fontFromRow(row)
+  }
+
+  listFonts(): FontAsset[] {
+    return this.db
+      .prepare('SELECT * FROM fonts ORDER BY createdAt ASC')
+      .all()
+      .map((row) => fontFromRow(row as Row))
+  }
+
+  /** Removes the DB row and returns the stored relative path so the caller can unlink the file. */
+  deleteFont(fontId: string): string {
+    const font = this.getFont(fontId)
+    const relativePath = this.db.prepare('SELECT filePath FROM fonts WHERE id = ?').get(fontId) as Row
+    this.db.prepare('DELETE FROM fonts WHERE id = ?').run(fontId)
+    return String(relativePath.filePath ?? font.fileName)
+  }
+
   private touchProject(projectId: string): void {
     this.db.prepare('UPDATE projects SET updatedAt = ? WHERE id = ?').run(new Date().toISOString(), projectId)
   }
@@ -547,6 +634,14 @@ export class StudioDatabase {
         createdAt TEXT NOT NULL,
         updatedAt TEXT NOT NULL
       );
+      CREATE TABLE IF NOT EXISTS fonts (
+        id TEXT PRIMARY KEY,
+        familyName TEXT NOT NULL,
+        fileName TEXT NOT NULL,
+        filePath TEXT NOT NULL,
+        format TEXT NOT NULL,
+        createdAt TEXT NOT NULL
+      );
       CREATE TABLE IF NOT EXISTS model_capabilities (
         id TEXT PRIMARY KEY,
         providerId TEXT NOT NULL REFERENCES providers(id) ON DELETE CASCADE,
@@ -566,6 +661,8 @@ export class StudioDatabase {
       );
     `)
     this.ensureColumn('model_capabilities', 'supportsImageGeneration', 'INTEGER NOT NULL DEFAULT 0')
+    this.ensureColumn('dialogues', 'tailX', 'REAL')
+    this.ensureColumn('dialogues', 'tailY', 'REAL')
   }
 
   private ensureColumn(table: string, column: string, definition: string): void {
@@ -688,7 +785,20 @@ function dialogueFromRow(row: Row): Dialogue {
     bubbleStyle: row.bubbleStyle as BubbleStyle,
     color: String(row.color),
     locked: Number(row.locked) === 1,
+    tailX: typeof row.tailX === 'number' ? Number(row.tailX) : undefined,
+    tailY: typeof row.tailY === 'number' ? Number(row.tailY) : undefined,
     raw: typeof row.rawJson === 'string' ? row.rawJson : undefined,
+  }
+}
+
+function fontFromRow(row: Row): FontAsset {
+  return {
+    id: String(row.id),
+    familyName: String(row.familyName),
+    fileName: String(row.fileName),
+    url: assetUrlFromRelativePath(String(row.filePath)),
+    format: String(row.format),
+    createdAt: String(row.createdAt),
   }
 }
 

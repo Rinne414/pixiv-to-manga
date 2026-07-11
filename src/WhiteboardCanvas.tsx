@@ -3,10 +3,11 @@ import type Konva from 'konva'
 import { Circle, Ellipse, Group, Image as KonvaImage, Layer, Line, Rect, Stage, Text } from 'react-konva'
 import { Frame, ImagePlus, Minus, Plus, Scan } from 'lucide-react'
 import type { Asset, Character, Dialogue, Page } from './shared/types'
+import { computeTailTriangle, computeThoughtTrail, dialogueTailLocal, tailLocalToPage } from './shared/bubbleTail'
 import { findDialogueCharacter } from './shared/characters'
 import { DEFAULT_DIALOGUE_FONT } from './fonts'
 import { clamp, clamp01, estimateVerticalTextBox } from './shared/layout'
-import { toVerticalColumns } from './shared/text'
+import { toVerticalColumns, toVerticalGlyphs } from './shared/text'
 import { useI18n } from './i18n/context'
 
 export const WHITEBOARD_MIN_ZOOM = 0.1
@@ -217,10 +218,12 @@ export function WhiteboardCanvas(props: WhiteboardCanvasProps) {
                 dialogue={dialogue}
                 pageWidth={page.width}
                 pageHeight={page.height}
+                zoom={props.zoom}
                 character={findDialogueCharacter(props.characters, dialogue)}
                 selected={dialogue.id === props.selectedDialogueId}
                 onSelect={() => props.onSelectDialogue(dialogue.id)}
                 onDragEnd={(x, y) => props.onPatchDialogue(dialogue.id, { x, y })}
+                onTailChange={(tailX, tailY) => props.onPatchDialogue(dialogue.id, { tailX, tailY })}
               />
             ))}
           </Layer>
@@ -272,10 +275,14 @@ function BubbleNode(props: {
   character?: Character
   pageWidth: number
   pageHeight: number
+  zoom: number
   selected: boolean
   onSelect: () => void
   onDragEnd: (x: number, y: number) => void
+  onTailChange: (tailX: number, tailY: number) => void
 }) {
+  // Live tail preview while the handle drags; committed on drag end.
+  const [tailDraft, setTailDraft] = useState<{ x: number; y: number } | null>(null)
   // Geometry mirrors canvasExport.drawDialogue so the whiteboard is WYSIWYG with PNG export.
   const box = estimateVerticalTextBox(props.dialogue)
   const fontSize = Math.max(16, Math.round(34 * props.dialogue.scale))
@@ -287,6 +294,23 @@ function BubbleNode(props: {
   const stroke = props.selected ? '#c9282d' : props.dialogue.color || props.character?.color || '#111111'
   const fill = props.dialogue.bubbleStyle === 'caption' ? 'rgba(255,255,255,0.92)' : '#ffffff'
   const strokeWidth = props.selected ? 9 : 6
+  const tailTip = tailDraft ?? dialogueTailLocal(props.dialogue, props.pageWidth, props.pageHeight)
+  const tailTriangle =
+    tailTip && (props.dialogue.bubbleStyle === 'speech' || props.dialogue.bubbleStyle === 'soft')
+      ? computeTailTriangle({
+          bubbleWidth,
+          bubbleHeight,
+          bubbleStyle: props.dialogue.bubbleStyle,
+          tipX: tailTip.x,
+          tipY: tailTip.y,
+        })
+      : null
+  const thoughtTrail =
+    tailTip && props.dialogue.bubbleStyle === 'thought'
+      ? computeThoughtTrail({ bubbleWidth, bubbleHeight, tipX: tailTip.x, tipY: tailTip.y })
+      : null
+  const tailHandle = tailTip ?? { x: bubbleWidth * 0.34, y: bubbleHeight / 2 + 34 }
+  const tailHandleRadius = clamp(11 / props.zoom, 7, 36)
 
   return (
     <Group
@@ -297,6 +321,8 @@ function BubbleNode(props: {
       onClick={props.onSelect}
       onTap={props.onSelect}
       onDragEnd={(event) => {
+        // dragend bubbles up from the draggable tail handle; only the Group's own drag moves the bubble.
+        if (event.target !== event.currentTarget) return
         props.onDragEnd(clamp01(event.target.x() / props.pageWidth), clamp01(event.target.y() / props.pageHeight))
       }}
     >
@@ -304,7 +330,15 @@ function BubbleNode(props: {
         <>
           <Ellipse radiusX={bubbleWidth / 2} radiusY={bubbleHeight / 2} fill={fill} stroke={stroke} strokeWidth={strokeWidth} />
           {props.dialogue.bubbleStyle === 'thought' ? (
-            <Circle x={bubbleWidth * 0.28} y={bubbleHeight * 0.38} radius={12} fill="#ffffff" stroke={stroke} strokeWidth={5} />
+            thoughtTrail ? (
+              thoughtTrail.map((dot, index) => (
+                <Circle key={index} x={dot.x} y={dot.y} radius={dot.radius} fill="#ffffff" stroke={stroke} strokeWidth={5} />
+              ))
+            ) : (
+              <Circle x={bubbleWidth * 0.28} y={bubbleHeight * 0.38} radius={12} fill="#ffffff" stroke={stroke} strokeWidth={5} />
+            )
+          ) : tailTriangle ? (
+            <Line points={[...tailTriangle.points]} closed fill="#ffffff" stroke={stroke} strokeWidth={5} />
           ) : null}
         </>
       ) : (
@@ -320,23 +354,49 @@ function BubbleNode(props: {
             cornerRadius={props.dialogue.bubbleStyle === 'caption' ? 6 : 12}
           />
           {props.dialogue.bubbleStyle === 'speech' ? (
-            <Line
-              points={[
-                bubbleWidth * 0.22,
-                bubbleHeight / 2 - 8,
-                bubbleWidth * 0.34,
-                bubbleHeight / 2 + 34,
-                bubbleWidth * 0.08,
-                bubbleHeight / 2 - 4,
-              ]}
-              closed
-              fill="#ffffff"
-              stroke={stroke}
-              strokeWidth={5}
-            />
+            tailTriangle ? (
+              <Line points={[...tailTriangle.points]} closed fill="#ffffff" stroke={stroke} strokeWidth={5} />
+            ) : (
+              <Line
+                points={[
+                  bubbleWidth * 0.22,
+                  bubbleHeight / 2 - 8,
+                  bubbleWidth * 0.34,
+                  bubbleHeight / 2 + 34,
+                  bubbleWidth * 0.08,
+                  bubbleHeight / 2 - 4,
+                ]}
+                closed
+                fill="#ffffff"
+                stroke={stroke}
+                strokeWidth={5}
+              />
+            )
           ) : null}
         </>
       )}
+      {props.selected && props.dialogue.bubbleStyle !== 'caption' ? (
+        <Circle
+          x={tailHandle.x}
+          y={tailHandle.y}
+          radius={tailHandleRadius}
+          fill="rgba(201, 40, 45, 0.25)"
+          stroke="#c9282d"
+          strokeWidth={2}
+          draggable
+          onDragMove={(event) => {
+            event.cancelBubble = true
+            setTailDraft({ x: event.target.x(), y: event.target.y() })
+          }}
+          onDragEnd={(event) => {
+            event.cancelBubble = true
+            const local = { x: event.target.x(), y: event.target.y() }
+            setTailDraft(null)
+            const pagePoint = tailLocalToPage(props.dialogue, local, props.pageWidth, props.pageHeight)
+            props.onTailChange(clamp01(pagePoint.tailX), clamp01(pagePoint.tailY))
+          }}
+        />
+      ) : null}
       {columns.map((column, index) => {
         const x = (columns.length / 2 - index - 0.5) * fontSize * 1.15
         return (
@@ -345,7 +405,7 @@ function BubbleNode(props: {
             x={x - fontSize / 2}
             y={-(column.length * fontSize * 1.08) / 2}
             width={fontSize}
-            text={Array.from(column).join('\n')}
+            text={Array.from(toVerticalGlyphs(column)).join('\n')}
             fontFamily={props.character?.fontFamily || DEFAULT_DIALOGUE_FONT}
             fontStyle="700"
             fontSize={fontSize}

@@ -3,7 +3,9 @@ import type {
   ContinuationReference,
   ContinuationReferenceInput,
   Dialogue,
+  FontAsset,
   JobEvent,
+  PageStatus,
   Project,
   ProjectDetail,
   SecretStatus,
@@ -289,6 +291,51 @@ export function patchPageLayout(
   return request<{ pageId: string; dialogues: Dialogue[] }>(`/api/pages/${pageId}/layout`, {
     method: 'PATCH',
     body: JSON.stringify({ dialogues }),
+  })
+}
+
+/** Undo/redo restore: replaces a page's whole dialogue list (ids preserved) and its status. */
+export function restorePageDialogues(
+  pageId: string,
+  dialogues: Dialogue[],
+  status?: PageStatus,
+): Promise<ProjectDetail> {
+  return request<ProjectDetail>(`/api/pages/${pageId}/dialogues`, {
+    method: 'PUT',
+    body: JSON.stringify({ dialogues, status }),
+  })
+}
+
+export function movePage(pageId: string, offset: -1 | 1): Promise<ProjectDetail> {
+  return request<ProjectDetail>(`/api/pages/${pageId}/move`, {
+    method: 'POST',
+    body: JSON.stringify({ offset }),
+  })
+}
+
+export function deletePage(pageId: string): Promise<ProjectDetail> {
+  return request<ProjectDetail>(`/api/pages/${pageId}`, {
+    method: 'DELETE',
+  })
+}
+
+export async function listFonts(): Promise<FontAsset[]> {
+  const payload = await request<{ fonts: FontAsset[] }>('/api/fonts')
+  return payload.fonts
+}
+
+export function uploadFont(file: File): Promise<FontAsset> {
+  const form = new FormData()
+  form.append('file', file)
+  return request<FontAsset>('/api/fonts', {
+    method: 'POST',
+    body: form,
+  })
+}
+
+export function deleteCustomFont(id: string): Promise<{ ok: boolean }> {
+  return request<{ ok: boolean }>(`/api/fonts/${id}`, {
+    method: 'DELETE',
   })
 }
 

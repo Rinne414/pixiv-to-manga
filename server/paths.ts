@@ -19,6 +19,10 @@ export function getExportsDir(): string {
   return path.join(getAppDataDir(), 'exports')
 }
 
+export function getFontsDir(): string {
+  return path.join(getAppDataDir(), 'fonts')
+}
+
 export function getDatabasePath(): string {
   return path.join(getAppDataDir(), 'studio.sqlite')
 }
@@ -26,6 +30,7 @@ export function getDatabasePath(): string {
 export function ensureAppDirs(): void {
   mkdirSync(getProjectsDir(), { recursive: true })
   mkdirSync(getExportsDir(), { recursive: true })
+  mkdirSync(getFontsDir(), { recursive: true })
 }
 
 export function projectDir(projectId: string): string {

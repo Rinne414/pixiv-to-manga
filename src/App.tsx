@@ -4,6 +4,7 @@ import {
   CircleStop,
   Download,
   ArchiveRestore,
+  ImageDown,
   ImagePlus,
   Images,
   Loader2,
@@ -12,11 +13,13 @@ import {
   PanelRight,
   Play,
   Plus,
+  Redo2,
   RefreshCw,
   Save,
   Settings,
   Sparkles,
   Sun,
+  Undo2,
   Upload,
   Users,
   WandSparkles,
@@ -79,7 +82,10 @@ function App() {
     selectedDialogue,
     secretStatus,
     providers,
+    customFonts,
     hasExported,
+    canUndo,
+    canRedo,
     zoom,
     setZoom,
   } = studio
@@ -116,8 +122,11 @@ function App() {
               <ToolbarButton icon={WandSparkles} label={t('toolbar.analyzeStory')} testId="toolbar-analyze-story" disabled={!canRun} onClick={studio.handleAnalyzeStory} />
               <ToolbarButton icon={Play} label={t('toolbar.generatePage')} testId="toolbar-generate-page" disabled={!canRun || !activePage} onClick={studio.handleGenerateActivePage} />
               <ToolbarButton icon={Sparkles} label={t('toolbar.generateAll')} testId="toolbar-generate-all" disabled={!canRun} onClick={studio.handleGenerateAll} />
+              <ToolbarButton icon={Undo2} label={t('toolbar.undo')} testId="toolbar-undo" disabled={!canUndo || Boolean(busy)} onClick={studio.handleUndo} />
+              <ToolbarButton icon={Redo2} label={t('toolbar.redo')} testId="toolbar-redo" disabled={!canRedo || Boolean(busy)} onClick={studio.handleRedo} />
               <ToolbarButton icon={CircleStop} label={t('toolbar.cancel')} testId="toolbar-cancel-job" disabled={!currentJobId} onClick={studio.handleCancelCurrentJob} />
               <ToolbarButton icon={Download} label={t('toolbar.exportZip')} testId="toolbar-export-zip" disabled={!canRun || !detail?.pages.length} onClick={studio.handleExportZip} />
+              <ToolbarButton icon={ImageDown} label={t('toolbar.exportPage')} testId="toolbar-export-page" disabled={!canRun || !activePage} onClick={studio.handleExportActivePage} />
               <ToolbarButton icon={Save} label={t('toolbar.exportBackup')} testId="toolbar-export-backup" disabled={!canRun} onClick={studio.handleExportBackup} />
               <ToolbarButton icon={ArchiveRestore} label={t('toolbar.restoreBackup')} testId="toolbar-restore-backup" disabled={Boolean(busy)} onClick={() => backupInputRef.current?.click()} />
             </>
@@ -237,7 +246,12 @@ function App() {
                 asset={assetsById.get(page.originalAssetId)}
                 active={page.id === activePage?.id}
                 dialogueCount={detail.dialogues.filter((dialogue) => dialogue.pageId === page.id).length}
+                pageCount={detail.pages.length}
+                disabled={Boolean(busy)}
                 onClick={() => setSelectedPageId(page.id)}
+                onMoveUp={() => studio.handleMovePage(page.id, -1)}
+                onMoveDown={() => studio.handleMovePage(page.id, 1)}
+                onDelete={() => studio.handleDeletePage(page.id)}
               />
             ))}
           </section>
@@ -302,6 +316,10 @@ function App() {
           {activeTab === 'characters' && (
             <CharactersPanel
               storyBible={detail?.project.storyBible}
+              customFonts={customFonts}
+              disabled={Boolean(busy)}
+              onUploadFont={studio.handleUploadFont}
+              onDeleteFont={studio.handleDeleteCustomFont}
               onStoryBibleChange={studio.updateStoryBibleLocal}
               onStoryBibleCommit={studio.commitStoryBible}
             />

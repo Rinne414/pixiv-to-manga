@@ -76,7 +76,20 @@ export interface Dialogue {
   bubbleStyle: BubbleStyle
   color: string
   locked: boolean
+  /** Speech-tail tip in page-normalized coordinates; unset renders the legacy fixed tail. */
+  tailX?: number
+  tailY?: number
   raw?: string
+}
+
+/** A user-uploaded dialogue font, stored globally and served from the asset root. */
+export interface FontAsset {
+  id: string
+  familyName: string
+  fileName: string
+  url: string
+  format: string
+  createdAt: string
 }
 
 export interface JobEvent {

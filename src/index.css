@@ -521,6 +521,89 @@ select:focus {
   min-width: 0;
 }
 
+.page-thumb-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 5px;
+  align-items: center;
+}
+
+.page-thumb-actions {
+  display: grid;
+  gap: 3px;
+}
+
+.page-thumb-actions button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  background: var(--panel-soft);
+  color: var(--muted);
+}
+
+.page-thumb-actions button:hover:not(:disabled) {
+  border-color: var(--line-strong);
+  color: var(--text);
+}
+
+.page-thumb-actions button.danger:hover:not(:disabled) {
+  border-color: var(--active-border);
+  color: var(--accent);
+}
+
+.page-thumb-actions button:disabled {
+  opacity: 0.4;
+}
+
+.font-library {
+  display: grid;
+  gap: 8px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--line);
+}
+
+.font-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 7px 9px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--panel-soft);
+}
+
+.font-row span {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text);
+  font-size: 14px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.font-row button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 24px;
+  height: 24px;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  background: var(--panel);
+  color: var(--muted);
+}
+
+.font-row button:hover:not(:disabled) {
+  border-color: var(--active-border);
+  color: var(--accent);
+}
+
 .thumb-image {
   width: 52px;
   height: 68px;

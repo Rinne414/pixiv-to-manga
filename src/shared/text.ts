@@ -2,6 +2,50 @@ export function uniqueNonEmpty(values: string[]): string[] {
   return Array.from(new Set(values.map((value) => value.trim()).filter(Boolean)))
 }
 
+/**
+ * Horizontal → vertical presentation forms for CJK punctuation (U+FE10–FE44) plus the
+ * long-vowel/dash marks, applied at RENDER time only — stored dialogue text stays in
+ * logical (horizontal) form. Fonts missing a presentation glyph fall back through the
+ * font stack, which always ends in a system serif that carries these forms.
+ */
+const VERTICAL_GLYPHS: Record<string, string> = {
+  '、': '︑',
+  '。': '︒',
+  '，': '︐',
+  '：': '︓',
+  '；': '︔',
+  '！': '︕',
+  '？': '︖',
+  '…': '︙',
+  '‥': '︰',
+  '—': '︱',
+  '–': '︲',
+  'ー': '｜',
+  '（': '︵',
+  '）': '︶',
+  '｛': '︷',
+  '｝': '︸',
+  '〔': '︹',
+  '〕': '︺',
+  '【': '︻',
+  '】': '︼',
+  '《': '︽',
+  '》': '︾',
+  '〈': '︿',
+  '〉': '﹀',
+  '「': '﹁',
+  '」': '﹂',
+  '『': '﹃',
+  '』': '﹄',
+}
+
+/** Swaps punctuation to vertical presentation forms for column rendering. */
+export function toVerticalGlyphs(text: string): string {
+  return Array.from(text)
+    .map((char) => VERTICAL_GLYPHS[char] ?? char)
+    .join('')
+}
+
 /** Punctuation that must not start a vertical column (行頭禁則); it hangs at the bottom of the previous column instead. */
 const KINSOKU_NO_COLUMN_START = new Set(
   Array.from('、。，．！？；：・」』）】〉》〕｝!?,.;:)]…‥ーっゃゅょぁぃぅぇぉッャュョァィゥェォ〜～'),

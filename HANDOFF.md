@@ -1,11 +1,12 @@
 # Agent Handoff Notes
 
-Last updated: 2026-07-11. Three sessions that day: a dependency refresh (see Known
-debts), a feature session (next-page vision context, batch page-range, onboarding
-checklist), and a debt-clearing session (App.tsx/index.css god-file split, CJK kinsoku,
-small debts — see "What just landed 2026-07-11 #2"). Full suite green after each:
-`npx tsc -b`, `npm test` (102 tests), `npm run lint`, `npm run build`,
-`npx playwright test` (15 E2E).
+Last updated: 2026-07-11 (v0.2.0). Four sessions that day: a dependency refresh (see
+Known debts), a feature session (next-page vision context, batch page-range, onboarding
+checklist), a debt-clearing session (god-file splits, CJK kinsoku), and an editor-power
+session (undo/redo, page reorder/delete, custom font upload, bubble tail control,
+vertical punctuation glyphs, single-page export — see "What just landed #3"). Full
+suite green after each: `npx tsc -b`, `npm test` (122 tests), `npm run lint`,
+`npm run build`, `npx playwright test` (20 E2E).
 Previous update 2026-07-05. Written after shipping: infinite whiteboard canvas, dark mode,
 en/zh-TW i18n, keyless local provider (Ollama) support, sidebar legibility fixes,
 character font picker + manual character add/delete + reusable style prompt.
@@ -13,7 +14,58 @@ Everything below is verified green: `npx tsc -b`, `npm test` (94 tests), `npm ru
 `npm run build`, `npx playwright test` (13 E2E). A live run against local Ollama
 (qwen3-vl:8b, keyless, isLocal) produced a real Story Bible (`usedMock: false`).
 
-## What just landed (2026-07-11 session #2 — structure & quality)
+## What just landed (2026-07-11 session #3 — editor power features)
+
+1. **Undo/redo.** `useStudio` keeps undo/redo stacks (cap 50) of two command kinds:
+   per-page dialogue-list snapshots (with page status) and story-bible snapshots.
+   Snapshots diff against `serverDetailRef` — the last server-confirmed detail — never
+   against in-flight local edits. Restores go through the new
+   `PUT /api/pages/:pageId/dialogues` route (`db.replaceDialogues(pageId, list, status)`
+   preserves ids) and the existing story-bible PUT. Recorded on: dialogue commit/add/
+   delete, avoid-overlap, per-page generation, analyze, bible commit. Cleared on
+   project switch and page move/delete. Toolbar buttons + Ctrl/Cmd+Z / Shift+Z / Y
+   (skipped while typing). `raw` is stripped from snapshots (size).
+2. **Page reorder/delete.** `db.movePage` swaps `pageIndex` with the neighbor and swaps
+   the story-bible beats; `db.deletePage` drops the page + dialogues, closes the index
+   gap, shifts beats down (keeps a stale bible rather than persisting zero beats —
+   storyBibleSchema requires ≥1). Routes in server/pages.ts. PageThumb is now a
+   `.page-thumb-row` div wrapping the thumb button + up/down/delete buttons (no nested
+   buttons). Delete asks `window.confirm`. Orphaned original assets stay on disk
+   (harmless, still in backups).
+3. **Custom font upload.** Global library: `POST/GET/DELETE /api/fonts`
+   (server/fonts.ts; extension whitelist ttf/otf/woff/woff2, 64MB cap, server-generated
+   uuid file names under `<appData>/fonts`, served via `/assets/fonts/`). `fonts` table
+   in the DB. Client registers `FontFace`s at boot and after upload
+   (`registerCustomFont`, silent failure → picker still lists it, rendering falls
+   back). Characters tab hosts the library UI; custom fonts merge into every font
+   select as `"Family Name"` values; exports await `document.fonts.ready`. Fonts are
+   global, NOT part of project backup ZIPs — accepted; a restored project with a
+   missing font falls back via the unknown-value select option.
+4. **Bubble tail control.** `Dialogue.tailX/tailY` (0..1 page-normalized, nullable REAL
+   columns via ensureColumn, round-trips backups). `src/shared/bubbleTail.ts` holds the
+   shared geometry: triangle to the rect/ellipse edge for speech/soft, shrinking dot
+   trail for thought, nothing for caption, null when the tip is inside the bubble.
+   Unset tail renders the legacy fixed shapes, so old projects look unchanged. Selected
+   bubbles show a draggable red handle (live preview via local `tailDraft`).
+5. **Vertical punctuation glyphs.** `toVerticalGlyphs` (src/shared/text.ts) swaps
+   、。！？「」etc. to U+FE10–FE44 presentation forms (+ ー→｜) at render time only in
+   both renderers; stored text stays logical; 1:1 char counts keep bubble sizing.
+6. **Single-page PNG export.** `renderPageToDataUrl` + toolbar Export Page button;
+   anchor download named `<title>-page-NNN.png`.
+
+## Traps for the next agent (new in session #3)
+
+- **Konva drag events bubble.** The tail handle is a draggable child inside the
+  draggable bubble Group. `dragend` bubbles with `event.target` = the handle, so the
+  Group's `onDragEnd` MUST guard `event.target !== event.currentTarget` (and the handle
+  sets `event.cancelBubble = true`). Without both, dragging the tail teleports the
+  bubble to the page corner. Regression-tested by the tail-drag e2e, which asserts
+  exactly one PATCH whose body is only `{tailX, tailY}`.
+- The tail-drag e2e imports `estimateVerticalTextBox`/`toVerticalColumns` from src/ to
+  compute the handle's screen position — if BubbleNode's sizing formula changes, update
+  that spec's mirror math too.
+
+## What landed earlier (2026-07-11 session #2 — structure & quality)
 
 1. **God-file split.** `src/App.tsx` (1506 lines) is now a 409-line view shell.
    All state/handlers moved verbatim into the `useStudio()` container hook
@@ -194,10 +246,10 @@ client-side preview downscale.
 
 ```
 npx tsc -b
-npm test               # vitest, 102 tests
+npm test               # vitest, 122 tests
 npm run lint
 npm run build
-npx playwright test    # 15 E2E; starts its own isolated servers; locale pinned en-US
+npx playwright test    # 20 E2E; starts its own isolated servers; locale pinned en-US
 ```
 
 E2E screenshots for visual review land in `.tmp-run/ui-preview/` (generated by

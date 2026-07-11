@@ -1,7 +1,31 @@
 import type { MessageKey } from './i18n/messages'
+import type { FontAsset } from './shared/types'
 
 /** Fallback stack used by both the whiteboard and PNG export when a character has no font. */
 export const DEFAULT_DIALOGUE_FONT = '"Noto Serif SC", "Songti SC", SimSun, serif'
+
+/** CSS font-family value stored on characters for an uploaded font. */
+export function fontValueFromFamily(familyName: string): string {
+  return `"${familyName}"`
+}
+
+/**
+ * Registers an uploaded font with the document so the whiteboard and canvas export can
+ * use it. Load failures are silent: the library entry still lists the font and
+ * rendering falls back through the default stack.
+ */
+export async function registerCustomFont(font: FontAsset): Promise<void> {
+  if (typeof document === 'undefined' || !('fonts' in document)) {
+    return
+  }
+  try {
+    const face = new FontFace(font.familyName, `url("${font.url}")`)
+    const loaded = await face.load()
+    document.fonts.add(loaded)
+  } catch {
+    // Invalid or unsupported font binary; selection still works with fallback rendering.
+  }
+}
 
 export interface FontPreset {
   /** CSS font-family stack stored on the character; '' means the app default. */

@@ -42,6 +42,22 @@ export const dialogueSchema = z.object({
   bubbleStyle: bubbleStyleSchema.default('speech'),
   color: z.string().regex(/^#[0-9a-fA-F]{6}$/).default('#141414'),
   locked: z.boolean().default(false),
+  /** Optional speech-tail tip in page-normalized coordinates; unset renders the legacy fixed tail. */
+  tailX: z.number().min(0).max(1).optional(),
+  tailY: z.number().min(0).max(1).optional(),
+})
+
+export const pageStatusSchema = z.enum(['ready', 'analyzing', 'generating', 'complete', 'error'])
+
+/** Undo/redo restore payload: full dialogue list for one page plus the page status to restore. */
+export const dialogueRestoreSchema = z.object({
+  // Manual adds are unbounded, so keep this cap comfortably above any realistic page.
+  dialogues: z.array(dialogueSchema).max(200),
+  status: pageStatusSchema.optional(),
+})
+
+export const pageMoveSchema = z.object({
+  offset: z.union([z.literal(-1), z.literal(1)]),
 })
 
 export const dialogueListSchema = z.object({

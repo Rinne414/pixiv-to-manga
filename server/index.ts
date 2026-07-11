@@ -17,6 +17,8 @@ import { importLocalImages, importPixivArtwork, importProjectBackup } from './im
 import { registerProviderLabRoutes } from './providers'
 import { registerContinuationRoutes } from './continuation'
 import { registerDialogueRoutes } from './dialogues'
+import { registerFontRoutes } from './fonts'
+import { registerPageRoutes } from './pages'
 import {
   analyzeStorySchema,
   createProjectSchema,
@@ -70,6 +72,8 @@ server.get('/api/health', async () => ({ ok: true, dataDir: appDataDir }))
 registerProviderLabRoutes(server, { db, secrets })
 registerContinuationRoutes(server, { db, secrets })
 registerDialogueRoutes(server, { db })
+registerPageRoutes(server, { db })
+registerFontRoutes(server, { db })
 
 server.get('/api/settings/secrets', async () => secrets.status())
 

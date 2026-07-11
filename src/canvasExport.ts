@@ -1,10 +1,12 @@
 import { DEFAULT_DIALOGUE_FONT } from './fonts'
+import { computeTailTriangle, computeThoughtTrail, dialogueTailLocal } from './shared/bubbleTail'
 import { findDialogueCharacter } from './shared/characters'
 import { estimateVerticalTextBox } from './shared/layout'
-import { toVerticalColumns } from './shared/text'
+import { toVerticalColumns, toVerticalGlyphs } from './shared/text'
 import type { Asset, Character, Dialogue, Page, ProjectDetail } from './shared/types'
 
 export async function renderProjectPages(detail: ProjectDetail): Promise<Array<{ pageId: string; dataUrl: string }>> {
+  await waitForCustomFonts()
   const rendered: Array<{ pageId: string; dataUrl: string }> = []
   const assetsById = new Map(detail.assets.map((asset) => [asset.id, asset]))
 
@@ -22,6 +24,30 @@ export async function renderProjectPages(detail: ProjectDetail): Promise<Array<{
   }
 
   return rendered
+}
+
+/** Renders one page to a PNG data URL, or null when the page/asset is missing. */
+export async function renderPageToDataUrl(detail: ProjectDetail, pageId: string): Promise<string | null> {
+  const page = detail.pages.find((item) => item.id === pageId)
+  if (!page) {
+    return null
+  }
+  const asset = detail.assets.find((item) => item.id === page.originalAssetId)
+  if (!asset) {
+    return null
+  }
+  await waitForCustomFonts()
+  const dialogues = detail.dialogues.filter((dialogue) => dialogue.pageId === page.id)
+  return renderPage(page, asset, dialogues, detail.characters)
+}
+
+/** Uploaded fonts register asynchronously; exports must not rasterize before they load. */
+async function waitForCustomFonts(): Promise<void> {
+  try {
+    await document.fonts?.ready
+  } catch {
+    // Font readiness is best-effort; export proceeds with fallback fonts.
+  }
 }
 
 async function renderPage(
@@ -85,29 +111,53 @@ function drawDialogue(
   context.strokeStyle = dialogue.color || '#111111'
   context.fillStyle = dialogue.bubbleStyle === 'caption' ? 'rgba(255, 255, 255, 0.92)' : '#ffffff'
 
+  // Tail geometry lives in bubble-local space; unset tips keep the legacy fixed shapes.
+  const tailTip = dialogueTailLocal(dialogue, pageWidth, pageHeight)
   if (dialogue.bubbleStyle === 'soft' || dialogue.bubbleStyle === 'thought') {
     context.beginPath()
     context.ellipse(0, 0, bubbleWidth / 2, bubbleHeight / 2, 0, 0, Math.PI * 2)
     context.fill()
     context.stroke()
     if (dialogue.bubbleStyle === 'thought') {
-      context.beginPath()
-      context.arc(bubbleWidth * 0.28, bubbleHeight * 0.38, 12, 0, Math.PI * 2)
-      context.fill()
-      context.stroke()
+      const trail = tailTip ? computeThoughtTrail({ bubbleWidth, bubbleHeight, tipX: tailTip.x, tipY: tailTip.y }) : null
+      if (trail) {
+        for (const dot of trail) {
+          context.beginPath()
+          context.arc(dot.x, dot.y, dot.radius, 0, Math.PI * 2)
+          context.fill()
+          context.stroke()
+        }
+      } else {
+        context.beginPath()
+        context.arc(bubbleWidth * 0.28, bubbleHeight * 0.38, 12, 0, Math.PI * 2)
+        context.fill()
+        context.stroke()
+      }
+    } else if (tailTip) {
+      const triangle = computeTailTriangle({ bubbleWidth, bubbleHeight, bubbleStyle: 'soft', tipX: tailTip.x, tipY: tailTip.y })
+      if (triangle) {
+        fillTriangle(context, triangle.points)
+      }
     }
   } else {
     roundedRect(context, -bubbleWidth / 2, -bubbleHeight / 2, bubbleWidth, bubbleHeight, 12)
     context.fill()
     context.stroke()
     if (dialogue.bubbleStyle === 'speech') {
-      context.beginPath()
-      context.moveTo(bubbleWidth * 0.22, bubbleHeight / 2 - 8)
-      context.lineTo(bubbleWidth * 0.34, bubbleHeight / 2 + 34)
-      context.lineTo(bubbleWidth * 0.08, bubbleHeight / 2 - 4)
-      context.closePath()
-      context.fill()
-      context.stroke()
+      const triangle = tailTip
+        ? computeTailTriangle({ bubbleWidth, bubbleHeight, bubbleStyle: 'speech', tipX: tailTip.x, tipY: tailTip.y })
+        : null
+      if (triangle) {
+        fillTriangle(context, triangle.points)
+      } else {
+        context.beginPath()
+        context.moveTo(bubbleWidth * 0.22, bubbleHeight / 2 - 8)
+        context.lineTo(bubbleWidth * 0.34, bubbleHeight / 2 + 34)
+        context.lineTo(bubbleWidth * 0.08, bubbleHeight / 2 - 4)
+        context.closePath()
+        context.fill()
+        context.stroke()
+      }
     }
   }
 
@@ -120,11 +170,21 @@ function drawDialogue(
   columns.forEach((column, columnIndex) => {
     const x = (columns.length / 2 - columnIndex - 0.5) * columnGap
     const startY = -(column.length * fontSize * 1.08) / 2
-    Array.from(column).forEach((character, characterIndex) => {
+    Array.from(toVerticalGlyphs(column)).forEach((character, characterIndex) => {
       context.fillText(character, x, startY + characterIndex * fontSize * 1.08)
     })
   })
   context.restore()
+}
+
+function fillTriangle(context: CanvasRenderingContext2D, points: [number, number, number, number, number, number]): void {
+  context.beginPath()
+  context.moveTo(points[0], points[1])
+  context.lineTo(points[2], points[3])
+  context.lineTo(points[4], points[5])
+  context.closePath()
+  context.fill()
+  context.stroke()
 }
 
 function roundedRect(

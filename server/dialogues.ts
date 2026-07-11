@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import type { FastifyInstance } from 'fastify'
-import { dialogueCreateSchema, dialogueSchema } from '../src/shared/schemas'
+import { dialogueCreateSchema, dialogueRestoreSchema, dialogueSchema } from '../src/shared/schemas'
 import type { StudioDatabase } from './database'
 
 export interface DialogueRoutesContext {
@@ -38,5 +38,18 @@ export function registerDialogueRoutes(server: FastifyInstance, context: Dialogu
       return db.updateDialogue(parsed.id, parsed)
     })
     return { pageId, dialogues: updated }
+  })
+
+  // Undo/redo restore: replaces the page's whole dialogue list (ids preserved) and its status.
+  server.put('/api/pages/:pageId/dialogues', async (request) => {
+    const { pageId } = request.params as { pageId: string }
+    const input = dialogueRestoreSchema.parse(request.body)
+    const page = db.getPage(pageId)
+    db.replaceDialogues(
+      page.id,
+      input.dialogues.map((dialogue) => ({ ...dialogue, id: dialogue.id || randomUUID(), pageId: page.id })),
+      input.status ?? 'complete',
+    )
+    return db.getProjectDetail(page.projectId)
   })
 }
