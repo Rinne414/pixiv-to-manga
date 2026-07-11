@@ -5,6 +5,9 @@ import react from '@vitejs/plugin-react'
 export default defineConfig({
   plugins: [react()],
   build: {
+    // '/assets/' is reserved for user data (app-data static mount in server/index.ts);
+    // built JS/CSS must live elsewhere or production serving 404s on every bundle.
+    assetsDir: 'static',
     rolldownOptions: {
       output: {
         codeSplitting: {

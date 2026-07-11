@@ -1,7 +1,7 @@
 {
   "name": "pixiv-to-manga",
   "private": true,
-  "version": "0.2.0",
+  "version": "0.3.0",
   "license": "Apache-2.0",
   "type": "module",
   "scripts": {
@@ -9,11 +9,15 @@
     "dev:client": "vite",
     "dev:server": "tsx watch server/index.ts",
     "server": "tsx server/index.ts",
+    "start": "npm run build && tsx server/index.ts --open",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
     "test": "vitest run",
     "e2e": "playwright test",
     "preview": "vite preview"
+  },
+  "engines": {
+    "node": ">=23.4"
   },
   "dependencies": {
     "@fastify/multipart": "^10.1.0",

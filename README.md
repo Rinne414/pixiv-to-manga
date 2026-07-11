@@ -1,8 +1,16 @@
 # Pixiv-to-Manga Studio
 
-Local-first AI manga creation workspace.
+Privacy-first, local-AI manga creation workspace: your images, your API keys, and your generations never leave your machine — keyless local models (Ollama / LM Studio) are the primary path, not a fallback.
 
 Pixiv-to-Manga Studio imports Pixiv or local image sets, asks an AI model to create a story bible and page-level dialogue, overlays editable manga text on the images, and exports rendered PNG pages as a ZIP archive.
+
+## Quick Start (no dev tools needed)
+
+1. Install [Node.js 24 LTS or newer](https://nodejs.org/).
+2. Download or clone this repository.
+3. Double-click `start-studio.cmd` (Windows) or run `./start-studio.sh` (macOS/Linux).
+
+The first run installs dependencies and builds the app; afterwards it starts in seconds and opens in your browser automatically. Everything is stored locally under your home directory (`.pixiv-to-manga-studio`). Developers can do the same with `npm start`.
 
 ## Current Scope
 

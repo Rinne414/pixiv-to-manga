@@ -226,7 +226,8 @@ server.post('/api/jobs/:jobId/cancel', async (request) => {
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const distDir = path.resolve(__dirname, '../dist')
-if (existsSync(distDir)) {
+const hasBuiltClient = existsSync(distDir)
+if (hasBuiltClient) {
   await server.register(fastifyStatic, {
     root: distDir,
     prefix: '/',
@@ -237,8 +238,9 @@ if (existsSync(distDir)) {
 await server.listen({ port: PORT, host: '127.0.0.1' })
 server.log.info(`Pixiv-to-Manga Studio server listening on http://127.0.0.1:${PORT}`)
 
-if (process.env.PTM_OPEN_BROWSER === '1') {
-  await open(`http://127.0.0.1:5173`)
+// `npm start` passes --open; the built client is served by this process, so open its own URL.
+if (process.argv.includes('--open') || process.env.PTM_OPEN_BROWSER === '1') {
+  await open(hasBuiltClient ? `http://127.0.0.1:${PORT}` : 'http://127.0.0.1:5173')
 }
 
 function aiErrorPayload(error: unknown): unknown {

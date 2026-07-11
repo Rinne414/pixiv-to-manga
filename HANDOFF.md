@@ -1,18 +1,45 @@
 # Agent Handoff Notes
 
-Last updated: 2026-07-11 (v0.2.0). Four sessions that day: a dependency refresh (see
+Last updated: 2026-07-11 (v0.3.0). Five sessions that day: a dependency refresh (see
 Known debts), a feature session (next-page vision context, batch page-range, onboarding
-checklist), a debt-clearing session (god-file splits, CJK kinsoku), and an editor-power
+checklist), a debt-clearing session (god-file splits, CJK kinsoku), an editor-power
 session (undo/redo, page reorder/delete, custom font upload, bubble tail control,
-vertical punctuation glyphs, single-page export — see "What just landed #3"). Full
-suite green after each: `npx tsc -b`, `npm test` (122 tests), `npm run lint`,
-`npm run build`, `npx playwright test` (20 E2E).
+vertical punctuation glyphs, single-page export — see "What just landed #3"), and a
+distribution session (production mode fixed + one-command start — see "What just
+landed #4"). Full suite green after each: `npx tsc -b`, `npm test` (122 tests),
+`npm run lint`, `npm run build`, `npx playwright test` (20 E2E).
 Previous update 2026-07-05. Written after shipping: infinite whiteboard canvas, dark mode,
 en/zh-TW i18n, keyless local provider (Ollama) support, sidebar legibility fixes,
 character font picker + manual character add/delete + reusable style prompt.
 Everything below is verified green: `npx tsc -b`, `npm test` (94 tests), `npm run lint`,
 `npm run build`, `npx playwright test` (13 E2E). A live run against local Ollama
 (qwen3-vl:8b, keyless, isLocal) produced a real Story Bible (`usedMock: false`).
+
+## What just landed (2026-07-11 session #4 — distribution)
+
+1. **Production mode was broken and is now fixed.** Vite emitted bundles to
+   `dist/assets/`, but the `/assets/` URL prefix belongs to the app-data static mount —
+   so the served index.html 404'd on every JS/CSS bundle. Nobody had ever run
+   production mode. Fix: `build.assetsDir: 'static'` in vite.config.ts (bundles now at
+   `/static/*`). **`/assets/` is reserved for user data; never emit build output
+   there.** Verified end-to-end: curl 200s for HTML/JS/CSS/API/user-assets AND a
+   Playwright browser boot against the production server (sample project renders, zero
+   console errors).
+2. **One-command start.** `npm start` = build + `tsx server/index.ts --open`; the
+   server now opens the browser at its OWN port when `--open` is passed (the old
+   `PTM_OPEN_BROWSER` env pointed at dev port 5173 unconditionally — kept as a dev
+   fallback when no dist exists). `start-studio.cmd` / `start-studio.sh` launchers at
+   the repo root check for Node, install deps on first run, then `npm start` — this is
+   the non-developer path. `.gitattributes` pins `.cmd` to CRLF. `engines.node >=23.4`
+   (node:sqlite unflagged there; dev machine runs 25).
+3. **Desktop packaging decision (recorded, not built).** Tauri has no Node runtime, so
+   the Fastify/node:sqlite/keytar server would need a sidecar; Node SEA can't load
+   native addons (keytar) and pkg is unmaintained, so the sidecar would mean shipping a
+   full Node runtime as a resource (~80MB+). Electron bundles Node but its Node 22 line
+   needs the sqlite flag. Conclusion: the web-served local app + launcher stays the
+   distribution story for now; revisit Tauri-with-bundled-Node when an installer is
+   truly needed. No Rust toolchain on this machine (cargo absent) — that is a
+   prerequisite for any Tauri attempt.
 
 ## What just landed (2026-07-11 session #3 — editor power features)
 
