@@ -920,6 +920,14 @@ select:focus {
   gap: 6px;
 }
 
+/* Drag-and-drop import affordance on both canvas states. */
+.whiteboard[data-drag-over='true'],
+.empty-canvas[data-drag-over='true'] {
+  outline: 2px dashed var(--accent);
+  outline-offset: -8px;
+  background-color: rgba(201, 40, 45, 0.05);
+}
+
 .field-label {
   color: var(--muted);
   font-size: 12px;

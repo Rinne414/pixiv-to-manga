@@ -1,7 +1,16 @@
 import { randomUUID } from 'node:crypto'
 import { readFile } from 'node:fs/promises'
 import path from 'node:path'
-import type { Asset, Dialogue, ModelCapability, Page, ProjectDetail, ProviderProfile, StoryBible } from '../src/shared/types'
+import type {
+  ActiveEngineInfo,
+  Asset,
+  Dialogue,
+  ModelCapability,
+  Page,
+  ProjectDetail,
+  ProviderProfile,
+  StoryBible,
+} from '../src/shared/types'
 import { dialogueListSchema, storyBibleSchema } from '../src/shared/schemas'
 import { type ZodType, type z } from 'zod'
 import { parsePossiblyWrappedJson } from '../src/shared/jsonRepair'
@@ -160,7 +169,21 @@ export async function generateDialoguesWithAi(
   return { dialogues, raw: repaired.raw, usedMock: false }
 }
 
-async function resolveAiTarget(context: AiContext): Promise<AiTarget | null> {
+interface ResolvedAiRoute extends AiTarget {
+  isLocal: boolean
+  source: 'global' | 'provider'
+  provider?: ProviderProfile
+}
+
+/**
+ * Single source of truth for "which AI route will generations use":
+ *   1. Global Base URL + model win when both are set; the route must match a
+ *      local provider or carry a key (global key OR the matched provider's own
+ *      key) — otherwise there is NO engine (no fallback to profiles).
+ *   2. Without a complete global route, the first provider profile with a key
+ *      (or a local provider) is active.
+ */
+async function resolveAiRoute(context: AiContext): Promise<ResolvedAiRoute | null> {
   const status = await context.secrets.status()
   const globalApiKey = await context.secrets.getApiKey()
 
@@ -180,6 +203,9 @@ async function resolveAiTarget(context: AiContext): Promise<AiTarget | null> {
       modelName: status.modelName,
       apiKey: apiKey || '',
       supportsStreaming: Boolean(capability?.supportsStreaming),
+      isLocal: Boolean(matchingProvider?.isLocal),
+      source: 'global',
+      provider: matchingProvider,
     }
   }
 
@@ -199,11 +225,44 @@ async function resolveAiTarget(context: AiContext): Promise<AiTarget | null> {
         modelName: provider.defaultModel,
         apiKey: apiKey || '',
         supportsStreaming: Boolean(capability?.supportsStreaming),
+        isLocal: provider.isLocal,
+        source: 'provider',
+        provider,
       }
     }
   }
 
   return null
+}
+
+async function resolveAiTarget(context: AiContext): Promise<AiTarget | null> {
+  const route = await resolveAiRoute(context)
+  if (!route) {
+    return null
+  }
+  return {
+    apiBaseUrl: route.apiBaseUrl,
+    modelName: route.modelName,
+    apiKey: route.apiKey,
+    supportsStreaming: route.supportsStreaming,
+  }
+}
+
+/** Sanitized view of the active route for the UI; never exposes key material. */
+export async function describeAiTarget(context: AiContext): Promise<ActiveEngineInfo | null> {
+  const route = await resolveAiRoute(context)
+  if (!route) {
+    return null
+  }
+  return {
+    apiBaseUrl: route.apiBaseUrl,
+    modelName: route.modelName,
+    isLocal: route.isLocal,
+    hasApiKey: Boolean(route.apiKey),
+    source: route.source,
+    providerId: route.provider?.id,
+    providerName: route.provider?.name,
+  }
 }
 
 export function evaluateAiGenerationRoute(input: {

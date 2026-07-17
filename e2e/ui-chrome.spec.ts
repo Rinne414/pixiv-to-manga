@@ -66,6 +66,28 @@ test('whiteboard canvas zooms with controls, wheel, and fit', async ({ page }) =
     .toBeGreaterThan(parseInt(fitValue, 10))
 })
 
+test('dropping an image file onto the empty canvas imports it as a page', async ({ page }) => {
+  await openStudio(page)
+  await page.getByLabel('Project title').fill(`Drop Import ${Date.now()}`)
+  await page.getByRole('button', { name: /^Create$/ }).click()
+  await expect(page.locator('.log-list').getByText('Project created.')).toBeVisible()
+  await expect(page.getByTestId('empty-canvas')).toBeVisible()
+
+  const localImportResponse = page.waitForResponse(
+    (response) => response.url().includes('/api/import/local') && response.status() === 200,
+  )
+  const dataTransfer = await page.evaluateHandle((svg) => {
+    const dt = new DataTransfer()
+    dt.items.add(new File([svg], 'dropped-page.svg', { type: 'image/svg+xml' }))
+    return dt
+  }, whiteboardSvg())
+  await page.dispatchEvent('[data-testid="empty-canvas"]', 'drop', { dataTransfer })
+  await localImportResponse
+
+  await expect(page.getByTestId('page-thumb')).toHaveCount(1)
+  await expect(page.locator('.log-list').getByText('1 image(s) imported.')).toBeVisible()
+})
+
 test('success toasts surface in the overlay and dismiss on click', async ({ page }) => {
   await openStudio(page)
   await page.getByLabel('Project title').fill(`Toast Check ${Date.now()}`)

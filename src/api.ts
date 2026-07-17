@@ -1,4 +1,5 @@
 import type {
+  ActiveEngineInfo,
   ContinuationGenerateResponse,
   ContinuationReference,
   ContinuationReferenceInput,
@@ -370,6 +371,12 @@ export function exportProjectBackup(input: { projectId: string }): Promise<{ fil
 
 export function getSecretStatus(): Promise<SecretStatus> {
   return request<SecretStatus>('/api/settings/secrets')
+}
+
+/** Backend-authoritative "which AI will generations use?" — see server/ai.ts describeAiTarget. */
+export async function getActiveAiTarget(): Promise<ActiveEngineInfo | null> {
+  const payload = await request<{ target: ActiveEngineInfo | null }>('/api/ai/active-target')
+  return payload.target
 }
 
 export function saveSecrets(input: SecretUpdateInput): Promise<SecretStatus> {

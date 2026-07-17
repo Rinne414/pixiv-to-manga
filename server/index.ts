@@ -11,7 +11,7 @@ import { appDataDir } from './paths'
 import { StudioDatabase } from './database'
 import { SecretStore } from './secrets'
 import { JobHub } from './jobs'
-import { AiJsonOutputError, analyzeStoryWithAi, generateDialoguesWithAi } from './ai'
+import { AiJsonOutputError, analyzeStoryWithAi, describeAiTarget, generateDialoguesWithAi } from './ai'
 import { exportProjectBackup, exportRenderedZip } from './exporter'
 import { importLocalImages, importPixivArtwork, importProjectBackup } from './importers'
 import { registerProviderLabRoutes } from './providers'
@@ -77,6 +77,8 @@ registerPageRoutes(server, { db })
 registerFontRoutes(server, { db })
 
 server.get('/api/settings/secrets', async () => secrets.status())
+
+server.get('/api/ai/active-target', async () => ({ target: await describeAiTarget({ secrets, db }) }))
 
 server.put('/api/settings/secrets', async (request) => {
   const input = secretUpdateSchema.parse(request.body)

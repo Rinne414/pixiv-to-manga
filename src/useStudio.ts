@@ -436,16 +436,22 @@ export function useStudio() {
     })
   }
 
+  /** Shared import path for the file picker and canvas drag-and-drop. */
+  async function importLocalFiles(files: File[]) {
+    const images = files.filter((file) => file.type.startsWith('image/'))
+    if (!images.length) return
+
+    await runTask(t('log.importingLocal'), async () => {
+      const next = await api.importLocal(images, detail?.project.id)
+      acceptDetail(next)
+      pushLog(t('log.imagesImported', { count: images.length }), 'success')
+    })
+  }
+
   async function handleLocalFiles(event: ChangeEvent<HTMLInputElement>) {
     const files = Array.from(event.currentTarget.files || [])
     event.currentTarget.value = ''
-    if (!files.length) return
-
-    await runTask(t('log.importingLocal'), async () => {
-      const next = await api.importLocal(files, detail?.project.id)
-      acceptDetail(next)
-      pushLog(t('log.imagesImported', { count: files.length }), 'success')
-    })
+    await importLocalFiles(files)
   }
 
   async function handleBackupFile(event: ChangeEvent<HTMLInputElement>) {
@@ -836,6 +842,7 @@ export function useStudio() {
     handleDeleteDialogue,
     handleCreateProject,
     handleLocalFiles,
+    importLocalFiles,
     handleBackupFile,
     handlePixivImport,
     handleAnalyzeStory,

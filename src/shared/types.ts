@@ -5,6 +5,21 @@ export type BubbleStyle = 'speech' | 'soft' | 'thought' | 'caption' | 'sfx'
 /** Page-turn direction for readers/exports; 'rtl' is the manga convention. */
 export type ReadingDirection = 'ltr' | 'rtl'
 
+/**
+ * Sanitized description of the AI route generations will actually use, served
+ * by GET /api/ai/active-target (server/ai.ts describeAiTarget). Key material
+ * never leaves the backend; hasApiKey only reports that one exists.
+ */
+export interface ActiveEngineInfo {
+  apiBaseUrl: string
+  modelName: string
+  isLocal: boolean
+  hasApiKey: boolean
+  source: 'global' | 'provider'
+  providerId?: string
+  providerName?: string
+}
+
 export interface Project {
   id: string
   title: string

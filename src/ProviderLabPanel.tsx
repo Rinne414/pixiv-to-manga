@@ -22,11 +22,10 @@ import type {
   ProviderTestInput,
   ProviderTestResponse,
 } from './api'
-import type { SecretStatus } from './shared/types'
+import type { ActiveEngineInfo, SecretStatus } from './shared/types'
 import * as api from './api'
 import { useI18n } from './i18n/context'
 import type { MessageKey } from './i18n/messages'
-import { resolveActiveEngine } from './shared/activeProvider'
 
 // Read-only capability flags: backend auto-detects these via discovery/test.
 const detectedCapabilityKeys = [
@@ -109,10 +108,28 @@ export function ProviderLabPanel(props: ProviderLabPanelProps) {
   })
   const [tests, setTests] = useState<ProviderTestInput['tests']>(defaultTests)
   const [testResult, setTestResult] = useState<ProviderTestResponse | null>(null)
+  const [activeEngine, setActiveEngine] = useState<ActiveEngineInfo | null>(null)
   const [loading, setLoading] = useState('')
   const [error, setError] = useState('')
 
-  const activeEngine = useMemo(() => resolveActiveEngine(props.secretStatus, providers), [props.secretStatus, providers])
+  // The backend owns route resolution (GET /api/ai/active-target); refetch whenever
+  // the inputs that can change it move — provider list mutations arrive as a new
+  // props.providers array, global settings as a new secretStatus object.
+  useEffect(() => {
+    let cancelled = false
+    api
+      .getActiveAiTarget()
+      .then((target) => {
+        if (!cancelled) setActiveEngine(target)
+      })
+      .catch(() => {
+        if (!cancelled) setActiveEngine(null)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [props.secretStatus, providers])
+
   const selectedProvider = providers.find((provider) => provider.id === selectedProviderId)
   const selectedCapability = capabilities.find(
     (capability) => capability.providerId === selectedProviderId && capability.modelId === selectedModelId,
@@ -333,7 +350,7 @@ export function ProviderLabPanel(props: ProviderLabPanelProps) {
               <button
                 key={provider.id}
                 type="button"
-                className={`provider-row ${provider.id === selectedProviderId ? 'active' : ''} ${provider.id === activeEngine?.provider?.id ? 'is-active-engine' : ''}`}
+                className={`provider-row ${provider.id === selectedProviderId ? 'active' : ''} ${provider.id === activeEngine?.providerId ? 'is-active-engine' : ''}`}
                 onClick={() => selectProvider(provider)}
               >
                 <strong>{provider.name}</strong>
@@ -494,7 +511,7 @@ export function ProviderLabPanel(props: ProviderLabPanelProps) {
   )
 }
 
-function ActiveEngineCard({ engine }: { engine: ReturnType<typeof resolveActiveEngine> }) {
+function ActiveEngineCard({ engine }: { engine: ActiveEngineInfo | null }) {
   const { t } = useI18n()
 
   if (!engine) {
@@ -510,7 +527,7 @@ function ActiveEngineCard({ engine }: { engine: ReturnType<typeof resolveActiveE
     )
   }
 
-  const name = engine.provider?.name || engine.apiBaseUrl
+  const name = engine.providerName || engine.apiBaseUrl
   const Icon = engine.isLocal ? HardDrive : Cloud
 
   return (
@@ -524,7 +541,7 @@ function ActiveEngineCard({ engine }: { engine: ReturnType<typeof resolveActiveE
         <strong>{name}</strong>
         <span className="active-engine-model">{engine.modelName}</span>
         <span className="active-engine-sub">
-          {engine.source === 'global' && !engine.provider ? t('providerLab.viaGlobal') : engine.apiBaseUrl}
+          {engine.source === 'global' && !engine.providerId ? t('providerLab.viaGlobal') : engine.apiBaseUrl}
           {!engine.hasApiKey && !engine.isLocal ? ` · ${t('providerLab.badgeNoKey')}` : ''}
         </span>
       </div>

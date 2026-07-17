@@ -285,6 +285,7 @@ function App() {
             batchProgress={batchProgress}
             onImportLocal={() => fileInputRef.current?.click()}
             onImportPixiv={() => setActiveTab('story')}
+            onDropFiles={studio.importLocalFiles}
           />
         </section>
 

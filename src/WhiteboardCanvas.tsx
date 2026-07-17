@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import type { DragEvent as ReactDragEvent } from 'react'
 import type Konva from 'konva'
 import { Circle, Ellipse, Group, Image as KonvaImage, Layer, Line, Rect, Stage, Text } from 'react-konva'
 import { Frame, ImagePlus, Loader2, Minus, Plus, Scan, Upload } from 'lucide-react'
@@ -37,6 +38,7 @@ interface WhiteboardCanvasProps {
   batchProgress?: BatchProgress | null
   onImportLocal?: () => void
   onImportPixiv?: () => void
+  onDropFiles?: (files: File[]) => void
 }
 
 /**
@@ -45,15 +47,41 @@ interface WhiteboardCanvasProps {
  */
 export function WhiteboardCanvas(props: WhiteboardCanvasProps) {
   const { t } = useI18n()
-  const { onZoomChange } = props
+  const { onZoomChange, onDropFiles } = props
   // Callback ref: the whiteboard div mounts only after a page exists, so a
   // mount-time effect with a plain ref would never see it.
   const [container, setContainer] = useState<HTMLDivElement | null>(null)
   const [viewport, setViewport] = useState({ width: 0, height: 0 })
   const [view, setView] = useState<ViewOffset>({ x: 0, y: 0 })
+  const [isDragOver, setIsDragOver] = useState(false)
   const prevZoomRef = useRef(props.zoom)
   const fittedPageRef = useRef('')
   const image = useLoadedImage(props.asset?.url)
+
+  // Shared drop-target behavior for both the empty state and the live whiteboard.
+  const dropHandlers = onDropFiles
+    ? {
+        onDragOver: (event: ReactDragEvent<HTMLDivElement>) => {
+          if (Array.from(event.dataTransfer.types).includes('Files')) {
+            event.preventDefault()
+            setIsDragOver(true)
+          }
+        },
+        onDragLeave: (event: ReactDragEvent<HTMLDivElement>) => {
+          if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
+            setIsDragOver(false)
+          }
+        },
+        onDrop: (event: ReactDragEvent<HTMLDivElement>) => {
+          event.preventDefault()
+          setIsDragOver(false)
+          const files = Array.from(event.dataTransfer.files)
+          if (files.length) {
+            onDropFiles(files)
+          }
+        },
+      }
+    : {}
 
   useEffect(() => {
     if (!container) return
@@ -171,7 +199,7 @@ export function WhiteboardCanvas(props: WhiteboardCanvasProps) {
 
   if (!props.page || !props.asset) {
     return (
-      <div className="empty-canvas">
+      <div className="empty-canvas" data-drag-over={isDragOver} data-testid="empty-canvas" {...dropHandlers}>
         <ImagePlus size={40} />
         <strong className="empty-canvas-title">{t('canvas.emptyTitle')}</strong>
         <span className="empty-canvas-hint">{t('canvas.emptyHint')}</span>
@@ -201,10 +229,12 @@ export function WhiteboardCanvas(props: WhiteboardCanvasProps) {
       ref={setContainer}
       className="whiteboard"
       data-testid="manga-stage"
+      data-drag-over={isDragOver}
       style={{
         backgroundSize: `${gridSize}px ${gridSize}px`,
         backgroundPosition: `${view.x}px ${view.y}px`,
       }}
+      {...dropHandlers}
     >
       {viewport.width > 0 && viewport.height > 0 ? (
         <Stage
