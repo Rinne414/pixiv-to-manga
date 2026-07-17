@@ -47,34 +47,32 @@
     "@fastify/multipart": "^10.1.0",
     "@fastify/static": "^9.3.0",
     "archiver": "^8.0.0",
-    "clsx": "^2.1.1",
     "fastify": "^5.10.0",
     "jszip": "^3.10.1",
-    "konva": "^10.3.0",
-    "lucide-react": "^1.24.0",
-    "mime-types": "^3.0.2",
     "open": "^11.0.0",
     "pdf-lib": "^1.17.1",
-    "react": "^19.2.7",
-    "react-dom": "^19.2.7",
-    "react-konva": "^19.2.5",
     "zod": "^4.4.3"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
     "@playwright/test": "^1.61.1",
     "@types/archiver": "^8.0.0",
-    "@types/mime-types": "^3.0.1",
     "@types/node": "^25.9.5",
     "@types/react": "^19.2.17",
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^6.0.3",
+    "clsx": "^2.1.1",
     "concurrently": "^10.0.3",
     "esbuild": "^0.28.1",
     "eslint": "^10.6.0",
     "eslint-plugin-react-hooks": "^7.1.1",
     "eslint-plugin-react-refresh": "^0.5.3",
     "globals": "^17.7.0",
+    "konva": "^10.3.0",
+    "lucide-react": "^1.25.0",
+    "react": "^19.2.7",
+    "react-dom": "^19.2.7",
+    "react-konva": "^19.2.5",
     "tsx": "^4.23.0",
     "typescript": "~6.0.3",
     "typescript-eslint": "^8.63.0",
@@ -83,5 +81,13 @@
   },
   "optionalDependencies": {
     "keytar": "^7.9.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/peter119lee/pixiv-to-manga.git"
+  },
+  "homepage": "https://github.com/peter119lee/pixiv-to-manga#readme",
+  "bugs": {
+    "url": "https://github.com/peter119lee/pixiv-to-manga/issues"
   }
 }
