@@ -146,7 +146,8 @@ server.post('/api/story/analyze', async (request) => {
     try {
       const detail = db.getProjectDetail(input.projectId)
       jobs.progress(jobId, 0.35, 'Building Story Bible')
-      const result = await analyzeStoryWithAi({ secrets, db, signal }, detail, input)
+      const onDelta = (accumulated: string) => jobs.progress(jobId, 0.6, 'Streaming model output', { streamText: accumulated })
+      const result = await analyzeStoryWithAi({ secrets, db, signal, onDelta }, detail, input)
       if (jobs.isCancelled(jobId)) return
       db.saveStoryBible(input.projectId, result.storyBible)
       jobs.complete(jobId, result.usedMock ? 'Story Bible generated with mock engine' : 'Story Bible generated', {
@@ -175,7 +176,8 @@ server.post('/api/pages/:pageId/generate', async (request) => {
       db.updatePageStatus(page.id, 'generating')
       const detail = db.getProjectDetail(page.projectId)
       jobs.progress(jobId, 0.45, `Generating Page ${page.index + 1}`)
-      const result = await generateDialoguesWithAi({ secrets, db, signal }, detail, page, input)
+      const onDelta = (accumulated: string) => jobs.progress(jobId, 0.65, 'Streaming model output', { streamText: accumulated })
+      const result = await generateDialoguesWithAi({ secrets, db, signal, onDelta }, detail, page, input)
       if (jobs.isCancelled(jobId)) {
         db.updatePageStatus(page.id, 'ready')
         return

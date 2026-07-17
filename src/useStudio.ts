@@ -316,6 +316,12 @@ export function useStudio() {
   }
 
   function handleJobEvent(event: JobEvent) {
+    const streamText = streamTextFromJobPayload(event.payload)
+    if (streamText !== null) {
+      // Live model output belongs in the raw panel; logging every snapshot would flood it.
+      setRawOutput({ title: t('raw.streamingTitle'), text: streamText })
+      return
+    }
     if (event.type === 'queued' || event.type === 'progress') {
       pushLog(event.message)
     }
@@ -872,6 +878,12 @@ export function useStudio() {
     handleUploadFont,
     handleDeleteCustomFont,
   }
+}
+
+function streamTextFromJobPayload(payload: unknown): string | null {
+  if (!payload || typeof payload !== 'object') return null
+  const value = (payload as { streamText?: unknown }).streamText
+  return typeof value === 'string' ? value : null
 }
 
 function sanitizeFileName(title: string): string {

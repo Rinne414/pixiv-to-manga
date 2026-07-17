@@ -36,6 +36,8 @@ export interface AiContext {
   secrets: SecretStore
   db?: StudioDatabase
   signal?: AbortSignal
+  /** Receives the accumulated model text while a response streams (primary call only). */
+  onDelta?: (accumulated: string) => void
 }
 
 export class AiJsonOutputError extends Error {
@@ -82,6 +84,7 @@ export async function analyzeStoryWithAi(
   const raw = await openAiChatJson(target.apiBaseUrl, target.modelName, target.apiKey, [{ type: 'text', text: prompt }, ...imageParts], {
     signal: context.signal,
     stream: target.supportsStreaming,
+    onDelta: context.onDelta,
   })
   const repaired = await parseWithOneRepair({
     raw,
@@ -142,6 +145,7 @@ export async function generateDialoguesWithAi(
   const raw = await openAiChatJson(target.apiBaseUrl, target.modelName, target.apiKey, content, {
     signal: context.signal,
     stream: target.supportsStreaming,
+    onDelta: context.onDelta,
   })
   const repaired = await parseWithOneRepair({
     raw,
@@ -330,14 +334,13 @@ async function openAiChatJson(
   model: string,
   apiKey: string,
   content: ChatContentPart[],
-  options: { signal?: AbortSignal; stream?: boolean } = {},
+  options: { signal?: AbortSignal; stream?: boolean; onDelta?: (accumulated: string) => void } = {},
 ): Promise<string> {
   const timeoutSignal = AbortSignal.timeout(AI_REQUEST_TIMEOUT_MS)
   const signal = options.signal ? AbortSignal.any([options.signal, timeoutSignal]) : timeoutSignal
-  let response: Response
-  let rawText: string
+  let contentText: string
   try {
-    response = await fetch(`${baseUrl.replace(/\/+$/, '')}/chat/completions`, {
+    const response = await fetch(`${baseUrl.replace(/\/+$/, '')}/chat/completions`, {
       method: 'POST',
       signal,
       headers: {
@@ -358,24 +361,61 @@ async function openAiChatJson(
     }
 
     // The same signal covers the body read; a stalled stream times out too.
-    rawText = await response.text()
+    contentText = await readOpenAiContent(response, options.onDelta)
   } catch (error) {
     if (timeoutSignal.aborted && !options.signal?.aborted) {
       throw new Error(`AI request timed out after ${AI_REQUEST_TIMEOUT_MS / 1000}s`, { cause: error })
     }
     throw error
   }
-  const contentText = responseLooksLikeEventStream(response, rawText)
-    ? contentFromOpenAiStream(rawText)
-    : contentFromOpenAiJson(rawText)
   if (!contentText) {
     throw new Error('AI returned an empty response')
   }
   return contentText
 }
 
-function responseLooksLikeEventStream(response: Response, rawText: string): boolean {
-  return response.headers.get('content-type')?.includes('text/event-stream') || rawText.trimStart().startsWith('data:')
+const STREAM_DELTA_THROTTLE_MS = 300
+
+/**
+ * Reads the response body incrementally: SSE `data:` lines accumulate into
+ * content (emitting throttled onDelta snapshots for live display); bodies with
+ * no data lines fall back to plain chat-completion JSON. Format is judged from
+ * the body itself — some local providers stream without an event-stream header.
+ */
+async function readOpenAiContent(response: Response, onDelta?: (accumulated: string) => void): Promise<string> {
+  const accumulator = new OpenAiStreamAccumulator()
+  const decoder = new TextDecoder()
+  let raw = ''
+  let lastEmit = 0
+
+  const reader = response.body?.getReader()
+  if (reader) {
+    for (;;) {
+      const { done, value } = await reader.read()
+      if (done) break
+      const chunkText = decoder.decode(value, { stream: true })
+      raw += chunkText
+      accumulator.push(chunkText)
+      const now = Date.now()
+      if (onDelta && accumulator.sawDataLine && accumulator.content && now - lastEmit >= STREAM_DELTA_THROTTLE_MS) {
+        lastEmit = now
+        onDelta(accumulator.content)
+      }
+    }
+    raw += decoder.decode()
+  } else {
+    raw = await response.text()
+    accumulator.push(raw)
+  }
+  accumulator.finish()
+
+  if (accumulator.sawDataLine) {
+    if (onDelta && accumulator.content) {
+      onDelta(accumulator.content)
+    }
+    return accumulator.content
+  }
+  return contentFromOpenAiJson(raw)
 }
 
 function contentFromOpenAiJson(rawText: string): string {
@@ -385,25 +425,49 @@ function contentFromOpenAiJson(rawText: string): string {
   return payload.choices?.[0]?.message?.content || ''
 }
 
-function contentFromOpenAiStream(rawText: string): string {
-  let content = ''
-  for (const line of rawText.split(/\r?\n/)) {
-    const trimmed = line.trim()
-    if (!trimmed.startsWith('data:')) {
-      continue
-    }
-    const data = trimmed.slice('data:'.length).trim()
-    if (!data || data === '[DONE]') {
-      continue
-    }
-    const payload = JSON.parse(data) as {
-      choices?: Array<{ delta?: { content?: string }; message?: { content?: string } }>
-    }
-    for (const choice of payload.choices || []) {
-      content += choice.delta?.content || choice.message?.content || ''
+/** Incremental OpenAI SSE parser: feed arbitrary chunks, read `content` as it grows. */
+export class OpenAiStreamAccumulator {
+  content = ''
+  sawDataLine = false
+  private lineBuffer = ''
+
+  push(chunk: string): void {
+    this.lineBuffer += chunk
+    let newlineIndex = this.lineBuffer.indexOf('\n')
+    while (newlineIndex !== -1) {
+      const line = this.lineBuffer.slice(0, newlineIndex)
+      this.lineBuffer = this.lineBuffer.slice(newlineIndex + 1)
+      this.consumeLine(line)
+      newlineIndex = this.lineBuffer.indexOf('\n')
     }
   }
-  return content
+
+  /** Flush a trailing line that never got its newline (end of body). */
+  finish(): void {
+    if (this.lineBuffer) {
+      this.consumeLine(this.lineBuffer)
+      this.lineBuffer = ''
+    }
+  }
+
+  private consumeLine(rawLine: string): void {
+    const trimmed = rawLine.trim()
+    if (!trimmed.startsWith('data:')) return
+    this.sawDataLine = true
+    const data = trimmed.slice('data:'.length).trim()
+    if (!data || data === '[DONE]') return
+    try {
+      const payload = JSON.parse(data) as {
+        choices?: Array<{ delta?: { content?: string }; message?: { content?: string } }>
+      }
+      for (const choice of payload.choices || []) {
+        this.content += choice.delta?.content || choice.message?.content || ''
+      }
+    } catch {
+      // Malformed data line: skip it — the accumulated content is schema-validated
+      // downstream (parseWithOneRepair), so corruption surfaces there, not here.
+    }
+  }
 }
 
 async function parseWithOneRepair<T>(input: {

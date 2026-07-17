@@ -281,6 +281,7 @@ export const commonStrings = {
   'canvas.generating': { en: 'Generating {current}/{total}…', 'zh-TW': '生成中 {current}/{total}…' },
 
   // Raw AI output panel
+  'raw.streamingTitle': { en: 'Live model output', 'zh-TW': '模型即時輸出' },
   'raw.storyBibleTitle': { en: 'Story Bible Raw Output', 'zh-TW': '故事聖經原始輸出' },
   'raw.pageTitle': { en: 'Page {n} Raw Output', 'zh-TW': '第 {n} 頁原始輸出' },
   'raw.aiTitle': { en: 'Raw AI Output', 'zh-TW': 'AI 原始輸出' },
