@@ -27,6 +27,10 @@ The first run installs dependencies and builds the app; afterwards it starts in 
 - Local web service with React, Vite, TypeScript, Fastify, and SQLite.
 - Pixiv artwork import and local image import.
 - Two-stage AI workflow: vision-assisted story analysis, then page dialogue generation.
+- Per-line AI rewrite: select any bubble, optionally type an instruction (shorter / funnier / a character note), and regenerate just that line with full page context — undoable like any edit.
+- Manual panel frames: draw numbered reading-order frames on the whiteboard; generation prompts describe them (RTL-aware) and placement snaps strays into the nearest frame — panel-aware layout without OCR/ML.
+- Locked dialogue lines survive page regeneration: the model is told to write around them.
+- One-click local engine detection: probes running Ollama / LM Studio instances and creates a keyless local profile automatically.
 - Continuity-aware dialogue generation: each page request carries the previous page's dialogue lines plus the next page's image and beat summary (the last page gets closure guidance instead).
 - Batch page-range generation on the Layout tab (from/to page inputs); completed pages are always skipped so hand-edited dialogue survives.
 - First-run onboarding checklist in the left rail with progress derived from project state and a persistent dismiss.
@@ -40,6 +44,8 @@ The first run installs dependencies and builds the app; afterwards it starts in 
 - Speech-bubble tail control: drag the tail handle on a selected bubble to point it at the speaker; thought bubbles trail dots, exports match the editor.
 - Vertical-writing typography: CJK kinsoku line-breaking plus vertical presentation forms for punctuation (、。「」！？ etc.).
 - SFX text style for onomatopoeia: bubble-less outlined display text (1.6x size), also available to AI generation for sound effects.
+- Bubble craft pack: shout (jagged burst) and whisper (dashed) bubble styles, per-line vertical/horizontal text direction, and per-line font overrides — all WYSIWYG with exports.
+- Reading-order badges on every bubble in the editor (never exported) so page flow is visible at a glance.
 - Single-page PNG export next to the full ZIP export.
 - CBZ comic-book export with ComicRack `ComicInfo.xml` metadata (title, page count, reading direction) for Komga, Kavita, Mihon, and other readers.
 - Per-project reading direction (right-to-left manga default or left-to-right), persisted with the project, embedded in CBZ exports, and round-tripped through backups.
