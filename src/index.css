@@ -751,6 +751,12 @@ select:focus {
   color: var(--text);
 }
 
+.whiteboard-controls button.active {
+  border-color: var(--accent);
+  background: rgba(201, 40, 45, 0.12);
+  color: var(--accent);
+}
+
 .whiteboard-zoom-readout {
   min-width: 48px;
   text-align: center;

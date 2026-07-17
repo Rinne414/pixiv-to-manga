@@ -5,6 +5,7 @@ import type {
   FontAsset,
   JobEvent,
   Page,
+  PanelBox,
   Project,
   ProjectDetail,
   ReadingDirection,
@@ -653,6 +654,17 @@ export function useStudio() {
     })
   }
 
+  /** Lightweight commit for panel-frame edits; avoids the busy state so drawing stays fluid. */
+  async function handleSetPanels(pageId: string, panels: PanelBox[]) {
+    try {
+      const next = await api.updatePagePanels(pageId, panels)
+      acceptDetail(next)
+      pushLog(t('log.panelsSaved'), 'success', { toast: false })
+    } catch (error) {
+      pushLog(describeError(error), 'error')
+    }
+  }
+
   async function handleSetReadingDirection(readingDirection: ReadingDirection) {
     if (!detail || detail.project.readingDirection === readingDirection) return
     await runTask(t('log.savingDirection'), async () => {
@@ -763,6 +775,7 @@ export function useStudio() {
     handleExportPdf: exports.handleExportPdf,
     handleExportActivePage: exports.handleExportActivePage,
     handleExportBackup: exports.handleExportBackup,
+    handleSetPanels,
     handleSetReadingDirection,
     handleSaveSettings,
     handleUploadFont,

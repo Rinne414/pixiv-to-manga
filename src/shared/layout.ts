@@ -1,4 +1,4 @@
-import type { BubbleStyle, Dialogue, TextDirection } from './types'
+import type { BubbleStyle, Dialogue, PanelBox, TextDirection } from './types'
 
 export interface LayoutBox {
   id: string
@@ -86,6 +86,41 @@ export function resolveDialogueCollisions<T extends Dialogue>(dialogues: T[]): T
   }
 
   return adjusted
+}
+
+const PANEL_SNAP_MARGIN = 0.02
+
+/**
+ * Clamps dialogue anchors into the panel grid: positions already inside a panel
+ * stay put, strays move to the inside edge of the nearest panel (by center
+ * distance). No-op when the page has no panels drawn.
+ */
+export function snapDialoguesToPanels<T extends Pick<Dialogue, 'x' | 'y'>>(dialogues: T[], panels: PanelBox[] | undefined): T[] {
+  if (!panels?.length) {
+    return dialogues
+  }
+  return dialogues.map((dialogue) => {
+    const inside = panels.some(
+      (panel) =>
+        dialogue.x >= panel.x && dialogue.x <= panel.x + panel.width && dialogue.y >= panel.y && dialogue.y <= panel.y + panel.height,
+    )
+    if (inside) {
+      return dialogue
+    }
+    const nearest = panels.reduce((best, panel) => {
+      const distance = (dx: PanelBox) => {
+        const cx = dx.x + dx.width / 2
+        const cy = dx.y + dx.height / 2
+        return (dialogue.x - cx) ** 2 + (dialogue.y - cy) ** 2
+      }
+      return distance(panel) < distance(best) ? panel : best
+    })
+    return {
+      ...dialogue,
+      x: clamp(dialogue.x, nearest.x + PANEL_SNAP_MARGIN, nearest.x + nearest.width - PANEL_SNAP_MARGIN),
+      y: clamp(dialogue.y, nearest.y + PANEL_SNAP_MARGIN, nearest.y + nearest.height - PANEL_SNAP_MARGIN),
+    }
+  })
 }
 
 export function clamp01(value: number): number {

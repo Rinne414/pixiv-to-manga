@@ -37,7 +37,8 @@ export function runMigrations(db: DatabaseSync): void {
       previewAssetId TEXT REFERENCES assets(id),
       status TEXT NOT NULL,
       width INTEGER NOT NULL,
-      height INTEGER NOT NULL
+      height INTEGER NOT NULL,
+      panelsJson TEXT
     );
     CREATE TABLE IF NOT EXISTS characters (
       id TEXT PRIMARY KEY,
@@ -116,6 +117,7 @@ export function runMigrations(db: DatabaseSync): void {
   ensureColumn(db, 'dialogues', 'tailY', 'REAL')
   ensureColumn(db, 'dialogues', 'textDirection', 'TEXT')
   ensureColumn(db, 'dialogues', 'fontFamily', 'TEXT')
+  ensureColumn(db, 'pages', 'panelsJson', 'TEXT')
   ensureColumn(db, 'projects', 'readingDirection', "TEXT NOT NULL DEFAULT 'rtl'")
 }
 

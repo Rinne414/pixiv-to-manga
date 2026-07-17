@@ -467,6 +467,46 @@ test('reading direction persists and CBZ export embeds ComicInfo metadata', asyn
   await expect(page.locator('.log-list').getByText(/Exported .*\.pdf/)).toBeVisible()
 })
 
+test('panel frames can be drawn and cleared on the whiteboard', async ({ page }) => {
+  await openStudio(page)
+  await page.getByLabel('Project title').fill(`Panels ${Date.now()}`)
+  await page.getByRole('button', { name: /^Create$/ }).click()
+  await expect(page.locator('.log-list').getByText('Project created.')).toBeVisible()
+
+  const localImportResponse = page.waitForResponse(
+    (response) => response.url().includes('/api/import/local') && response.status() === 200,
+  )
+  await page.getByTestId('local-image-input').setInputFiles({
+    name: 'panel-page.svg',
+    mimeType: 'image/svg+xml',
+    buffer: Buffer.from(whiteboardSvg()),
+  })
+  await localImportResponse
+  await expect(page.locator('.canvas-meta')).toContainText('Page 1')
+
+  await page.getByTestId('panel-mode-toggle').click()
+  const stageBox = await page.getByTestId('manga-stage').boundingBox()
+  expect(stageBox).toBeTruthy()
+
+  const panelsSaved = page.waitForResponse(
+    (response) => response.url().includes('/panels') && response.request().method() === 'PUT' && response.status() === 200,
+  )
+  await page.mouse.move(stageBox!.x + stageBox!.width * 0.35, stageBox!.y + stageBox!.height * 0.3)
+  await page.mouse.down()
+  await page.mouse.move(stageBox!.x + stageBox!.width * 0.65, stageBox!.y + stageBox!.height * 0.6, { steps: 5 })
+  await page.mouse.up()
+  const detail = (await (await panelsSaved).json()) as { pages: Array<{ panels?: unknown[] }> }
+  expect(detail.pages[0].panels).toHaveLength(1)
+  await expect(page.locator('.log-list').getByText('Panel frames saved.')).toBeVisible()
+
+  const panelsCleared = page.waitForResponse(
+    (response) => response.url().includes('/panels') && response.request().method() === 'PUT' && response.status() === 200,
+  )
+  await page.getByTestId('panel-clear').click()
+  const clearedDetail = (await (await panelsCleared).json()) as { pages: Array<{ panels?: unknown[] }> }
+  expect(clearedDetail.pages[0].panels ?? []).toHaveLength(0)
+})
+
 test('reading preview turns pages in the project reading direction', async ({ page }) => {
   await openStudio(page)
   await page.getByLabel('Project title').fill(`Reader ${Date.now()}`)

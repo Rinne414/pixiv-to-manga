@@ -2,8 +2,8 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import type { DragEvent as ReactDragEvent } from 'react'
 import type Konva from 'konva'
 import { Circle, Ellipse, Group, Image as KonvaImage, Layer, Line, Rect, Stage, Text } from 'react-konva'
-import { Frame, ImagePlus, Loader2, Minus, Plus, Scan, Upload } from 'lucide-react'
-import type { Asset, Character, Dialogue, Page } from './shared/types'
+import { Frame, ImagePlus, LayoutGrid, Loader2, Minus, Plus, Scan, Trash2, Upload } from 'lucide-react'
+import type { Asset, Character, Dialogue, Page, PanelBox } from './shared/types'
 import type { BatchProgress } from './useStudio'
 import { computeShoutPoints, WHISPER_DASH } from './shared/bubbleShapes'
 import { computeTailTriangle, computeThoughtTrail, dialogueTailLocal, tailLocalToPage } from './shared/bubbleTail'
@@ -40,6 +40,7 @@ interface WhiteboardCanvasProps {
   onImportLocal?: () => void
   onImportPixiv?: () => void
   onDropFiles?: (files: File[]) => void
+  onPatchPanels?: (panels: PanelBox[]) => void
 }
 
 /**
@@ -55,6 +56,9 @@ export function WhiteboardCanvas(props: WhiteboardCanvasProps) {
   const [viewport, setViewport] = useState({ width: 0, height: 0 })
   const [view, setView] = useState<ViewOffset>({ x: 0, y: 0 })
   const [isDragOver, setIsDragOver] = useState(false)
+  // Panel-frame editing: drag draws a frame, badges delete; panning is paused meanwhile.
+  const [panelMode, setPanelMode] = useState(false)
+  const [panelDraft, setPanelDraft] = useState<{ x0: number; y0: number; x1: number; y1: number } | null>(null)
   const prevZoomRef = useRef(props.zoom)
   const fittedPageRef = useRef('')
   const image = useLoadedImage(props.asset?.url)
@@ -159,8 +163,50 @@ export function WhiteboardCanvas(props: WhiteboardCanvasProps) {
     props.onZoomChange(next)
   }
 
+  /** Pointer position in page-normalized coordinates, or null when unavailable. */
+  function pagePointFromEvent(event: Konva.KonvaEventObject<MouseEvent | TouchEvent>): { x: number; y: number } | null {
+    const stage = event.target.getStage()
+    const page = props.page
+    if (!stage || !page) return null
+    const pointer = stage.getPointerPosition()
+    if (!pointer) return null
+    const worldX = (pointer.x - stage.x()) / stage.scaleX()
+    const worldY = (pointer.y - stage.y()) / stage.scaleY()
+    return { x: clamp01(worldX / page.width), y: clamp01(worldY / page.height) }
+  }
+
+  function handlePanelMouseDown(event: Konva.KonvaEventObject<MouseEvent | TouchEvent>) {
+    if (!panelMode) return
+    const point = pagePointFromEvent(event)
+    if (point) {
+      setPanelDraft({ x0: point.x, y0: point.y, x1: point.x, y1: point.y })
+    }
+  }
+
+  function handlePanelMouseMove(event: Konva.KonvaEventObject<MouseEvent | TouchEvent>) {
+    if (!panelMode || !panelDraft) return
+    const point = pagePointFromEvent(event)
+    if (point) {
+      setPanelDraft((current) => (current ? { ...current, x1: point.x, y1: point.y } : current))
+    }
+  }
+
+  function handlePanelMouseUp() {
+    if (!panelMode || !panelDraft) return
+    const box: PanelBox = {
+      x: Math.min(panelDraft.x0, panelDraft.x1),
+      y: Math.min(panelDraft.y0, panelDraft.y1),
+      width: Math.abs(panelDraft.x1 - panelDraft.x0),
+      height: Math.abs(panelDraft.y1 - panelDraft.y0),
+    }
+    setPanelDraft(null)
+    if (box.width < 0.03 || box.height < 0.03 || !props.onPatchPanels) return
+    props.onPatchPanels([...(props.page?.panels || []), box])
+  }
+
   // Double-clicking (or double-tapping) the page/background — not a bubble — drops a new dialogue there.
   function handleStageDblClick(event: Konva.KonvaEventObject<MouseEvent | TouchEvent>) {
+    if (panelMode) return
     const stage = event.target.getStage()
     const page = props.page
     if (!stage || !page) return
@@ -234,6 +280,7 @@ export function WhiteboardCanvas(props: WhiteboardCanvasProps) {
       style={{
         backgroundSize: `${gridSize}px ${gridSize}px`,
         backgroundPosition: `${view.x}px ${view.y}px`,
+        cursor: panelMode ? 'crosshair' : undefined,
       }}
       {...dropHandlers}
     >
@@ -245,12 +292,15 @@ export function WhiteboardCanvas(props: WhiteboardCanvasProps) {
           y={view.y}
           scaleX={props.zoom}
           scaleY={props.zoom}
-          draggable
+          draggable={!panelMode}
           onWheel={handleWheel}
           onDblClick={handleStageDblClick}
           onDblTap={handleStageDblClick}
           onDragMove={handleStageDragMove}
           onDragEnd={handleStageDragEnd}
+          onMouseDown={handlePanelMouseDown}
+          onMouseMove={handlePanelMouseMove}
+          onMouseUp={handlePanelMouseUp}
         >
           <Layer>
             <Rect
@@ -276,6 +326,52 @@ export function WhiteboardCanvas(props: WhiteboardCanvasProps) {
                 onTailChange={(tailX, tailY) => props.onPatchDialogue(dialogue.id, { tailX, tailY })}
               />
             ))}
+            {panelMode
+              ? (page.panels || []).map((panel, index) => (
+                  <Group key={`panel-${index}`}>
+                    <Rect
+                      x={panel.x * page.width}
+                      y={panel.y * page.height}
+                      width={panel.width * page.width}
+                      height={panel.height * page.height}
+                      stroke="#c9282d"
+                      strokeWidth={3 / props.zoom}
+                      dash={[12 / props.zoom, 8 / props.zoom]}
+                      listening={false}
+                    />
+                    <Group
+                      x={panel.x * page.width}
+                      y={panel.y * page.height}
+                      onClick={() => props.onPatchPanels?.((page.panels || []).filter((_, i) => i !== index))}
+                      onTap={() => props.onPatchPanels?.((page.panels || []).filter((_, i) => i !== index))}
+                    >
+                      <Rect width={30 / props.zoom} height={30 / props.zoom} fill="#c9282d" cornerRadius={4 / props.zoom} />
+                      <Text
+                        width={30 / props.zoom}
+                        height={30 / props.zoom}
+                        text={String(index + 1)}
+                        fontSize={17 / props.zoom}
+                        fontStyle="700"
+                        fill="#ffffff"
+                        align="center"
+                        verticalAlign="middle"
+                      />
+                    </Group>
+                  </Group>
+                ))
+              : null}
+            {panelMode && panelDraft ? (
+              <Rect
+                x={Math.min(panelDraft.x0, panelDraft.x1) * page.width}
+                y={Math.min(panelDraft.y0, panelDraft.y1) * page.height}
+                width={Math.abs(panelDraft.x1 - panelDraft.x0) * page.width}
+                height={Math.abs(panelDraft.y1 - panelDraft.y0) * page.height}
+                stroke="#c9282d"
+                strokeWidth={2 / props.zoom}
+                fill="rgba(201, 40, 45, 0.08)"
+                listening={false}
+              />
+            ) : null}
           </Layer>
         </Stage>
       ) : null}
@@ -315,6 +411,30 @@ export function WhiteboardCanvas(props: WhiteboardCanvasProps) {
         >
           <Frame size={15} />
         </button>
+        {props.onPatchPanels ? (
+          <button
+            type="button"
+            className={panelMode ? 'active' : ''}
+            title={t('whiteboard.panelMode')}
+            aria-label={t('whiteboard.panelMode')}
+            aria-pressed={panelMode}
+            data-testid="panel-mode-toggle"
+            onClick={() => setPanelMode((current) => !current)}
+          >
+            <LayoutGrid size={15} />
+          </button>
+        ) : null}
+        {panelMode && (page.panels?.length || 0) > 0 ? (
+          <button
+            type="button"
+            title={t('whiteboard.clearPanels')}
+            aria-label={t('whiteboard.clearPanels')}
+            data-testid="panel-clear"
+            onClick={() => props.onPatchPanels?.([])}
+          >
+            <Trash2 size={15} />
+          </button>
+        ) : null}
       </div>
 
       {props.batchProgress ? (

@@ -65,6 +65,9 @@ export const commonStrings = {
   'studio.projectRowSummary': { en: '{source} / {mode}', 'zh-TW': '{source} / {mode}' },
 
   // Whiteboard controls
+  'whiteboard.panelMode': { en: 'Panel frames', 'zh-TW': '分格框' },
+  'whiteboard.clearPanels': { en: 'Clear frames', 'zh-TW': '清除分格' },
+  'log.panelsSaved': { en: 'Panel frames saved.', 'zh-TW': '分格已儲存。' },
   'whiteboard.zoomIn': { en: 'Zoom in', 'zh-TW': '放大' },
   'whiteboard.zoomOut': { en: 'Zoom out', 'zh-TW': '縮小' },
   'whiteboard.fitPage': { en: 'Fit page', 'zh-TW': '適配頁面' },

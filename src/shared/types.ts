@@ -32,6 +32,14 @@ export interface Project {
   storyBible?: StoryBible
 }
 
+/** Manga panel frame in page-normalized coordinates; array order = reading order. */
+export interface PanelBox {
+  x: number
+  y: number
+  width: number
+  height: number
+}
+
 export interface Page {
   id: string
   projectId: string
@@ -41,6 +49,7 @@ export interface Page {
   status: PageStatus
   width: number
   height: number
+  panels?: PanelBox[]
 }
 
 export interface Asset {

@@ -7,6 +7,7 @@ import type {
   FontAsset,
   JobEvent,
   PageStatus,
+  PanelBox,
   Project,
   ProjectDetail,
   ReadingDirection,
@@ -378,6 +379,13 @@ export function updateProjectSettings(
   return request<ProjectDetail>(`/api/projects/${projectId}`, {
     method: 'PATCH',
     body: JSON.stringify(input),
+  })
+}
+
+export function updatePagePanels(pageId: string, panels: PanelBox[]): Promise<ProjectDetail> {
+  return request<ProjectDetail>(`/api/pages/${pageId}/panels`, {
+    method: 'PUT',
+    body: JSON.stringify({ panels }),
   })
 }
 

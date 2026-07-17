@@ -6,6 +6,7 @@ import type {
   FontAsset,
   ModelCapability,
   Page,
+  PanelBox,
   Project,
   ProjectMode,
   ProjectSource,
@@ -56,6 +57,7 @@ export function pageFromRow(row: Row): Page {
     status: row.status as Page['status'],
     width: Number(row.width),
     height: Number(row.height),
+    panels: typeof row.panelsJson === 'string' ? (JSON.parse(row.panelsJson) as PanelBox[]) : undefined,
   }
 }
 

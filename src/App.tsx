@@ -292,6 +292,9 @@ function App() {
             onImportLocal={() => fileInputRef.current?.click()}
             onImportPixiv={() => setActiveTab('story')}
             onDropFiles={studio.importLocalFiles}
+            onPatchPanels={(panels) => {
+              if (activePage) void studio.handleSetPanels(activePage.id, panels)
+            }}
           />
         </section>
 

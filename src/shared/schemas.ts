@@ -134,6 +134,17 @@ export const updateProjectSchema = z.object({
   readingDirection: z.enum(['ltr', 'rtl']),
 })
 
+export const panelBoxSchema = z.object({
+  x: z.number().min(0).max(1),
+  y: z.number().min(0).max(1),
+  width: z.number().min(0.02).max(1),
+  height: z.number().min(0.02).max(1),
+})
+
+export const updatePagePanelsSchema = z.object({
+  panels: z.array(panelBoxSchema).max(12),
+})
+
 export const exportProjectBackupSchema = z.object({
   projectId: z.string(),
 })

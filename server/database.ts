@@ -8,6 +8,7 @@ import type {
   FontAsset,
   ModelCapability,
   Page,
+  PanelBox,
   Project,
   ProjectDetail,
   ProjectMode,
@@ -315,6 +316,13 @@ export class StudioDatabase {
     if (!result.changes) {
       throw new Error('Dialogue not found')
     }
+  }
+
+  updatePagePanels(pageId: string, panels: PanelBox[]): Page {
+    const page = this.getPage(pageId)
+    this.db.prepare('UPDATE pages SET panelsJson = ? WHERE id = ?').run(panels.length ? JSON.stringify(panels) : null, pageId)
+    this.touchProject(page.projectId)
+    return this.getPage(pageId)
   }
 
   getDialogue(id: string): Dialogue {

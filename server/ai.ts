@@ -7,14 +7,16 @@ import type {
   Dialogue,
   ModelCapability,
   Page,
+  PanelBox,
   ProjectDetail,
   ProviderProfile,
+  ReadingDirection,
   StoryBible,
 } from '../src/shared/types'
 import { dialogueListSchema, regeneratedLineSchema, storyBibleSchema } from '../src/shared/schemas'
 import { type ZodType, type z } from 'zod'
 import { parsePossiblyWrappedJson } from '../src/shared/jsonRepair'
-import { resolveDialogueCollisions } from '../src/shared/layout'
+import { resolveDialogueCollisions, snapDialoguesToPanels } from '../src/shared/layout'
 import { evaluateRouteSafety, type RouteSafetyResult, type SafetyClass } from '../src/shared/routeSafety'
 import type { StudioDatabase } from './database'
 import type { SecretStore } from './secrets'
@@ -133,11 +135,12 @@ export async function generateDialoguesWithAi(
   const characters = storyBible.characters.map((character) => `${character.name}: ${character.voice}`).join('\n')
   const stylePrompt = storyBible.stylePrompt?.trim()
   const previousLines = previousPageDialogueLines(detail, page)
+  const panelSection = panelPromptSection(page.panels, detail.project.readingDirection)
   const flowContext = nextPage
     ? `下一页剧情：${nextBeat?.summary || '未指定'}。本页最后一句要自然引向下一页。`
     : '本页是最后一页，对白要有收束感。'
   const continuityContext = previousLines ? `上一页对白（延续语气与话题，不要重复）：\n${previousLines}\n` : ''
-  const prompt = `你是漫画对白创作者。请先观察图片：第一张是本页画面${nextPageImageParts.length ? '，第二张是下一页画面（仅用于衔接剧情，不要为它生成对白）' : ''}。模式：${input.mode === 'translation' ? '视觉翻译/改写，不原创大剧情' : '原创故事对白'}。请为第 ${page.index + 1} 页生成中文漫画对白。故事：${storyBible.synopsis}。本页剧情：${beat?.summary || '未指定'}。${flowContext}${continuityContext}角色声音：${characters}。${stylePrompt ? `风格要求（必须遵守）：${stylePrompt}。` : ''}文本密度：${input.textDensity}。必须只返回 JSON：{"dialogues":[{"text":"...","characterName":"...","x":0.5,"y":0.5,"scale":1,"rotation":0,"bubbleStyle":"speech","color":"#141414","locked":false}]}. bubbleStyle 可选 speech/soft/thought/caption/sfx/shout/whisper；拟声词、音效字用 sfx（无气泡描边大字，不要设 characterName），大喊用 shout（锯齿爆炸框），耳语用 whisper（虚线框）。x/y 是 0-1 画面坐标，避免挡脸、遮住关键画面和互相重叠。`
+  const prompt = `你是漫画对白创作者。请先观察图片：第一张是本页画面${nextPageImageParts.length ? '，第二张是下一页画面（仅用于衔接剧情，不要为它生成对白）' : ''}。模式：${input.mode === 'translation' ? '视觉翻译/改写，不原创大剧情' : '原创故事对白'}。请为第 ${page.index + 1} 页生成中文漫画对白。故事：${storyBible.synopsis}。本页剧情：${beat?.summary || '未指定'}。${flowContext}${continuityContext}角色声音：${characters}。${stylePrompt ? `风格要求（必须遵守）：${stylePrompt}。` : ''}${panelSection}文本密度：${input.textDensity}。必须只返回 JSON：{"dialogues":[{"text":"...","characterName":"...","x":0.5,"y":0.5,"scale":1,"rotation":0,"bubbleStyle":"speech","color":"#141414","locked":false}]}. bubbleStyle 可选 speech/soft/thought/caption/sfx/shout/whisper；拟声词、音效字用 sfx（无气泡描边大字，不要设 characterName），大喊用 shout（锯齿爆炸框），耳语用 whisper（虚线框）。x/y 是 0-1 画面坐标，避免挡脸、遮住关键画面和互相重叠。`
   const content: ChatContentPart[] = [{ type: 'text', text: prompt }, ...pageImageParts]
   if (nextPageImageParts.length) {
     content.push({ type: 'text', text: '下一页画面（仅供衔接参考，不要为它生成对白）：' }, ...nextPageImageParts)
@@ -161,16 +164,37 @@ export async function generateDialoguesWithAi(
   // Models only return characterName; resolve the ID so per-character styling (font, color) applies.
   const characterIdsByName = new Map(storyBible.characters.map((character) => [character.name, character.id]))
   const dialogues = resolveDialogueCollisions(
-    parsed.dialogues.map((dialogue) => ({
-      ...dialogue,
-      id: dialogue.id || randomUUID(),
-      pageId: page.id,
-      characterId: dialogue.characterId || (dialogue.characterName ? characterIdsByName.get(dialogue.characterName) : undefined),
-      color: dialogue.color || '#141414',
-      raw: repaired.raw,
-    })),
+    snapDialoguesToPanels(
+      parsed.dialogues.map((dialogue) => ({
+        ...dialogue,
+        id: dialogue.id || randomUUID(),
+        pageId: page.id,
+        characterId: dialogue.characterId || (dialogue.characterName ? characterIdsByName.get(dialogue.characterName) : undefined),
+        color: dialogue.color || '#141414',
+        raw: repaired.raw,
+      })),
+      page.panels,
+    ),
   )
   return { dialogues, raw: repaired.raw, usedMock: false }
+}
+
+/**
+ * Prompt fragment describing the user-drawn panel frames in reading order so
+ * the model places dialogue inside the right frame; empty when no panels exist.
+ */
+export function panelPromptSection(panels: PanelBox[] | undefined, readingDirection: ReadingDirection): string {
+  if (!panels?.length) {
+    return ''
+  }
+  const order = readingDirection === 'rtl' ? '从右到左、从上到下（日式漫画）' : '从左到右、从上到下'
+  const list = panels
+    .map(
+      (panel, index) =>
+        `格${index + 1}：x ${panel.x.toFixed(2)}-${(panel.x + panel.width).toFixed(2)}，y ${panel.y.toFixed(2)}-${(panel.y + panel.height).toFixed(2)}`,
+    )
+    .join('；')
+  return `本页画了 ${panels.length} 个分格，阅读顺序为${order}，编号即阅读顺序：${list}。每句对白的 x/y 必须落在其剧情所属格子的范围内，贴近格子边缘，不要盖住格子中心。`
 }
 
 export async function regenerateDialogueTextWithAi(
