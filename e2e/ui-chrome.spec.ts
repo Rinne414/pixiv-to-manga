@@ -97,6 +97,15 @@ test('dialogue bubbles can be added by double-click and deleted from the panel',
   await page.getByTestId('dialogue-add').click()
   await expect(page.getByTestId('dialogue-chip')).toHaveCount(2)
 
+  // Switching to the bubble-less SFX style persists and keeps the canvas alive.
+  const styleResponse = page.waitForResponse(
+    (response) => response.url().includes('/api/dialogues/') && response.request().method() === 'PATCH' && response.status() === 200,
+  )
+  await page.locator('.right-rail').getByLabel('Bubble').selectOption('sfx')
+  await styleResponse
+  await expect(page.locator('.right-rail').getByLabel('Bubble')).toHaveValue('sfx')
+  await expect(page.getByTestId('manga-stage')).toBeVisible()
+
   const deleteResponse = page.waitForResponse(
     (response) => response.url().includes('/api/dialogues/') && response.request().method() === 'DELETE' && response.status() === 200,
   )

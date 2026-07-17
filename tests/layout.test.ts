@@ -35,6 +35,12 @@ describe('layout helpers', () => {
     expect(adjusted[0].y).toBe(0.5)
     expect(Math.abs(adjusted[1].x - 0.5) + Math.abs(adjusted[1].y - 0.5)).toBeGreaterThan(0.02)
   })
+
+  it('estimates SFX text larger than the same dialogue as a speech bubble', () => {
+    const speech = estimateVerticalTextBox(makeDialogue({ text: '轰！', bubbleStyle: 'speech' }))
+    const sfx = estimateVerticalTextBox(makeDialogue({ text: '轰！', bubbleStyle: 'sfx' }))
+    expect(sfx.height).toBeGreaterThan(speech.height)
+  })
 })
 
 function makeDialogue(patch: Partial<Dialogue> = {}): Dialogue {

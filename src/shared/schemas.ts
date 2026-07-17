@@ -1,6 +1,6 @@
 import { z } from 'zod'
 
-export const bubbleStyleSchema = z.enum(['speech', 'soft', 'thought', 'caption'])
+export const bubbleStyleSchema = z.enum(['speech', 'soft', 'thought', 'caption', 'sfx'])
 
 export const characterSchema = z.object({
   id: z.string().optional(),

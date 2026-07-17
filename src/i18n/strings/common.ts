@@ -129,6 +129,7 @@ export const commonStrings = {
   'bubble.soft': { en: 'soft', 'zh-TW': '柔和' },
   'bubble.thought': { en: 'thought', 'zh-TW': '思考' },
   'bubble.caption': { en: 'caption', 'zh-TW': '旁白' },
+  'bubble.sfx': { en: 'SFX', 'zh-TW': '音效字' },
 
   // Dialogue panel
   'dialogue.text': { en: 'Text', 'zh-TW': '文字' },

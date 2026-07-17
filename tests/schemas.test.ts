@@ -22,4 +22,11 @@ describe('AI output schemas', () => {
       }),
     ).toThrow()
   })
+
+  it('accepts sfx bubble style for onomatopoeia lines', () => {
+    const parsed = dialogueListSchema.parse({
+      dialogues: [{ text: '轰——！', bubbleStyle: 'sfx' }],
+    })
+    expect(parsed.dialogues[0].bubbleStyle).toBe('sfx')
+  })
 })

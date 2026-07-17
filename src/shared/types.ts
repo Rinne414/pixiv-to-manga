@@ -1,7 +1,7 @@
 export type ProjectMode = 'story' | 'translation'
 export type ProjectSource = 'pixiv' | 'local' | 'mixed' | 'sample'
 export type PageStatus = 'ready' | 'analyzing' | 'generating' | 'complete' | 'error'
-export type BubbleStyle = 'speech' | 'soft' | 'thought' | 'caption'
+export type BubbleStyle = 'speech' | 'soft' | 'thought' | 'caption' | 'sfx'
 /** Page-turn direction for readers/exports; 'rtl' is the manga convention. */
 export type ReadingDirection = 'ltr' | 'rtl'
 

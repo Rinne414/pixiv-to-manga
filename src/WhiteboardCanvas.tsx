@@ -7,7 +7,7 @@ import type { BatchProgress } from './useStudio'
 import { computeTailTriangle, computeThoughtTrail, dialogueTailLocal, tailLocalToPage } from './shared/bubbleTail'
 import { findDialogueCharacter } from './shared/characters'
 import { DEFAULT_DIALOGUE_FONT } from './fonts'
-import { clamp, clamp01, estimateVerticalTextBox } from './shared/layout'
+import { clamp, clamp01, dialogueFontScale, estimateVerticalTextBox } from './shared/layout'
 import { toVerticalColumns, toVerticalGlyphs } from './shared/text'
 import { useI18n } from './i18n/context'
 
@@ -310,8 +310,9 @@ function BubbleNode(props: {
   // Live tail preview while the handle drags; committed on drag end.
   const [tailDraft, setTailDraft] = useState<{ x: number; y: number } | null>(null)
   // Geometry mirrors canvasExport.drawDialogue so the whiteboard is WYSIWYG with PNG export.
+  const isSfx = props.dialogue.bubbleStyle === 'sfx'
   const box = estimateVerticalTextBox(props.dialogue)
-  const fontSize = Math.max(16, Math.round(34 * props.dialogue.scale))
+  const fontSize = Math.max(16, Math.round(34 * dialogueFontScale(props.dialogue)))
   const columns = toVerticalColumns(props.dialogue.text, 11)
   const textWidth = Math.max(1, columns.length) * fontSize * 1.25
   const textHeight = Math.max(...columns.map((column) => column.length), 1) * fontSize * 1.08
@@ -352,7 +353,20 @@ function BubbleNode(props: {
         props.onDragEnd(clamp01(event.target.x() / props.pageWidth), clamp01(event.target.y() / props.pageHeight))
       }}
     >
-      {props.dialogue.bubbleStyle === 'soft' || props.dialogue.bubbleStyle === 'thought' ? (
+      {isSfx ? (
+        // Bubble-less SFX text: the transparent rect keeps the group clickable and
+        // draggable; the dashed outline is the only selection affordance.
+        <Rect
+          x={-textWidth / 2 - 10}
+          y={-textHeight / 2 - 10}
+          width={textWidth + 20}
+          height={textHeight + 20}
+          fill="rgba(0,0,0,0)"
+          stroke={props.selected ? '#c9282d' : undefined}
+          strokeWidth={2}
+          dash={[7, 5]}
+        />
+      ) : props.dialogue.bubbleStyle === 'soft' || props.dialogue.bubbleStyle === 'thought' ? (
         <>
           <Ellipse radiusX={bubbleWidth / 2} radiusY={bubbleHeight / 2} fill={fill} stroke={stroke} strokeWidth={strokeWidth} />
           {props.dialogue.bubbleStyle === 'thought' ? (
@@ -401,7 +415,7 @@ function BubbleNode(props: {
           ) : null}
         </>
       )}
-      {props.selected && props.dialogue.bubbleStyle !== 'caption' ? (
+      {props.selected && props.dialogue.bubbleStyle !== 'caption' && !isSfx ? (
         <Circle
           x={tailHandle.x}
           y={tailHandle.y}
@@ -438,6 +452,10 @@ function BubbleNode(props: {
             lineHeight={1.08}
             align="center"
             fill={props.dialogue.color || props.character?.color || '#111111'}
+            stroke={isSfx ? '#ffffff' : undefined}
+            strokeWidth={isSfx ? Math.max(5, Math.round(fontSize * 0.18)) : undefined}
+            fillAfterStrokeEnabled={isSfx}
+            lineJoin="round"
             listening={false}
           />
         )

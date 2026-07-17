@@ -1,4 +1,4 @@
-import type { Dialogue } from './types'
+import type { BubbleStyle, Dialogue } from './types'
 
 export interface LayoutBox {
   id: string
@@ -8,11 +8,21 @@ export interface LayoutBox {
   height: number
 }
 
-export function estimateVerticalTextBox(dialogue: Pick<Dialogue, 'id' | 'text' | 'x' | 'y' | 'scale'>): LayoutBox {
+/** SFX text draws bubble-less at display size; every renderer and estimate must agree. */
+export const SFX_FONT_MULTIPLIER = 1.6
+
+export function dialogueFontScale(dialogue: Pick<Dialogue, 'scale'> & { bubbleStyle?: BubbleStyle }): number {
+  return dialogue.scale * (dialogue.bubbleStyle === 'sfx' ? SFX_FONT_MULTIPLIER : 1)
+}
+
+export function estimateVerticalTextBox(
+  dialogue: Pick<Dialogue, 'id' | 'text' | 'x' | 'y' | 'scale'> & { bubbleStyle?: BubbleStyle },
+): LayoutBox {
   const chars = dialogue.text.replace(/\s+/g, '').length
   const columns = Math.max(1, Math.ceil(chars / 11))
-  const width = Math.min(0.28, Math.max(0.08, columns * 0.045 * dialogue.scale))
-  const height = Math.min(0.42, Math.max(0.16, Math.min(chars, 11) * 0.035 * dialogue.scale + 0.08))
+  const scale = dialogueFontScale(dialogue)
+  const width = Math.min(0.28, Math.max(0.08, columns * 0.045 * scale))
+  const height = Math.min(0.42, Math.max(0.16, Math.min(chars, 11) * 0.035 * scale + 0.08))
 
   return {
     id: dialogue.id,

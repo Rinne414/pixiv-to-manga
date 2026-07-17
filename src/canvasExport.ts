@@ -1,7 +1,7 @@
 import { DEFAULT_DIALOGUE_FONT } from './fonts'
 import { computeTailTriangle, computeThoughtTrail, dialogueTailLocal } from './shared/bubbleTail'
 import { findDialogueCharacter } from './shared/characters'
-import { estimateVerticalTextBox } from './shared/layout'
+import { dialogueFontScale, estimateVerticalTextBox } from './shared/layout'
 import { toVerticalColumns, toVerticalGlyphs } from './shared/text'
 import type { Asset, Character, Dialogue, Page, ProjectDetail } from './shared/types'
 
@@ -97,7 +97,8 @@ function drawDialogue(
   fontFamily?: string,
 ): void {
   const box = estimateVerticalTextBox(dialogue)
-  const fontSize = Math.round(34 * dialogue.scale)
+  const isSfx = dialogue.bubbleStyle === 'sfx'
+  const fontSize = Math.round(34 * dialogueFontScale(dialogue))
   const columns = toVerticalColumns(dialogue.text, 11)
   const textWidth = Math.max(1, columns.length) * fontSize * 1.25
   const textHeight = Math.max(...columns.map((column) => column.length), 1) * fontSize * 1.08
@@ -113,7 +114,9 @@ function drawDialogue(
 
   // Tail geometry lives in bubble-local space; unset tips keep the legacy fixed shapes.
   const tailTip = dialogueTailLocal(dialogue, pageWidth, pageHeight)
-  if (dialogue.bubbleStyle === 'soft' || dialogue.bubbleStyle === 'thought') {
+  if (isSfx) {
+    // Bubble-less SFX text: no shape, no tail — glyphs draw with a white contour below.
+  } else if (dialogue.bubbleStyle === 'soft' || dialogue.bubbleStyle === 'thought') {
     context.beginPath()
     context.ellipse(0, 0, bubbleWidth / 2, bubbleHeight / 2, 0, 0, Math.PI * 2)
     context.fill()
@@ -165,13 +168,23 @@ function drawDialogue(
   context.font = `700 ${fontSize}px ${fontFamily || DEFAULT_DIALOGUE_FONT}`
   context.textAlign = 'center'
   context.textBaseline = 'top'
+  if (isSfx) {
+    // Mirrors the whiteboard's Konva stroke: white contour drawn under the fill.
+    context.strokeStyle = '#ffffff'
+    context.lineWidth = Math.max(5, Math.round(fontSize * 0.18))
+    context.lineJoin = 'round'
+  }
 
   const columnGap = fontSize * 1.15
   columns.forEach((column, columnIndex) => {
     const x = (columns.length / 2 - columnIndex - 0.5) * columnGap
     const startY = -(column.length * fontSize * 1.08) / 2
     Array.from(toVerticalGlyphs(column)).forEach((character, characterIndex) => {
-      context.fillText(character, x, startY + characterIndex * fontSize * 1.08)
+      const y = startY + characterIndex * fontSize * 1.08
+      if (isSfx) {
+        context.strokeText(character, x, y)
+      }
+      context.fillText(character, x, y)
     })
   })
   context.restore()
