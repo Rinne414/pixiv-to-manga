@@ -262,6 +262,10 @@ function ensureAiGenerationAllowed(
   }
 }
 
+// Generous ceiling for slow local models on CPU; a dead connection still unsticks
+// the job without waiting for the user to cancel manually.
+const AI_REQUEST_TIMEOUT_MS = 300_000
+
 async function openAiChatJson(
   baseUrl: string,
   model: string,
@@ -269,27 +273,39 @@ async function openAiChatJson(
   content: ChatContentPart[],
   options: { signal?: AbortSignal; stream?: boolean } = {},
 ): Promise<string> {
-  const response = await fetch(`${baseUrl.replace(/\/+$/, '')}/chat/completions`, {
-    method: 'POST',
-    signal: options.signal,
-    headers: {
-      // Keyless local providers (empty apiKey) get no Authorization header at all.
-      ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}),
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      model,
-      messages: [{ role: 'user', content }],
-      temperature: 0.9,
-      stream: options.stream === true,
-    }),
-  })
+  const timeoutSignal = AbortSignal.timeout(AI_REQUEST_TIMEOUT_MS)
+  const signal = options.signal ? AbortSignal.any([options.signal, timeoutSignal]) : timeoutSignal
+  let response: Response
+  let rawText: string
+  try {
+    response = await fetch(`${baseUrl.replace(/\/+$/, '')}/chat/completions`, {
+      method: 'POST',
+      signal,
+      headers: {
+        // Keyless local providers (empty apiKey) get no Authorization header at all.
+        ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}),
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model,
+        messages: [{ role: 'user', content }],
+        temperature: 0.9,
+        stream: options.stream === true,
+      }),
+    })
 
-  if (!response.ok) {
-    throw new Error(`AI request failed: HTTP ${response.status}`)
+    if (!response.ok) {
+      throw new Error(`AI request failed: HTTP ${response.status}`)
+    }
+
+    // The same signal covers the body read; a stalled stream times out too.
+    rawText = await response.text()
+  } catch (error) {
+    if (timeoutSignal.aborted && !options.signal?.aborted) {
+      throw new Error(`AI request timed out after ${AI_REQUEST_TIMEOUT_MS / 1000}s`, { cause: error })
+    }
+    throw error
   }
-
-  const rawText = await response.text()
   const contentText = responseLooksLikeEventStream(response, rawText)
     ? contentFromOpenAiStream(rawText)
     : contentFromOpenAiJson(rawText)

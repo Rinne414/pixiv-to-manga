@@ -684,7 +684,17 @@ describe('AI vision generation', () => {
     })
 
     expect(result.dialogues[0].text).toBe('修复后的对白。')
-    expect(requestSignals).toEqual([controller.signal, controller.signal])
+    // Both requests carry a composite signal (job signal + timeout); aborting the
+    // job controller must propagate through to what fetch received.
+    expect(requestSignals).toHaveLength(2)
+    for (const signal of requestSignals) {
+      expect(signal).toBeInstanceOf(AbortSignal)
+      expect(signal?.aborted).toBe(false)
+    }
+    controller.abort()
+    for (const signal of requestSignals) {
+      expect(signal?.aborted).toBe(true)
+    }
   })
 
   it('keeps raw model output when JSON repair still fails', async () => {

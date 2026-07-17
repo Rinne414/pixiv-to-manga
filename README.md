@@ -2,7 +2,7 @@
 
 Privacy-first, local-AI manga creation workspace: your images, your API keys, and your generations never leave your machine — keyless local models (Ollama / LM Studio) are the primary path, not a fallback.
 
-Pixiv-to-Manga Studio imports Pixiv or local image sets, asks an AI model to create a story bible and page-level dialogue, overlays editable manga text on the images, and exports rendered PNG pages as a ZIP archive.
+Pixiv-to-Manga Studio imports Pixiv or local image sets, asks an AI model to create a story bible and page-level dialogue, overlays editable manga text on the images, and exports rendered PNG pages as a ZIP archive or a CBZ comic book for any manga reader.
 
 ## Quick Start (no dev tools needed)
 
@@ -29,7 +29,12 @@ The first run installs dependencies and builds the app; afterwards it starts in 
 - Custom font upload (TTF/OTF/WOFF/WOFF2) into a global font library, available in every character font picker and in PNG export.
 - Speech-bubble tail control: drag the tail handle on a selected bubble to point it at the speaker; thought bubbles trail dots, exports match the editor.
 - Vertical-writing typography: CJK kinsoku line-breaking plus vertical presentation forms for punctuation (、。「」！？ etc.).
+- SFX text style for onomatopoeia: bubble-less outlined display text (1.6x size), also available to AI generation for sound effects.
 - Single-page PNG export next to the full ZIP export.
+- CBZ comic-book export with ComicRack `ComicInfo.xml` metadata (title, page count, reading direction) for Komga, Kavita, Mihon, and other readers.
+- Per-project reading direction (right-to-left manga default or left-to-right), persisted with the project, embedded in CBZ exports, and round-tripped through backups.
+- Toast notifications for errors and milestones plus styled in-app confirm dialogs (destructive actions focus Cancel; Escape/backdrop cancels).
+- Active-engine card in the Provider Lab showing exactly which AI route generations will use (local vs cloud, key state), mirroring the backend resolution.
 - Reusable style prompt on the Story tab, injected into every story analysis and dialogue generation as a mandatory style rule.
 - Infinite whiteboard canvas: wheel zoom anchored at the cursor, drag-to-pan, fit/100% controls; WYSIWYG with PNG export.
 - Light/dark theme switch and English / Traditional Chinese (zh-TW) UI language switch, both persisted locally.
@@ -54,7 +59,7 @@ Open [http://localhost:5173](http://localhost:5173).
 2. In the app: Settings tab → Provider Lab → Create provider:
    - Base URL `http://127.0.0.1:11434/v1`, Default model `qwen3-vl:8b`, check **Local provider**, leave API key empty.
 3. Click **Discover** to list installed models, then **Run test** (enable `vision`) to verify capability flags.
-4. In the Capability Matrix, confirm **Vision**; for NSFW routing, explicitly enable **Adult input** / **Adult generation** on that model (user-confirmed only), and turn on R-18 in the Story panel per project. Routes fail closed without matching flags.
+4. Under **Detected capabilities**, confirm **Vision** was picked up; for NSFW routing, explicitly enable **Adult input** / **Adult generation** in the NSFW / R-18 section (never auto-detected, user-confirmed only), and turn on R-18 in the Story panel per project. Routes fail closed without matching flags.
 5. Leave the global Settings Base URL/Model empty (or point them at the same profile) — generation picks the first usable provider automatically.
 
 ## Verification
