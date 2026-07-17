@@ -6,6 +6,16 @@ Pixiv-to-Manga Studio imports Pixiv or local image sets, asks an AI model to cre
 
 ## Quick Start (no dev tools needed)
 
+Once the package is published to npm, the fastest path is:
+
+```bash
+npx pixiv-to-manga
+```
+
+That downloads the prebuilt studio, starts the local server, and opens your browser (set `PTM_OPEN_BROWSER=0` to suppress). Requires [Node.js 24 LTS or newer](https://nodejs.org/).
+
+Running from a clone works the same way:
+
 1. Install [Node.js 24 LTS or newer](https://nodejs.org/).
 2. Download or clone this repository.
 3. Double-click `start-studio.cmd` (Windows) or run `./start-studio.sh` (macOS/Linux).
@@ -71,7 +81,12 @@ npm run build
 npm run e2e
 ```
 
-`npm run e2e` starts isolated local services with a mock OpenAI-compatible provider, a temporary data directory, and an in-memory keytar test store.
+`npm run e2e` starts isolated local services with a mock OpenAI-compatible provider, a temporary data directory, and an in-memory keytar test store. The same suite runs in GitHub Actions CI (`.github/workflows/ci.yml`) on Node 24.
+
+## Known Notes
+
+- The SQLite layer uses Node's built-in `node:sqlite`, which is still marked experimental upstream — the startup warning is expected. If a future Node release changes the API, the planned fallback is `better-sqlite3` behind the same `StudioDatabase` interface.
+- `keytar` is an optional dependency: when the system credential store is unavailable the app runs, but refuses to persist API keys/cookies as plain text.
 
 ## License
 

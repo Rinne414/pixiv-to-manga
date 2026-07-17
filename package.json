@@ -1,9 +1,31 @@
 {
   "name": "pixiv-to-manga",
-  "private": true,
-  "version": "0.4.0",
+  "version": "0.5.0",
+  "description": "Privacy-first local-AI manga studio: import Pixiv or local art, generate story + dialogue with your own models, edit bubbles on a whiteboard, export ZIP/CBZ/PDF.",
+  "keywords": [
+    "manga",
+    "comic",
+    "pixiv",
+    "ai",
+    "local-first",
+    "ollama",
+    "cbz"
+  ],
   "license": "Apache-2.0",
   "type": "module",
+  "bin": {
+    "pixiv-to-manga-studio": "bin/studio.mjs"
+  },
+  "files": [
+    "bin",
+    "dist",
+    "dist-server",
+    "README.md",
+    "LICENSE"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
   "scripts": {
     "dev": "concurrently -k -n server,client -c red,cyan \"npm:dev:server\" \"npm:dev:client\"",
     "dev:client": "vite",
@@ -11,6 +33,8 @@
     "server": "tsx server/index.ts",
     "start": "npm run build && tsx server/index.ts --open",
     "build": "tsc -b && vite build",
+    "build:server": "esbuild server/index.ts --bundle --platform=node --format=esm --packages=external --outfile=dist-server/index.mjs",
+    "prepublishOnly": "npm run build && npm run build:server",
     "lint": "eslint .",
     "test": "vitest run",
     "e2e": "playwright test",
@@ -46,6 +70,7 @@
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^6.0.3",
     "concurrently": "^10.0.3",
+    "esbuild": "^0.28.1",
     "eslint": "^10.6.0",
     "eslint-plugin-react-hooks": "^7.1.1",
     "eslint-plugin-react-refresh": "^0.5.3",
