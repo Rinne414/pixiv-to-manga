@@ -5,7 +5,6 @@ import type {
   FontAsset,
   JobEvent,
   Page,
-  PageStatus,
   Project,
   ProjectDetail,
   ReadingDirection,
@@ -13,8 +12,9 @@ import type {
   StoryBible,
 } from './shared/types'
 import { resolveDialogueCollisions } from './shared/layout'
-import { renderPageToDataUrl, renderProjectPages } from './canvasExport'
 import { registerCustomFont } from './fonts'
+import { pageSnapshot, useStudioHistory } from './studio/useStudioHistory'
+import { useStudioExports } from './studio/useStudioExports'
 import { useI18n } from './i18n/context'
 import type { MessageKey } from './i18n/messages'
 import type { MessageParams } from './i18n/types'
@@ -51,46 +51,6 @@ export interface SettingsForm {
   pixivCookie: string
 }
 
-interface DialogueHistoryCommand {
-  scope: 'dialogues'
-  pageId: string
-  before: Dialogue[]
-  beforeStatus: PageStatus
-  after: Dialogue[]
-  afterStatus: PageStatus
-}
-
-interface BibleHistoryCommand {
-  scope: 'bible'
-  projectId: string
-  before: StoryBible
-  after: StoryBible
-}
-
-type HistoryCommand = DialogueHistoryCommand | BibleHistoryCommand
-
-const HISTORY_LIMIT = 50
-
-/** Raw model output is debug-only and can be huge; history snapshots drop it. */
-function stripRawFromDialogues(dialogues: Dialogue[]): Dialogue[] {
-  // `undefined` keeps the Dialogue type and disappears in the JSON restore payload.
-  return dialogues.map((dialogue) => ({ ...dialogue, raw: undefined }))
-}
-
-function pageSnapshot(
-  source: ProjectDetail | null,
-  pageId: string,
-): { dialogues: Dialogue[]; status: PageStatus } | null {
-  const page = source?.pages.find((item) => item.id === pageId)
-  if (!source || !page) {
-    return null
-  }
-  return {
-    dialogues: stripRawFromDialogues(source.dialogues.filter((dialogue) => dialogue.pageId === pageId)),
-    status: page.status,
-  }
-}
-
 /** Container hook: owns all Manga Studio state and handlers; App.tsx stays a view shell. */
 export function useStudio() {
   const { t } = useI18n()
@@ -121,10 +81,7 @@ export function useStudio() {
   const [secretStatus, setSecretStatus] = useState<SecretStatus | null>(null)
   const [providers, setProviders] = useState<api.ProviderProfile[]>([])
   const [customFonts, setCustomFonts] = useState<FontAsset[]>([])
-  const [hasExported, setHasExported] = useState(false)
   const [batchProgress, setBatchProgress] = useState<BatchProgress | null>(null)
-  const [undoStack, setUndoStack] = useState<HistoryCommand[]>([])
-  const [redoStack, setRedoStack] = useState<HistoryCommand[]>([])
   // Last server-confirmed detail: history snapshots diff against this, never against
   // in-flight local edits (typing updates `detail` before the commit lands).
   const serverDetailRef = useRef<ProjectDetail | null>(null)
@@ -147,6 +104,33 @@ export function useStudio() {
   )
   const selectedDialogue =
     activeDialogues.find((dialogue) => dialogue.id === selectedDialogueId) || activeDialogues[0]
+
+  // runTask/pushLog/acceptDetail are function declarations below; hoisting makes
+  // them safe to hand to the domain hooks here.
+  const history = useStudioHistory({
+    busy,
+    labels: { undoing: t('log.undoing'), undone: t('log.undone'), redoing: t('log.redoing'), redone: t('log.redone') },
+    runTask,
+    pushLog,
+    acceptDetail,
+  })
+  const exports = useStudioExports({
+    detail,
+    activePage,
+    runTask,
+    pushLog,
+    labels: {
+      exportZip: t('toolbar.exportZip'),
+      exportCbz: t('toolbar.exportCbz'),
+      exportPdf: t('toolbar.exportPdf'),
+      exportBackupTask: t('log.exportBackupTask'),
+      noPagesToExport: t('log.noPagesToExport'),
+      exported: (fileName) => t('log.exported', { file: fileName }),
+      backupExported: (fileName) => t('log.backupExported', { file: fileName }),
+      exportPageLabel: (n) => t('log.exportPageLabel', { n }),
+      pageExported: (n) => t('log.pageExported', { n }),
+    },
+  })
 
   useEffect(() => {
     let cancelled = false
@@ -191,7 +175,7 @@ export function useStudio() {
     if (!selectedProjectId) return
     let cancelled = false
     // History commands reference dialogue/page ids of one project; a switch invalidates them.
-    clearHistory()
+    history.clearHistory()
 
     api
       .getProject(selectedProjectId)
@@ -230,10 +214,10 @@ export function useStudio() {
       const key = event.key.toLowerCase()
       if (key === 'z' && !event.shiftKey) {
         event.preventDefault()
-        void handleUndo()
+        void history.handleUndo()
       } else if (key === 'y' || (key === 'z' && event.shiftKey)) {
         event.preventDefault()
-        void handleRedo()
+        void history.handleRedo()
       }
     }
     window.addEventListener('keydown', handleKeyDown)
@@ -252,32 +236,6 @@ export function useStudio() {
     if (level === 'error' || (level === 'success' && options?.toast !== false)) {
       toast.pushToast(message, level)
     }
-  }
-
-  function recordHistory(command: HistoryCommand) {
-    setUndoStack((current) => [...current, command].slice(-HISTORY_LIMIT))
-    setRedoStack([])
-  }
-
-  function clearHistory() {
-    setUndoStack([])
-    setRedoStack([])
-  }
-
-  function recordDialogueChange(
-    pageId: string,
-    before: { dialogues: Dialogue[]; status: PageStatus } | null,
-    after: { dialogues: Dialogue[]; status: PageStatus } | null,
-  ) {
-    if (!before || !after) return
-    recordHistory({
-      scope: 'dialogues',
-      pageId,
-      before: before.dialogues,
-      beforeStatus: before.status,
-      after: after.dialogues,
-      afterStatus: after.status,
-    })
   }
 
   function acceptDetail(next: ProjectDetail) {
@@ -358,7 +316,7 @@ export function useStudio() {
       const next = await api.saveStoryBible(detail.project.id, storyBible)
       acceptDetail(next)
       if (beforeBible && next.project.storyBible) {
-        recordHistory({ scope: 'bible', projectId: next.project.id, before: beforeBible, after: next.project.storyBible })
+        history.recordHistory({ scope: 'bible', projectId: next.project.id, before: beforeBible, after: next.project.storyBible })
       }
       pushLog(t('log.storyBibleSaved'), 'success', { toast: false })
     } catch (error) {
@@ -381,7 +339,7 @@ export function useStudio() {
           dialogues: baseline.dialogues.map((dialogue) => (dialogue.id === id ? { ...dialogue, ...updated } : dialogue)),
         }
         serverDetailRef.current = nextBaseline
-        recordDialogueChange(target.pageId, before, pageSnapshot(nextBaseline, target.pageId))
+        history.recordDialogueChange(target.pageId, before, pageSnapshot(nextBaseline, target.pageId))
       }
       pushLog(t('log.dialogueSaved'), 'success', { toast: false })
     } catch (error) {
@@ -402,7 +360,7 @@ export function useStudio() {
       if (baseline) {
         const nextBaseline = { ...baseline, dialogues: [...baseline.dialogues, created] }
         serverDetailRef.current = nextBaseline
-        recordDialogueChange(activePage.id, before, pageSnapshot(nextBaseline, activePage.id))
+        history.recordDialogueChange(activePage.id, before, pageSnapshot(nextBaseline, activePage.id))
       }
       setSelectedDialogueId(created.id)
       setActiveTab('dialogue')
@@ -424,7 +382,7 @@ export function useStudio() {
       if (baseline && target) {
         const nextBaseline = { ...baseline, dialogues: baseline.dialogues.filter((dialogue) => dialogue.id !== id) }
         serverDetailRef.current = nextBaseline
-        recordDialogueChange(target.pageId, before, pageSnapshot(nextBaseline, target.pageId))
+        history.recordDialogueChange(target.pageId, before, pageSnapshot(nextBaseline, target.pageId))
       }
       setSelectedDialogueId((current) => (current === id ? '' : current))
       pushLog(t('log.dialogueDeleted'), 'success', { toast: false })
@@ -501,7 +459,7 @@ export function useStudio() {
       )
       acceptDetail(next)
       if (beforeBible && next.project.storyBible) {
-        recordHistory({ scope: 'bible', projectId: next.project.id, before: beforeBible, after: next.project.storyBible })
+        history.recordHistory({ scope: 'bible', projectId: next.project.id, before: beforeBible, after: next.project.storyBible })
       }
       if (next.raw) {
         setRawOutput({ title: t('raw.storyBibleTitle'), text: next.raw })
@@ -516,7 +474,7 @@ export function useStudio() {
       const before = pageSnapshot(serverDetailRef.current, activePage.id)
       const next = await api.generatePage(activePage.id, { mode: generateMode, textDensity }, { onJobId: setCurrentJobId, onEvent: handleJobEvent })
       acceptDetail(next)
-      recordDialogueChange(activePage.id, before, pageSnapshot(next, activePage.id))
+      history.recordDialogueChange(activePage.id, before, pageSnapshot(next, activePage.id))
       if (next.raw) {
         setRawOutput({ title: t('raw.pageTitle', { n: activePage.index + 1 }), text: next.raw })
       }
@@ -540,7 +498,7 @@ export function useStudio() {
           const before = pageSnapshot(serverDetailRef.current, page.id)
           const next = await api.generatePage(page.id, { mode: generateMode, textDensity }, { onJobId: setCurrentJobId, onEvent: handleJobEvent })
           acceptDetail(next)
-          recordDialogueChange(page.id, before, pageSnapshot(next, page.id))
+          history.recordDialogueChange(page.id, before, pageSnapshot(next, page.id))
           if (next.raw) {
             setRawOutput({ title: t('raw.pageTitle', { n: page.index + 1 }), text: next.raw })
           }
@@ -624,43 +582,10 @@ export function useStudio() {
           dialogues: baseline.dialogues.map((dialogue) => result.dialogues.find((item) => item.id === dialogue.id) || dialogue),
         }
         serverDetailRef.current = nextBaseline
-        recordDialogueChange(activePage.id, before, pageSnapshot(nextBaseline, activePage.id))
+        history.recordDialogueChange(activePage.id, before, pageSnapshot(nextBaseline, activePage.id))
       }
       pushLog(t('log.layoutAdjusted'), 'success', { toast: false })
     })
-  }
-
-  async function handleUndo() {
-    const command = undoStack[undoStack.length - 1]
-    if (!command || busy) return
-    await runTask(t('log.undoing'), async () => {
-      acceptDetail(await applyHistoryState(command, 'before'))
-      setUndoStack((current) => current.slice(0, -1))
-      setRedoStack((current) => [...current, command].slice(-HISTORY_LIMIT))
-      pushLog(t('log.undone'), 'success', { toast: false })
-    })
-  }
-
-  async function handleRedo() {
-    const command = redoStack[redoStack.length - 1]
-    if (!command || busy) return
-    await runTask(t('log.redoing'), async () => {
-      acceptDetail(await applyHistoryState(command, 'after'))
-      setRedoStack((current) => current.slice(0, -1))
-      setUndoStack((current) => [...current, command].slice(-HISTORY_LIMIT))
-      pushLog(t('log.redone'), 'success', { toast: false })
-    })
-  }
-
-  function applyHistoryState(command: HistoryCommand, side: 'before' | 'after'): Promise<ProjectDetail> {
-    if (command.scope === 'dialogues') {
-      return api.restorePageDialogues(
-        command.pageId,
-        side === 'before' ? command.before : command.after,
-        side === 'before' ? command.beforeStatus : command.afterStatus,
-      )
-    }
-    return api.saveStoryBible(command.projectId, side === 'before' ? command.before : command.after)
   }
 
   async function handleMovePage(pageId: string, offset: -1 | 1) {
@@ -668,7 +593,7 @@ export function useStudio() {
       const next = await api.movePage(pageId, offset)
       acceptDetail(next)
       // Page indexes shifted under the recorded snapshots; stale history must not restore them.
-      clearHistory()
+      history.clearHistory()
       pushLog(t('log.pageMoved'), 'success', { toast: false })
     })
   }
@@ -687,25 +612,8 @@ export function useStudio() {
     await runTask(t('log.deletingPage', { n: page.index + 1 }), async () => {
       const next = await api.deletePage(pageId)
       acceptDetail(next)
-      clearHistory()
+      history.clearHistory()
       pushLog(t('log.pageDeleted'), 'success')
-    })
-  }
-
-  async function handleExportActivePage() {
-    if (!detail || !activePage) return
-    const pageNumber = activePage.index + 1
-    await runTask(t('log.exportPageLabel', { n: pageNumber }), async () => {
-      const dataUrl = await renderPageToDataUrl(detail, activePage.id)
-      if (!dataUrl) {
-        throw new Error(t('log.noPagesToExport'))
-      }
-      const anchor = document.createElement('a')
-      anchor.href = dataUrl
-      anchor.download = `${sanitizeFileName(detail.project.title)}-page-${String(pageNumber).padStart(3, '0')}.png`
-      anchor.click()
-      setHasExported(true)
-      pushLog(t('log.pageExported', { n: pageNumber }), 'success')
     })
   }
 
@@ -726,50 +634,12 @@ export function useStudio() {
     })
   }
 
-  async function exportRenderedAs(
-    taskLabel: string,
-    send: (input: { projectId: string; pages: Array<{ pageId: string; dataUrl: string }> }) => Promise<{ fileName: string; url: string }>,
-  ) {
-    if (!detail) return
-    await runTask(taskLabel, async () => {
-      const pages = await renderProjectPages(detail)
-      if (!pages.length) {
-        throw new Error(t('log.noPagesToExport'))
-      }
-      const result = await send({ projectId: detail.project.id, pages })
-      setHasExported(true)
-      pushLog(t('log.exported', { file: result.fileName }), 'success')
-      window.open(result.url, '_blank', 'noopener,noreferrer')
-    })
-  }
-
-  async function handleExportZip() {
-    await exportRenderedAs(t('toolbar.exportZip'), (input) => api.exportZip({ ...input, format: 'zip' }))
-  }
-
-  async function handleExportCbz() {
-    await exportRenderedAs(t('toolbar.exportCbz'), (input) => api.exportZip({ ...input, format: 'cbz' }))
-  }
-
-  async function handleExportPdf() {
-    await exportRenderedAs(t('toolbar.exportPdf'), (input) => api.exportPdf(input))
-  }
-
   async function handleSetReadingDirection(readingDirection: ReadingDirection) {
     if (!detail || detail.project.readingDirection === readingDirection) return
     await runTask(t('log.savingDirection'), async () => {
       const next = await api.updateProjectSettings(detail.project.id, { readingDirection })
       acceptDetail(next)
       pushLog(t('log.readingDirectionSaved'), 'success', { toast: false })
-    })
-  }
-
-  async function handleExportBackup() {
-    if (!detail) return
-    await runTask(t('log.exportBackupTask'), async () => {
-      const result = await api.exportProjectBackup({ projectId: detail.project.id })
-      pushLog(t('log.backupExported', { file: result.fileName }), 'success')
-      window.open(result.url, '_blank', 'noopener,noreferrer')
     })
   }
 
@@ -832,7 +702,7 @@ export function useStudio() {
     providers,
     setProviders,
     customFonts,
-    hasExported,
+    hasExported: exports.hasExported,
     batchProgress,
     settingsForm,
     setSettingsForm,
@@ -842,8 +712,8 @@ export function useStudio() {
     activeAsset,
     activeDialogues,
     selectedDialogue,
-    canUndo: undoStack.length > 0,
-    canRedo: redoStack.length > 0,
+    canUndo: history.canUndo,
+    canRedo: history.canRedo,
     // actions
     runTask,
     pushLog,
@@ -864,15 +734,15 @@ export function useStudio() {
     handleGenerateRange,
     handleCancelCurrentJob,
     handleAvoidOverlap,
-    handleUndo,
-    handleRedo,
+    handleUndo: history.handleUndo,
+    handleRedo: history.handleRedo,
     handleMovePage,
     handleDeletePage,
-    handleExportZip,
-    handleExportCbz,
-    handleExportPdf,
-    handleExportActivePage,
-    handleExportBackup,
+    handleExportZip: exports.handleExportZip,
+    handleExportCbz: exports.handleExportCbz,
+    handleExportPdf: exports.handleExportPdf,
+    handleExportActivePage: exports.handleExportActivePage,
+    handleExportBackup: exports.handleExportBackup,
     handleSetReadingDirection,
     handleSaveSettings,
     handleUploadFont,
@@ -884,10 +754,6 @@ function streamTextFromJobPayload(payload: unknown): string | null {
   if (!payload || typeof payload !== 'object') return null
   const value = (payload as { streamText?: unknown }).streamText
   return typeof value === 'string' ? value : null
-}
-
-function sanitizeFileName(title: string): string {
-  return title.replace(/[\\/:*?"<>|]/g, '_').trim() || 'manga'
 }
 
 function rawOutputFromError(error: unknown, t: Translator): RawOutputState | null {

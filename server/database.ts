@@ -1,17 +1,8 @@
-import { existsSync, writeFileSync } from 'node:fs'
-import path from 'node:path'
-import { DatabaseSync } from 'node:sqlite'
+﻿import { DatabaseSync } from 'node:sqlite'
 import { randomUUID } from 'node:crypto'
-import {
-  assetUrlFromRelativePath,
-  databasePath,
-  ensureAppDirs,
-  getAppDataDir,
-  projectAssetDir,
-} from './paths'
+import { databasePath, ensureAppDirs } from './paths'
 import type {
   Asset,
-  BubbleStyle,
   Character,
   Dialogue,
   FontAsset,
@@ -25,10 +16,19 @@ import type {
   ReadingDirection,
   StoryBible,
 } from '../src/shared/types'
-
-interface Row {
-  [key: string]: unknown
-}
+import {
+  assetFromRow,
+  characterFromRow,
+  dialogueFromRow,
+  fontFromRow,
+  modelCapabilityFromRow,
+  pageFromRow,
+  projectFromRow,
+  providerFromRow,
+  type Row,
+} from './databaseRows'
+import { runMigrations } from './databaseSchema'
+import { ensureSampleProject } from './sampleProject'
 
 export class StudioDatabase {
   private db: DatabaseSync
@@ -38,9 +38,9 @@ export class StudioDatabase {
     this.db = new DatabaseSync(dbPath)
     this.db.exec('PRAGMA journal_mode = WAL;')
     this.db.exec('PRAGMA foreign_keys = ON;')
-    this.migrate()
+    runMigrations(this.db)
     if (seedSampleProject) {
-      this.ensureSampleProject()
+      ensureSampleProject(this)
     }
   }
 
@@ -562,321 +562,4 @@ export class StudioDatabase {
     this.db.prepare('UPDATE projects SET updatedAt = ? WHERE id = ?').run(new Date().toISOString(), projectId)
   }
 
-  private migrate(): void {
-    this.db.exec(`
-      CREATE TABLE IF NOT EXISTS settings (
-        key TEXT PRIMARY KEY,
-        value TEXT NOT NULL
-      );
-      CREATE TABLE IF NOT EXISTS projects (
-        id TEXT PRIMARY KEY,
-        title TEXT NOT NULL,
-        mode TEXT NOT NULL,
-        source TEXT NOT NULL,
-        readingDirection TEXT NOT NULL DEFAULT 'rtl',
-        createdAt TEXT NOT NULL,
-        updatedAt TEXT NOT NULL,
-        storyBibleJson TEXT
-      );
-      CREATE TABLE IF NOT EXISTS assets (
-        id TEXT PRIMARY KEY,
-        projectId TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
-        kind TEXT NOT NULL,
-        filePath TEXT NOT NULL,
-        mimeType TEXT NOT NULL,
-        sourceUrl TEXT,
-        width INTEGER NOT NULL,
-        height INTEGER NOT NULL,
-        createdAt TEXT NOT NULL
-      );
-      CREATE TABLE IF NOT EXISTS pages (
-        id TEXT PRIMARY KEY,
-        projectId TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
-        pageIndex INTEGER NOT NULL,
-        originalAssetId TEXT NOT NULL REFERENCES assets(id),
-        previewAssetId TEXT REFERENCES assets(id),
-        status TEXT NOT NULL,
-        width INTEGER NOT NULL,
-        height INTEGER NOT NULL
-      );
-      CREATE TABLE IF NOT EXISTS characters (
-        id TEXT PRIMARY KEY,
-        projectId TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
-        name TEXT NOT NULL,
-        description TEXT NOT NULL,
-        voice TEXT NOT NULL,
-        color TEXT NOT NULL,
-        fontFamily TEXT,
-        bubbleStyle TEXT NOT NULL
-      );
-      CREATE TABLE IF NOT EXISTS dialogues (
-        id TEXT PRIMARY KEY,
-        pageId TEXT NOT NULL REFERENCES pages(id) ON DELETE CASCADE,
-        characterId TEXT,
-        characterName TEXT,
-        text TEXT NOT NULL,
-        x REAL NOT NULL,
-        y REAL NOT NULL,
-        scale REAL NOT NULL,
-        rotation REAL NOT NULL,
-        bubbleStyle TEXT NOT NULL,
-        color TEXT NOT NULL,
-        locked INTEGER NOT NULL,
-        rawJson TEXT
-      );
-      CREATE TABLE IF NOT EXISTS jobs (
-        id TEXT PRIMARY KEY,
-        type TEXT NOT NULL,
-        status TEXT NOT NULL,
-        progress REAL NOT NULL,
-        message TEXT NOT NULL,
-        error TEXT,
-        createdAt TEXT NOT NULL,
-        updatedAt TEXT NOT NULL
-      );
-      CREATE TABLE IF NOT EXISTS providers (
-        id TEXT PRIMARY KEY,
-        name TEXT NOT NULL,
-        baseUrl TEXT NOT NULL,
-        defaultModel TEXT NOT NULL,
-        isLocal INTEGER NOT NULL,
-        createdAt TEXT NOT NULL,
-        updatedAt TEXT NOT NULL
-      );
-      CREATE TABLE IF NOT EXISTS fonts (
-        id TEXT PRIMARY KEY,
-        familyName TEXT NOT NULL,
-        fileName TEXT NOT NULL,
-        filePath TEXT NOT NULL,
-        format TEXT NOT NULL,
-        createdAt TEXT NOT NULL
-      );
-      CREATE TABLE IF NOT EXISTS model_capabilities (
-        id TEXT PRIMARY KEY,
-        providerId TEXT NOT NULL REFERENCES providers(id) ON DELETE CASCADE,
-        modelId TEXT NOT NULL,
-        supportsVision INTEGER NOT NULL,
-        supportsStreaming INTEGER NOT NULL,
-        supportsJsonSchema INTEGER NOT NULL,
-        allowsAdultInput INTEGER NOT NULL,
-        allowsAdultGeneration INTEGER NOT NULL,
-        supportsImageGeneration INTEGER NOT NULL DEFAULT 0,
-        contextWindow INTEGER,
-        notes TEXT NOT NULL,
-        source TEXT NOT NULL,
-        createdAt TEXT NOT NULL,
-        updatedAt TEXT NOT NULL,
-        UNIQUE(providerId, modelId)
-      );
-    `)
-    this.ensureColumn('model_capabilities', 'supportsImageGeneration', 'INTEGER NOT NULL DEFAULT 0')
-    this.ensureColumn('dialogues', 'tailX', 'REAL')
-    this.ensureColumn('dialogues', 'tailY', 'REAL')
-    this.ensureColumn('projects', 'readingDirection', "TEXT NOT NULL DEFAULT 'rtl'")
-  }
-
-  private ensureColumn(table: string, column: string, definition: string): void {
-    // SQLite cannot bind identifiers, so restrict interpolation to literal-safe names.
-    const identifier = /^[A-Za-z_][A-Za-z0-9_]*$/
-    if (!identifier.test(table) || !identifier.test(column)) {
-      throw new Error('ensureColumn requires plain identifier names')
-    }
-    const rows = this.db.prepare(`PRAGMA table_info(${table})`).all() as Row[]
-    if (rows.some((row) => row.name === column)) {
-      return
-    }
-    this.db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition};`)
-  }
-
-  private ensureSampleProject(): void {
-    const row = this.db.prepare('SELECT COUNT(*) AS count FROM projects').get() as Row
-    if (Number(row.count) > 0) {
-      return
-    }
-
-    const project = this.createProject({
-      title: '夏日邂逅的约定',
-      mode: 'story',
-      source: 'sample',
-    })
-
-    for (let index = 0; index < 3; index += 1) {
-      const relativePath = path.join('projects', project.id, 'originals', `page-${index + 1}.svg`)
-      const absolutePath = path.join(getAppDataDir(), relativePath)
-      projectAssetDir(project.id, 'originals')
-      writeFileSync(absolutePath, sampleMangaSvg(index), 'utf8')
-      const asset = this.createAsset({
-        projectId: project.id,
-        kind: 'original',
-        relativePath,
-        mimeType: 'image/svg+xml',
-        width: 1200,
-        height: 1600,
-      })
-      this.createPage({
-        projectId: project.id,
-        index,
-        originalAssetId: asset.id,
-        width: 1200,
-        height: 1600,
-      })
-    }
-
-    if (!existsSync(path.join(getAppDataDir(), 'README.txt'))) {
-      writeFileSync(path.join(getAppDataDir(), 'README.txt'), 'Pixiv-to-Manga Studio local project data.\n')
-    }
-  }
-}
-
-function projectFromRow(row: Row): Project {
-  const storyBible = typeof row.storyBibleJson === 'string' ? (JSON.parse(row.storyBibleJson) as StoryBible) : undefined
-  return {
-    id: String(row.id),
-    title: String(row.title),
-    mode: row.mode as ProjectMode,
-    source: row.source as ProjectSource,
-    readingDirection: row.readingDirection === 'ltr' ? 'ltr' : 'rtl',
-    createdAt: String(row.createdAt),
-    updatedAt: String(row.updatedAt),
-    storyBible,
-  }
-}
-
-function assetFromRow(row: Row): Asset {
-  const filePath = String(row.filePath)
-  return {
-    id: String(row.id),
-    projectId: String(row.projectId),
-    kind: row.kind as Asset['kind'],
-    url: assetUrlFromRelativePath(filePath),
-    mimeType: String(row.mimeType),
-    sourceUrl: typeof row.sourceUrl === 'string' ? row.sourceUrl : undefined,
-    width: Number(row.width),
-    height: Number(row.height),
-  }
-}
-
-function pageFromRow(row: Row): Page {
-  return {
-    id: String(row.id),
-    projectId: String(row.projectId),
-    index: Number(row.pageIndex),
-    originalAssetId: String(row.originalAssetId),
-    previewAssetId: typeof row.previewAssetId === 'string' ? row.previewAssetId : undefined,
-    status: row.status as Page['status'],
-    width: Number(row.width),
-    height: Number(row.height),
-  }
-}
-
-function characterFromRow(row: Row): Character {
-  return {
-    id: String(row.id),
-    projectId: String(row.projectId),
-    name: String(row.name),
-    description: String(row.description),
-    voice: String(row.voice),
-    color: String(row.color),
-    fontFamily: typeof row.fontFamily === 'string' ? row.fontFamily : undefined,
-    bubbleStyle: row.bubbleStyle as BubbleStyle,
-  }
-}
-
-function dialogueFromRow(row: Row): Dialogue {
-  return {
-    id: String(row.id),
-    pageId: String(row.pageId),
-    characterId: typeof row.characterId === 'string' ? row.characterId : undefined,
-    characterName: typeof row.characterName === 'string' ? row.characterName : undefined,
-    text: String(row.text),
-    x: Number(row.x),
-    y: Number(row.y),
-    scale: Number(row.scale),
-    rotation: Number(row.rotation),
-    bubbleStyle: row.bubbleStyle as BubbleStyle,
-    color: String(row.color),
-    locked: Number(row.locked) === 1,
-    tailX: typeof row.tailX === 'number' ? Number(row.tailX) : undefined,
-    tailY: typeof row.tailY === 'number' ? Number(row.tailY) : undefined,
-    raw: typeof row.rawJson === 'string' ? row.rawJson : undefined,
-  }
-}
-
-function fontFromRow(row: Row): FontAsset {
-  return {
-    id: String(row.id),
-    familyName: String(row.familyName),
-    fileName: String(row.fileName),
-    url: assetUrlFromRelativePath(String(row.filePath)),
-    format: String(row.format),
-    createdAt: String(row.createdAt),
-  }
-}
-
-function providerFromRow(row: Row, hasApiKey: boolean): ProviderProfile {
-  return {
-    id: String(row.id),
-    name: String(row.name),
-    baseUrl: String(row.baseUrl),
-    defaultModel: String(row.defaultModel),
-    isLocal: Number(row.isLocal) === 1,
-    createdAt: String(row.createdAt),
-    updatedAt: String(row.updatedAt),
-    hasApiKey,
-  }
-}
-
-function modelCapabilityFromRow(row: Row): ModelCapability {
-  return {
-    id: String(row.id),
-    providerId: String(row.providerId),
-    modelId: String(row.modelId),
-    supportsVision: Number(row.supportsVision) === 1,
-    supportsImageGeneration: Number(row.supportsImageGeneration) === 1,
-    supportsStreaming: Number(row.supportsStreaming) === 1,
-    supportsJsonSchema: Number(row.supportsJsonSchema) === 1,
-    allowsAdultInput: Number(row.allowsAdultInput) === 1,
-    allowsAdultGeneration: Number(row.allowsAdultGeneration) === 1,
-    contextWindow: typeof row.contextWindow === 'number' ? Number(row.contextWindow) : undefined,
-    notes: String(row.notes),
-    source: row.source as ModelCapability['source'],
-    createdAt: String(row.createdAt),
-    updatedAt: String(row.updatedAt),
-  }
-}
-
-function sampleMangaSvg(index: number): string {
-  const variants = [
-    ['夏天特别蓝。', '我们在车站遇见，一切都刚刚好。', '#f7fbff'],
-    ['你也是去海边吗？', '嗯！好久没去了。', '#fffafa'],
-    ['要一起去吗？', '好啊，那就出发吧！', '#fbfff7'],
-  ][index]
-
-  return `<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="1600" viewBox="0 0 1200 1600">
-  <defs>
-    <pattern id="tone" width="8" height="8" patternUnits="userSpaceOnUse">
-      <circle cx="2" cy="2" r="1" fill="#d8d8d8"/>
-    </pattern>
-  </defs>
-  <rect width="1200" height="1600" fill="${variants[2]}"/>
-  <rect x="60" y="60" width="1080" height="580" fill="url(#tone)" stroke="#111" stroke-width="8"/>
-  <rect x="60" y="690" width="510" height="360" fill="#fff" stroke="#111" stroke-width="8"/>
-  <rect x="630" y="690" width="510" height="360" fill="#fff" stroke="#111" stroke-width="8"/>
-  <rect x="60" y="1100" width="1080" height="440" fill="#fff" stroke="#111" stroke-width="8"/>
-  <path d="M120 530 C240 350 420 270 580 350 S880 460 1060 300" fill="none" stroke="#333" stroke-width="10"/>
-  <circle cx="470" cy="430" r="115" fill="#f4f4f4" stroke="#111" stroke-width="6"/>
-  <path d="M390 380 C460 300 560 330 575 430 C540 360 450 365 390 380Z" fill="#111"/>
-  <path d="M460 545 L430 630 L530 630 L505 545Z" fill="#111"/>
-  <circle cx="350" cy="850" r="85" fill="#f4f4f4" stroke="#111" stroke-width="6"/>
-  <path d="M285 815 C340 760 425 785 435 865 C390 810 335 810 285 815Z" fill="#111"/>
-  <circle cx="870" cy="840" r="88" fill="#f4f4f4" stroke="#111" stroke-width="6"/>
-  <path d="M800 800 C875 730 950 775 955 855 C910 790 850 790 800 800Z" fill="#111"/>
-  <path d="M390 1320 C520 1180 700 1180 840 1320" fill="none" stroke="#111" stroke-width="10"/>
-  <circle cx="460" cy="1280" r="76" fill="#f4f4f4" stroke="#111" stroke-width="6"/>
-  <circle cx="740" cy="1280" r="76" fill="#f4f4f4" stroke="#111" stroke-width="6"/>
-  <rect x="84" y="96" width="132" height="322" rx="4" fill="#fff" stroke="#111" stroke-width="5"/>
-  <text x="164" y="145" writing-mode="vertical-rl" font-family="serif" font-size="38" font-weight="700" fill="#111">${variants[0]}</text>
-  <ellipse cx="1000" cy="360" rx="92" ry="150" fill="#fff" stroke="#111" stroke-width="5"/>
-  <text x="1030" y="245" writing-mode="vertical-rl" font-family="serif" font-size="34" font-weight="700" fill="#111">${variants[1]}</text>
-</svg>`
 }
