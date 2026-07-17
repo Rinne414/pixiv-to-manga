@@ -11,7 +11,7 @@ import type {
   ProviderProfile,
   StoryBible,
 } from '../src/shared/types'
-import { dialogueListSchema, storyBibleSchema } from '../src/shared/schemas'
+import { dialogueListSchema, regeneratedLineSchema, storyBibleSchema } from '../src/shared/schemas'
 import { type ZodType, type z } from 'zod'
 import { parsePossiblyWrappedJson } from '../src/shared/jsonRepair'
 import { resolveDialogueCollisions } from '../src/shared/layout'
@@ -137,7 +137,7 @@ export async function generateDialoguesWithAi(
     ? `下一页剧情：${nextBeat?.summary || '未指定'}。本页最后一句要自然引向下一页。`
     : '本页是最后一页，对白要有收束感。'
   const continuityContext = previousLines ? `上一页对白（延续语气与话题，不要重复）：\n${previousLines}\n` : ''
-  const prompt = `你是漫画对白创作者。请先观察图片：第一张是本页画面${nextPageImageParts.length ? '，第二张是下一页画面（仅用于衔接剧情，不要为它生成对白）' : ''}。模式：${input.mode === 'translation' ? '视觉翻译/改写，不原创大剧情' : '原创故事对白'}。请为第 ${page.index + 1} 页生成中文漫画对白。故事：${storyBible.synopsis}。本页剧情：${beat?.summary || '未指定'}。${flowContext}${continuityContext}角色声音：${characters}。${stylePrompt ? `风格要求（必须遵守）：${stylePrompt}。` : ''}文本密度：${input.textDensity}。必须只返回 JSON：{"dialogues":[{"text":"...","characterName":"...","x":0.5,"y":0.5,"scale":1,"rotation":0,"bubbleStyle":"speech","color":"#141414","locked":false}]}. bubbleStyle 可选 speech/soft/thought/caption/sfx；拟声词、音效字用 sfx（无气泡描边大字），不要给 sfx 设 characterName。x/y 是 0-1 画面坐标，避免挡脸、遮住关键画面和互相重叠。`
+  const prompt = `你是漫画对白创作者。请先观察图片：第一张是本页画面${nextPageImageParts.length ? '，第二张是下一页画面（仅用于衔接剧情，不要为它生成对白）' : ''}。模式：${input.mode === 'translation' ? '视觉翻译/改写，不原创大剧情' : '原创故事对白'}。请为第 ${page.index + 1} 页生成中文漫画对白。故事：${storyBible.synopsis}。本页剧情：${beat?.summary || '未指定'}。${flowContext}${continuityContext}角色声音：${characters}。${stylePrompt ? `风格要求（必须遵守）：${stylePrompt}。` : ''}文本密度：${input.textDensity}。必须只返回 JSON：{"dialogues":[{"text":"...","characterName":"...","x":0.5,"y":0.5,"scale":1,"rotation":0,"bubbleStyle":"speech","color":"#141414","locked":false}]}. bubbleStyle 可选 speech/soft/thought/caption/sfx/shout/whisper；拟声词、音效字用 sfx（无气泡描边大字，不要设 characterName），大喊用 shout（锯齿爆炸框），耳语用 whisper（虚线框）。x/y 是 0-1 画面坐标，避免挡脸、遮住关键画面和互相重叠。`
   const content: ChatContentPart[] = [{ type: 'text', text: prompt }, ...pageImageParts]
   if (nextPageImageParts.length) {
     content.push({ type: 'text', text: '下一页画面（仅供衔接参考，不要为它生成对白）：' }, ...nextPageImageParts)
@@ -171,6 +171,65 @@ export async function generateDialoguesWithAi(
     })),
   )
   return { dialogues, raw: repaired.raw, usedMock: false }
+}
+
+export async function regenerateDialogueTextWithAi(
+  context: AiContext,
+  detail: ProjectDetail,
+  dialogue: Dialogue,
+  input: { instruction: string; mode: 'story' | 'translation'; textDensity: number },
+): Promise<{ text: string; raw: string; usedMock: boolean }> {
+  const target = await resolveAiTarget(context)
+  const storyBible = detail.project.storyBible || mockStoryBible(detail, { userBrief: '', r18Enabled: false })
+  const page = detail.pages.find((item) => item.id === dialogue.pageId)
+  if (!page) {
+    throw new Error('Dialogue page not found')
+  }
+
+  if (!target) {
+    const text = input.instruction ? `（${input.instruction}）${dialogue.text}` : `重写版：${dialogue.text}`
+    return { text, raw: JSON.stringify({ text }, null, 2), usedMock: true }
+  }
+
+  const pageImageParts = await pageImagePartsForDetail(detail, page)
+  ensureAiGenerationAllowed(context, {
+    apiBaseUrl: target.apiBaseUrl,
+    modelName: target.modelName,
+    r18Enabled: storyBible.r18Enabled,
+    imagePresent: pageImageParts.length > 0,
+    safetyClass: storyBible.r18Enabled ? 'explicit' : 'safe',
+  })
+
+  const character = storyBible.characters.find(
+    (item) => item.id === dialogue.characterId || (dialogue.characterName && item.name === dialogue.characterName),
+  )
+  const beat = storyBible.pageBeats.find((item) => item.pageIndex === page.index)
+  const siblingLines = detail.dialogues
+    .filter((item) => item.pageId === page.id)
+    .map((item) =>
+      item.id === dialogue.id
+        ? `>>【要重写的这句】${item.characterName || '旁白'}：${item.text}`
+        : `${item.characterName || '旁白'}：${item.text}`,
+    )
+    .join('\n')
+  const stylePrompt = storyBible.stylePrompt?.trim()
+  const prompt = `你是漫画对白编辑。请只重写标记为【要重写的这句】的那一句中文对白，其余对白保持不变、仅作上下文。模式：${input.mode === 'translation' ? '视觉翻译/改写' : '原创故事对白'}。故事：${storyBible.synopsis}。本页剧情：${beat?.summary || '未指定'}。${character ? `说话角色 ${character.name} 的声音：${character.voice}。` : ''}${stylePrompt ? `风格要求（必须遵守）：${stylePrompt}。` : ''}${input.instruction ? `用户修改指示（最优先遵守）：${input.instruction}。` : ''}文本密度：${input.textDensity}。本页对白：\n${siblingLines}\n必须只返回 JSON：{"text":"重写后的这一句"}。`
+  const raw = await openAiChatJson(target.apiBaseUrl, target.modelName, target.apiKey, [{ type: 'text', text: prompt }, ...pageImageParts], {
+    signal: context.signal,
+    stream: target.supportsStreaming,
+    onDelta: context.onDelta,
+  })
+  const repaired = await parseWithOneRepair({
+    raw,
+    schema: regeneratedLineSchema,
+    baseUrl: target.apiBaseUrl,
+    model: target.modelName,
+    apiKey: target.apiKey,
+    stream: target.supportsStreaming,
+    schemaHint: 'Rewrite JSON: {"text":"..."}',
+    signal: context.signal,
+  })
+  return { text: repaired.parsed.text, raw: repaired.raw, usedMock: false }
 }
 
 interface ResolvedAiRoute extends AiTarget {

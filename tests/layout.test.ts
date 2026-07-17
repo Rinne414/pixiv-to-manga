@@ -41,6 +41,14 @@ describe('layout helpers', () => {
     const sfx = estimateVerticalTextBox(makeDialogue({ text: '轰！', bubbleStyle: 'sfx' }))
     expect(sfx.height).toBeGreaterThan(speech.height)
   })
+
+  it('estimates horizontal text wider than tall, mirroring the vertical shape', () => {
+    const text = '这一句话会被排成横排对白。'
+    const vertical = estimateVerticalTextBox(makeDialogue({ text }))
+    const horizontal = estimateVerticalTextBox(makeDialogue({ text, textDirection: 'horizontal' }))
+    expect(horizontal.width).toBeGreaterThan(horizontal.height)
+    expect(vertical.height).toBeGreaterThan(vertical.width)
+  })
 })
 
 function makeDialogue(patch: Partial<Dialogue> = {}): Dialogue {

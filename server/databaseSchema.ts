@@ -62,6 +62,8 @@ export function runMigrations(db: DatabaseSync): void {
       bubbleStyle TEXT NOT NULL,
       color TEXT NOT NULL,
       locked INTEGER NOT NULL,
+      textDirection TEXT,
+      fontFamily TEXT,
       rawJson TEXT
     );
     CREATE TABLE IF NOT EXISTS jobs (
@@ -112,6 +114,8 @@ export function runMigrations(db: DatabaseSync): void {
   ensureColumn(db, 'model_capabilities', 'supportsImageGeneration', 'INTEGER NOT NULL DEFAULT 0')
   ensureColumn(db, 'dialogues', 'tailX', 'REAL')
   ensureColumn(db, 'dialogues', 'tailY', 'REAL')
+  ensureColumn(db, 'dialogues', 'textDirection', 'TEXT')
+  ensureColumn(db, 'dialogues', 'fontFamily', 'TEXT')
   ensureColumn(db, 'projects', 'readingDirection', "TEXT NOT NULL DEFAULT 'rtl'")
 }
 

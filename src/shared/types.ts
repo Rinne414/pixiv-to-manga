@@ -1,7 +1,8 @@
 export type ProjectMode = 'story' | 'translation'
 export type ProjectSource = 'pixiv' | 'local' | 'mixed' | 'sample'
 export type PageStatus = 'ready' | 'analyzing' | 'generating' | 'complete' | 'error'
-export type BubbleStyle = 'speech' | 'soft' | 'thought' | 'caption' | 'sfx'
+export type BubbleStyle = 'speech' | 'soft' | 'thought' | 'caption' | 'sfx' | 'shout' | 'whisper'
+export type TextDirection = 'vertical' | 'horizontal'
 /** Page-turn direction for readers/exports; 'rtl' is the manga convention. */
 export type ReadingDirection = 'ltr' | 'rtl'
 
@@ -94,6 +95,10 @@ export interface Dialogue {
   bubbleStyle: BubbleStyle
   color: string
   locked: boolean
+  /** Vertical CJK columns by default; horizontal for latin-heavy or stylistic lines. */
+  textDirection?: TextDirection
+  /** Per-line font override; falls back to the character font, then the default stack. */
+  fontFamily?: string
   /** Speech-tail tip in page-normalized coordinates; unset renders the legacy fixed tail. */
   tailX?: number
   tailY?: number

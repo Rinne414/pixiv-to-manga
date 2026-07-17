@@ -1,19 +1,25 @@
-import { Lock, Plus, Trash2, Unlock } from 'lucide-react'
-import type { BubbleStyle, Dialogue } from '../shared/types'
+import { useState } from 'react'
+import { Lock, Plus, Trash2, Unlock, WandSparkles } from 'lucide-react'
+import type { BubbleStyle, Dialogue, FontAsset, TextDirection } from '../shared/types'
+import { FONT_PRESETS, fontValueFromFamily } from '../fonts'
 import { useI18n } from '../i18n/context'
 import { bubbleStyleKeys, bubbleStyles } from './labels'
 
 export function DialoguePanel(props: {
   dialogues: Dialogue[]
   selectedDialogue?: Dialogue
+  customFonts: FontAsset[]
   canAdd: boolean
+  canRegenerate: boolean
   onAdd: () => void
   onDelete: (id: string) => void
   onSelect: (id: string) => void
   onLocalChange: (id: string, patch: Partial<Dialogue>) => void
   onCommit: (id: string, patch: Partial<Dialogue>) => void
+  onRegenerate: (id: string, instruction: string) => void
 }) {
   const { t } = useI18n()
+  const [instruction, setInstruction] = useState('')
   const dialogue = props.selectedDialogue
   return (
     <div className="inspector-body">
@@ -47,6 +53,25 @@ export function DialoguePanel(props: {
               onBlur={() => props.onCommit(dialogue.id, { text: dialogue.text })}
             />
           </label>
+          <div className="regen-block">
+            <input
+              value={instruction}
+              placeholder={t('dialogue.instructionPlaceholder')}
+              aria-label={t('dialogue.instructionPlaceholder')}
+              data-testid="dialogue-instruction"
+              onChange={(event) => setInstruction(event.target.value)}
+            />
+            <button
+              type="button"
+              className="secondary-button"
+              data-testid="dialogue-regenerate"
+              disabled={!props.canRegenerate}
+              onClick={() => props.onRegenerate(dialogue.id, instruction.trim())}
+            >
+              <WandSparkles size={15} />
+              {t('dialogue.regenerate')}
+            </button>
+          </div>
           <label>
             {t('dialogue.character')}
             <input
@@ -80,6 +105,47 @@ export function DialoguePanel(props: {
                 {bubbleStyles.map((style) => (
                   <option key={style} value={style}>
                     {t(bubbleStyleKeys[style])}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+          <div className="two-col">
+            <label>
+              {t('dialogue.direction')}
+              <select
+                value={dialogue.textDirection || 'vertical'}
+                data-testid="dialogue-direction"
+                onChange={(event) => {
+                  const textDirection = event.target.value as TextDirection
+                  props.onLocalChange(dialogue.id, { textDirection })
+                  props.onCommit(dialogue.id, { textDirection })
+                }}
+              >
+                <option value="vertical">{t('dialogue.vertical')}</option>
+                <option value="horizontal">{t('dialogue.horizontal')}</option>
+              </select>
+            </label>
+            <label>
+              {t('dialogue.font')}
+              <select
+                value={dialogue.fontFamily || ''}
+                data-testid="dialogue-font"
+                onChange={(event) => {
+                  const fontFamily = event.target.value || undefined
+                  props.onLocalChange(dialogue.id, { fontFamily })
+                  props.onCommit(dialogue.id, { fontFamily })
+                }}
+              >
+                <option value="">{t('dialogue.fontInherit')}</option>
+                {FONT_PRESETS.filter((preset) => preset.value).map((preset) => (
+                  <option key={preset.labelKey} value={preset.value}>
+                    {t(preset.labelKey)}
+                  </option>
+                ))}
+                {props.customFonts.map((font) => (
+                  <option key={font.id} value={fontValueFromFamily(font.familyName)}>
+                    {font.familyName}
                   </option>
                 ))}
               </select>

@@ -132,6 +132,13 @@ export const commonStrings = {
   'bubble.thought': { en: 'thought', 'zh-TW': '思考' },
   'bubble.caption': { en: 'caption', 'zh-TW': '旁白' },
   'bubble.sfx': { en: 'SFX', 'zh-TW': '音效字' },
+  'bubble.shout': { en: 'shout', 'zh-TW': '吶喊' },
+  'bubble.whisper': { en: 'whisper', 'zh-TW': '悄悄話' },
+  'dialogue.direction': { en: 'Direction', 'zh-TW': '文字方向' },
+  'dialogue.vertical': { en: 'Vertical', 'zh-TW': '直排' },
+  'dialogue.horizontal': { en: 'Horizontal', 'zh-TW': '橫排' },
+  'dialogue.font': { en: 'Font', 'zh-TW': '字型' },
+  'dialogue.fontInherit': { en: 'Character font', 'zh-TW': '跟隨角色' },
 
   // Dialogue panel
   'dialogue.text': { en: 'Text', 'zh-TW': '文字' },
@@ -140,6 +147,11 @@ export const commonStrings = {
   'dialogue.unlock': { en: 'Unlock', 'zh-TW': '解鎖' },
   'dialogue.add': { en: 'Add dialogue', 'zh-TW': '新增對白' },
   'dialogue.delete': { en: 'Delete', 'zh-TW': '刪除' },
+  'dialogue.regenerate': { en: 'AI rewrite', 'zh-TW': 'AI 重寫' },
+  'dialogue.instructionPlaceholder': {
+    en: 'Optional instruction, e.g. shorter / funnier',
+    'zh-TW': '可選指示，如：更短、更搞笑',
+  },
   'dialogue.empty': { en: 'Generate or select dialogue.', 'zh-TW': '先生成或選擇對白。' },
 
   // Layout panel
@@ -257,6 +269,8 @@ export const commonStrings = {
   'log.settingsSaved': { en: 'Settings saved to system credential store.', 'zh-TW': '設定已儲存至系統憑證庫。' },
   'log.storyBibleSaved': { en: 'Story Bible saved.', 'zh-TW': '故事聖經已儲存。' },
   'log.dialogueSaved': { en: 'Dialogue saved.', 'zh-TW': '對白已儲存。' },
+  'log.regeneratingLine': { en: 'Rewriting dialogue line', 'zh-TW': 'AI 重寫對白中' },
+  'log.lineRegenerated': { en: 'Dialogue line rewritten.', 'zh-TW': '對白已重寫。' },
   'log.unknownError': { en: 'Unknown error', 'zh-TW': '未知錯誤' },
 
   // Confirm dialog + toasts
@@ -284,6 +298,7 @@ export const commonStrings = {
   'raw.streamingTitle': { en: 'Live model output', 'zh-TW': '模型即時輸出' },
   'raw.storyBibleTitle': { en: 'Story Bible Raw Output', 'zh-TW': '故事聖經原始輸出' },
   'raw.pageTitle': { en: 'Page {n} Raw Output', 'zh-TW': '第 {n} 頁原始輸出' },
+  'raw.lineTitle': { en: 'Line Rewrite Raw Output', 'zh-TW': '單句重寫原始輸出' },
   'raw.aiTitle': { en: 'Raw AI Output', 'zh-TW': 'AI 原始輸出' },
   'raw.original': { en: 'Original output:', 'zh-TW': '原始輸出：' },
   'raw.repair': { en: 'Repair output:', 'zh-TW': '修復輸出：' },

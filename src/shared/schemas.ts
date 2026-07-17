@@ -1,6 +1,6 @@
 import { z } from 'zod'
 
-export const bubbleStyleSchema = z.enum(['speech', 'soft', 'thought', 'caption', 'sfx'])
+export const bubbleStyleSchema = z.enum(['speech', 'soft', 'thought', 'caption', 'sfx', 'shout', 'whisper'])
 
 export const characterSchema = z.object({
   id: z.string().optional(),
@@ -42,6 +42,8 @@ export const dialogueSchema = z.object({
   bubbleStyle: bubbleStyleSchema.default('speech'),
   color: z.string().regex(/^#[0-9a-fA-F]{6}$/).default('#141414'),
   locked: z.boolean().default(false),
+  textDirection: z.enum(['vertical', 'horizontal']).optional(),
+  fontFamily: z.string().max(300).optional(),
   /** Optional speech-tail tip in page-normalized coordinates; unset renders the legacy fixed tail. */
   tailX: z.number().min(0).max(1).optional(),
   tailY: z.number().min(0).max(1).optional(),
@@ -99,6 +101,17 @@ export const generatePageSchema = z.object({
   pageId: z.string(),
   mode: z.enum(['story', 'translation']).default('story'),
   textDensity: z.number().min(0).max(1).default(0.65),
+})
+
+export const regenerateDialogueSchema = z.object({
+  instruction: z.string().trim().max(500).default(''),
+  mode: z.enum(['story', 'translation']).default('story'),
+  textDensity: z.number().min(0).max(1).default(0.65),
+})
+
+/** Model output shape for single-line rewrites. */
+export const regeneratedLineSchema = z.object({
+  text: z.string().trim().min(1).max(600),
 })
 
 export const exportZipSchema = z.object({

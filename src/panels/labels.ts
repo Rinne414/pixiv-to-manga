@@ -1,7 +1,7 @@
 import type { MessageKey } from '../i18n/messages'
 import type { BubbleStyle, PageStatus, ProjectMode, ProjectSource } from '../shared/types'
 
-export const bubbleStyles: BubbleStyle[] = ['speech', 'soft', 'thought', 'caption', 'sfx']
+export const bubbleStyles: BubbleStyle[] = ['speech', 'soft', 'thought', 'caption', 'sfx', 'shout', 'whisper']
 
 export const modeKeys: Record<ProjectMode, MessageKey> = {
   story: 'mode.story',
@@ -29,4 +29,6 @@ export const bubbleStyleKeys: Record<BubbleStyle, MessageKey> = {
   thought: 'bubble.thought',
   caption: 'bubble.caption',
   sfx: 'bubble.sfx',
+  shout: 'bubble.shout',
+  whisper: 'bubble.whisper',
 }

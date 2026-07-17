@@ -139,6 +139,17 @@ test('dialogue bubbles can be added by double-click and deleted from the panel',
   await expect(page.locator('.right-rail').getByLabel('Bubble')).toHaveValue('sfx')
   await expect(page.getByTestId('manga-stage')).toBeVisible()
 
+  // Per-line AI rewrite with an instruction: with no engine configured the mock
+  // path echoes the instruction, proving the request/history round trip.
+  const providerList = (await (await page.request.get('/api/providers')).json()) as { providers: Array<{ id: string }> }
+  for (const provider of providerList.providers) {
+    await page.request.delete(`/api/providers/${provider.id}`)
+  }
+  await page.getByTestId('dialogue-instruction').fill('更元气')
+  await page.getByTestId('dialogue-regenerate').click()
+  await expect(page.locator('.log-list').getByText('Dialogue line rewritten.')).toBeVisible()
+  await expect(page.getByTestId('dialogue-chip').filter({ hasText: '更元气' })).toHaveCount(1)
+
   const deleteResponse = page.waitForResponse(
     (response) => response.url().includes('/api/dialogues/') && response.request().method() === 'DELETE' && response.status() === 200,
   )

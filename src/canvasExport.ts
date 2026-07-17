@@ -1,4 +1,5 @@
 import { DEFAULT_DIALOGUE_FONT } from './fonts'
+import { computeShoutPoints, WHISPER_DASH } from './shared/bubbleShapes'
 import { computeTailTriangle, computeThoughtTrail, dialogueTailLocal } from './shared/bubbleTail'
 import { findDialogueCharacter } from './shared/characters'
 import { dialogueFontScale, estimateVerticalTextBox } from './shared/layout'
@@ -98,10 +99,13 @@ function drawDialogue(
 ): void {
   const box = estimateVerticalTextBox(dialogue)
   const isSfx = dialogue.bubbleStyle === 'sfx'
+  const isHorizontal = dialogue.textDirection === 'horizontal'
   const fontSize = Math.round(34 * dialogueFontScale(dialogue))
+  // The kinsoku line breaker yields columns for vertical text and lines for horizontal.
   const columns = toVerticalColumns(dialogue.text, 11)
-  const textWidth = Math.max(1, columns.length) * fontSize * 1.25
-  const textHeight = Math.max(...columns.map((column) => column.length), 1) * fontSize * 1.08
+  const longestRun = Math.max(...columns.map((column) => column.length), 1)
+  const textWidth = isHorizontal ? longestRun * fontSize * 1.06 : Math.max(1, columns.length) * fontSize * 1.25
+  const textHeight = isHorizontal ? columns.length * fontSize * 1.35 : longestRun * fontSize * 1.08
   const bubbleWidth = Math.max(box.width * pageWidth, textWidth + 52)
   const bubbleHeight = Math.max(box.height * pageHeight, textHeight + 56)
 
@@ -111,11 +115,30 @@ function drawDialogue(
   context.lineWidth = 6
   context.strokeStyle = dialogue.color || '#111111'
   context.fillStyle = dialogue.bubbleStyle === 'caption' ? 'rgba(255, 255, 255, 0.92)' : '#ffffff'
+  if (dialogue.bubbleStyle === 'whisper') {
+    context.setLineDash(WHISPER_DASH)
+  }
 
   // Tail geometry lives in bubble-local space; unset tips keep the legacy fixed shapes.
   const tailTip = dialogueTailLocal(dialogue, pageWidth, pageHeight)
   if (isSfx) {
     // Bubble-less SFX text: no shape, no tail — glyphs draw with a white contour below.
+  } else if (dialogue.bubbleStyle === 'shout') {
+    const shoutPoints = computeShoutPoints(bubbleWidth, bubbleHeight)
+    context.beginPath()
+    context.moveTo(shoutPoints[0], shoutPoints[1])
+    for (let index = 2; index < shoutPoints.length; index += 2) {
+      context.lineTo(shoutPoints[index], shoutPoints[index + 1])
+    }
+    context.closePath()
+    context.fill()
+    context.stroke()
+    const triangle = tailTip
+      ? computeTailTriangle({ bubbleWidth, bubbleHeight, bubbleStyle: 'speech', tipX: tailTip.x, tipY: tailTip.y })
+      : null
+    if (triangle) {
+      fillTriangle(context, triangle.points)
+    }
   } else if (dialogue.bubbleStyle === 'soft' || dialogue.bubbleStyle === 'thought') {
     context.beginPath()
     context.ellipse(0, 0, bubbleWidth / 2, bubbleHeight / 2, 0, 0, Math.PI * 2)
@@ -143,16 +166,17 @@ function drawDialogue(
       }
     }
   } else {
-    roundedRect(context, -bubbleWidth / 2, -bubbleHeight / 2, bubbleWidth, bubbleHeight, 12)
+    const cornerRadius = dialogue.bubbleStyle === 'caption' ? 6 : dialogue.bubbleStyle === 'whisper' ? 18 : 12
+    roundedRect(context, -bubbleWidth / 2, -bubbleHeight / 2, bubbleWidth, bubbleHeight, cornerRadius)
     context.fill()
     context.stroke()
-    if (dialogue.bubbleStyle === 'speech') {
+    if (dialogue.bubbleStyle === 'speech' || dialogue.bubbleStyle === 'whisper') {
       const triangle = tailTip
         ? computeTailTriangle({ bubbleWidth, bubbleHeight, bubbleStyle: 'speech', tipX: tailTip.x, tipY: tailTip.y })
         : null
       if (triangle) {
         fillTriangle(context, triangle.points)
-      } else {
+      } else if (dialogue.bubbleStyle === 'speech') {
         context.beginPath()
         context.moveTo(bubbleWidth * 0.22, bubbleHeight / 2 - 8)
         context.lineTo(bubbleWidth * 0.34, bubbleHeight / 2 + 34)
@@ -163,9 +187,10 @@ function drawDialogue(
       }
     }
   }
+  context.setLineDash([])
 
   context.fillStyle = dialogue.color || '#111111'
-  context.font = `700 ${fontSize}px ${fontFamily || DEFAULT_DIALOGUE_FONT}`
+  context.font = `700 ${fontSize}px ${dialogue.fontFamily || fontFamily || DEFAULT_DIALOGUE_FONT}`
   context.textAlign = 'center'
   context.textBaseline = 'top'
   if (isSfx) {
@@ -175,18 +200,29 @@ function drawDialogue(
     context.lineJoin = 'round'
   }
 
-  const columnGap = fontSize * 1.15
-  columns.forEach((column, columnIndex) => {
-    const x = (columns.length / 2 - columnIndex - 0.5) * columnGap
-    const startY = -(column.length * fontSize * 1.08) / 2
-    Array.from(toVerticalGlyphs(column)).forEach((character, characterIndex) => {
-      const y = startY + characterIndex * fontSize * 1.08
+  if (isHorizontal) {
+    const startY = -textHeight / 2
+    columns.forEach((line, lineIndex) => {
+      const y = startY + lineIndex * fontSize * 1.35
       if (isSfx) {
-        context.strokeText(character, x, y)
+        context.strokeText(line, 0, y)
       }
-      context.fillText(character, x, y)
+      context.fillText(line, 0, y)
     })
-  })
+  } else {
+    const columnGap = fontSize * 1.15
+    columns.forEach((column, columnIndex) => {
+      const x = (columns.length / 2 - columnIndex - 0.5) * columnGap
+      const startY = -(column.length * fontSize * 1.08) / 2
+      Array.from(toVerticalGlyphs(column)).forEach((character, characterIndex) => {
+        const y = startY + characterIndex * fontSize * 1.08
+        if (isSfx) {
+          context.strokeText(character, x, y)
+        }
+        context.fillText(character, x, y)
+      })
+    })
+  }
   context.restore()
 }
 

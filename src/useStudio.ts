@@ -350,6 +350,25 @@ export function useStudio() {
     }
   }
 
+  async function handleRegenerateDialogue(id: string, instruction: string) {
+    const target = detail?.dialogues.find((item) => item.id === id)
+    if (!target) return
+    await runTask(t('log.regeneratingLine'), async () => {
+      const before = pageSnapshot(serverDetailRef.current, target.pageId)
+      const next = await api.regenerateDialogue(
+        id,
+        { instruction, mode: generateMode, textDensity },
+        { onJobId: setCurrentJobId, onEvent: handleJobEvent },
+      )
+      acceptDetail(next)
+      history.recordDialogueChange(target.pageId, before, pageSnapshot(next, target.pageId))
+      if (next.raw) {
+        setRawOutput({ title: t('raw.lineTitle'), text: next.raw })
+      }
+      pushLog(t('log.lineRegenerated'), 'success', { toast: false })
+    })
+  }
+
   async function handleAddDialogue(position?: { x: number; y: number }) {
     if (!activePage) return
     try {
@@ -723,6 +742,7 @@ export function useStudio() {
     commitDialogue,
     handleAddDialogue,
     handleDeleteDialogue,
+    handleRegenerateDialogue,
     handleCreateProject,
     handleLocalFiles,
     importLocalFiles,

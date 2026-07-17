@@ -266,6 +266,25 @@ export async function generatePage(pageId: string, input: GeneratePageInput, opt
   return waitForProjectJob(jobId, options)
 }
 
+export interface RegenerateDialogueInput {
+  instruction?: string
+  mode?: 'story' | 'translation'
+  textDensity?: number
+}
+
+export async function regenerateDialogue(
+  id: string,
+  input: RegenerateDialogueInput,
+  options: JobRequestOptions = {},
+): Promise<ProjectResponse> {
+  const { jobId } = await request<{ jobId: string }>(`/api/dialogues/${id}/regenerate`, {
+    method: 'POST',
+    body: JSON.stringify(input),
+  })
+  options.onJobId?.(jobId)
+  return waitForProjectJob(jobId, options)
+}
+
 export function patchDialogue(id: string, patch: Partial<Dialogue>): Promise<Dialogue> {
   return request<Dialogue>(`/api/dialogues/${id}`, {
     method: 'PATCH',

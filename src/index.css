@@ -920,6 +920,14 @@ select:focus {
   gap: 6px;
 }
 
+/* Per-line AI rewrite: instruction input + trigger button. */
+.regen-block {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+}
+
 /* Drag-and-drop import affordance on both canvas states. */
 .whiteboard[data-drag-over='true'],
 .empty-canvas[data-drag-over='true'] {

@@ -86,6 +86,8 @@ export function dialogueFromRow(row: Row): Dialogue {
     bubbleStyle: row.bubbleStyle as BubbleStyle,
     color: String(row.color),
     locked: Number(row.locked) === 1,
+    textDirection: row.textDirection === 'horizontal' ? 'horizontal' : row.textDirection === 'vertical' ? 'vertical' : undefined,
+    fontFamily: typeof row.fontFamily === 'string' ? row.fontFamily : undefined,
     tailX: typeof row.tailX === 'number' ? Number(row.tailX) : undefined,
     tailY: typeof row.tailY === 'number' ? Number(row.tailY) : undefined,
     raw: typeof row.rawJson === 'string' ? row.rawJson : undefined,

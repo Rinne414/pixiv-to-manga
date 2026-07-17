@@ -11,7 +11,13 @@ import { appDataDir } from './paths'
 import { StudioDatabase } from './database'
 import { SecretStore } from './secrets'
 import { JobHub } from './jobs'
-import { AiJsonOutputError, analyzeStoryWithAi, describeAiTarget, generateDialoguesWithAi } from './ai'
+import {
+  AiJsonOutputError,
+  analyzeStoryWithAi,
+  describeAiTarget,
+  generateDialoguesWithAi,
+  regenerateDialogueTextWithAi,
+} from './ai'
 import { exportProjectBackup, exportRenderedPdf, exportRenderedZip } from './exporter'
 import { importLocalImages, importPixivArtwork, importProjectBackup } from './importers'
 import { registerProviderLabRoutes } from './providers'
@@ -27,6 +33,7 @@ import {
   exportProjectBackupSchema,
   generatePageSchema,
   pixivImportSchema,
+  regenerateDialogueSchema,
   secretUpdateSchema,
   storyBibleSchema,
   updateProjectSchema,
@@ -202,6 +209,34 @@ server.post('/api/pages/:pageId/generate', async (request) => {
       if (pageProjectId) {
         server.log.error({ projectId: pageProjectId }, 'Page generation failed')
       }
+    }
+  })()
+  return { jobId }
+})
+
+server.post('/api/dialogues/:id/regenerate', async (request) => {
+  const { id } = request.params as { id: string }
+  const input = regenerateDialogueSchema.parse(request.body ?? {})
+  const jobId = jobs.create('dialogue.regenerate', 'Regenerating dialogue line')
+  const signal = jobs.signal(jobId)
+  void (async () => {
+    try {
+      const dialogue = db.getDialogue(id)
+      const page = db.getPage(dialogue.pageId)
+      const detail = db.getProjectDetail(page.projectId)
+      jobs.progress(jobId, 0.4, 'Rewriting line')
+      const onDelta = (accumulated: string) => jobs.progress(jobId, 0.6, 'Streaming model output', { streamText: accumulated })
+      const result = await regenerateDialogueTextWithAi({ secrets, db, signal, onDelta }, detail, dialogue, input)
+      if (jobs.isCancelled(jobId)) return
+      db.updateDialogue(id, { text: result.text })
+      jobs.complete(jobId, 'Dialogue line regenerated', {
+        ...db.getProjectDetail(page.projectId),
+        raw: result.raw,
+        usedMock: result.usedMock,
+      })
+    } catch (error) {
+      if (jobs.isCancelled(jobId)) return
+      jobs.fail(jobId, error instanceof Error ? error.message : 'Line regeneration failed', aiErrorPayload(error))
     }
   })()
   return { jobId }

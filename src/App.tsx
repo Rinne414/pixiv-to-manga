@@ -348,12 +348,15 @@ function App() {
             <DialoguePanel
               dialogues={activeDialogues}
               selectedDialogue={selectedDialogue}
+              customFonts={customFonts}
               canAdd={Boolean(activePage) && !busy}
+              canRegenerate={canRun}
               onAdd={() => studio.handleAddDialogue()}
               onDelete={studio.handleDeleteDialogue}
               onSelect={setSelectedDialogueId}
               onLocalChange={studio.updateDialogueLocal}
               onCommit={studio.commitDialogue}
+              onRegenerate={studio.handleRegenerateDialogue}
             />
           )}
           {activeTab === 'layout' && (

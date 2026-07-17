@@ -286,7 +286,7 @@ export class StudioDatabase {
     const id = input.id || randomUUID()
     this.db
       .prepare(
-        'INSERT INTO dialogues (id, pageId, characterId, characterName, text, x, y, scale, rotation, bubbleStyle, color, locked, tailX, tailY, rawJson) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+        'INSERT INTO dialogues (id, pageId, characterId, characterName, text, x, y, scale, rotation, bubbleStyle, color, locked, textDirection, fontFamily, tailX, tailY, rawJson) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
       )
       .run(
         id,
@@ -301,6 +301,8 @@ export class StudioDatabase {
         input.bubbleStyle,
         input.color,
         input.locked ? 1 : 0,
+        input.textDirection ?? null,
+        input.fontFamily ?? null,
         input.tailX ?? null,
         input.tailY ?? null,
         input.raw || null,
@@ -315,13 +317,19 @@ export class StudioDatabase {
     }
   }
 
+  getDialogue(id: string): Dialogue {
+    const row = this.db.prepare('SELECT * FROM dialogues WHERE id = ?').get(id) as Row | undefined
+    if (!row) throw new Error('Dialogue not found')
+    return dialogueFromRow(row)
+  }
+
   updateDialogue(id: string, patch: Partial<Dialogue>): Dialogue {
     const current = this.db.prepare('SELECT * FROM dialogues WHERE id = ?').get(id) as Row | undefined
     if (!current) throw new Error('Dialogue not found')
     const merged = { ...dialogueFromRow(current), ...patch }
     this.db
       .prepare(
-        'UPDATE dialogues SET text = ?, x = ?, y = ?, scale = ?, rotation = ?, bubbleStyle = ?, color = ?, locked = ?, tailX = ?, tailY = ? WHERE id = ?',
+        'UPDATE dialogues SET text = ?, x = ?, y = ?, scale = ?, rotation = ?, bubbleStyle = ?, color = ?, locked = ?, textDirection = ?, fontFamily = ?, tailX = ?, tailY = ? WHERE id = ?',
       )
       .run(
         merged.text,
@@ -332,6 +340,8 @@ export class StudioDatabase {
         merged.bubbleStyle,
         merged.color,
         merged.locked ? 1 : 0,
+        merged.textDirection ?? null,
+        merged.fontFamily ?? null,
         merged.tailX ?? null,
         merged.tailY ?? null,
         id,

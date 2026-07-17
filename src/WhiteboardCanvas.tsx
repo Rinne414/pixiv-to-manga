@@ -5,6 +5,7 @@ import { Circle, Ellipse, Group, Image as KonvaImage, Layer, Line, Rect, Stage, 
 import { Frame, ImagePlus, Loader2, Minus, Plus, Scan, Upload } from 'lucide-react'
 import type { Asset, Character, Dialogue, Page } from './shared/types'
 import type { BatchProgress } from './useStudio'
+import { computeShoutPoints, WHISPER_DASH } from './shared/bubbleShapes'
 import { computeTailTriangle, computeThoughtTrail, dialogueTailLocal, tailLocalToPage } from './shared/bubbleTail'
 import { findDialogueCharacter } from './shared/characters'
 import { DEFAULT_DIALOGUE_FONT } from './fonts'
@@ -341,23 +342,33 @@ function BubbleNode(props: {
   const [tailDraft, setTailDraft] = useState<{ x: number; y: number } | null>(null)
   // Geometry mirrors canvasExport.drawDialogue so the whiteboard is WYSIWYG with PNG export.
   const isSfx = props.dialogue.bubbleStyle === 'sfx'
+  const isHorizontal = props.dialogue.textDirection === 'horizontal'
   const box = estimateVerticalTextBox(props.dialogue)
   const fontSize = Math.max(16, Math.round(34 * dialogueFontScale(props.dialogue)))
+  // The kinsoku line breaker yields columns for vertical text and lines for horizontal.
   const columns = toVerticalColumns(props.dialogue.text, 11)
-  const textWidth = Math.max(1, columns.length) * fontSize * 1.25
-  const textHeight = Math.max(...columns.map((column) => column.length), 1) * fontSize * 1.08
+  const longestRun = Math.max(...columns.map((column) => column.length), 1)
+  const textWidth = isHorizontal ? longestRun * fontSize * 1.06 : Math.max(1, columns.length) * fontSize * 1.25
+  const textHeight = isHorizontal ? columns.length * fontSize * 1.35 : longestRun * fontSize * 1.08
+  const fontFamily = props.dialogue.fontFamily || props.character?.fontFamily || DEFAULT_DIALOGUE_FONT
   const bubbleWidth = Math.max(box.width * props.pageWidth, textWidth + 52)
   const bubbleHeight = Math.max(box.height * props.pageHeight, textHeight + 56)
   const stroke = props.selected ? '#c9282d' : props.dialogue.color || props.character?.color || '#111111'
   const fill = props.dialogue.bubbleStyle === 'caption' ? 'rgba(255,255,255,0.92)' : '#ffffff'
   const strokeWidth = props.selected ? 9 : 6
   const tailTip = tailDraft ?? dialogueTailLocal(props.dialogue, props.pageWidth, props.pageHeight)
+  const hasStraightTail =
+    props.dialogue.bubbleStyle === 'speech' ||
+    props.dialogue.bubbleStyle === 'soft' ||
+    props.dialogue.bubbleStyle === 'shout' ||
+    props.dialogue.bubbleStyle === 'whisper'
   const tailTriangle =
-    tailTip && (props.dialogue.bubbleStyle === 'speech' || props.dialogue.bubbleStyle === 'soft')
+    tailTip && hasStraightTail
       ? computeTailTriangle({
           bubbleWidth,
           bubbleHeight,
-          bubbleStyle: props.dialogue.bubbleStyle,
+          // Shout and whisper reuse the rectangular speech-tail geometry.
+          bubbleStyle: props.dialogue.bubbleStyle === 'soft' ? 'soft' : 'speech',
           tipX: tailTip.x,
           tipY: tailTip.y,
         })
@@ -396,6 +407,18 @@ function BubbleNode(props: {
           strokeWidth={2}
           dash={[7, 5]}
         />
+      ) : props.dialogue.bubbleStyle === 'shout' ? (
+        <>
+          <Line
+            points={computeShoutPoints(bubbleWidth, bubbleHeight)}
+            closed
+            fill={fill}
+            stroke={stroke}
+            strokeWidth={strokeWidth}
+            lineJoin="miter"
+          />
+          {tailTriangle ? <Line points={[...tailTriangle.points]} closed fill="#ffffff" stroke={stroke} strokeWidth={5} /> : null}
+        </>
       ) : props.dialogue.bubbleStyle === 'soft' || props.dialogue.bubbleStyle === 'thought' ? (
         <>
           <Ellipse radiusX={bubbleWidth / 2} radiusY={bubbleHeight / 2} fill={fill} stroke={stroke} strokeWidth={strokeWidth} />
@@ -421,12 +444,20 @@ function BubbleNode(props: {
             fill={fill}
             stroke={stroke}
             strokeWidth={strokeWidth}
-            cornerRadius={props.dialogue.bubbleStyle === 'caption' ? 6 : 12}
+            dash={props.dialogue.bubbleStyle === 'whisper' ? WHISPER_DASH : undefined}
+            cornerRadius={props.dialogue.bubbleStyle === 'caption' ? 6 : props.dialogue.bubbleStyle === 'whisper' ? 18 : 12}
           />
-          {props.dialogue.bubbleStyle === 'speech' ? (
+          {props.dialogue.bubbleStyle === 'speech' || props.dialogue.bubbleStyle === 'whisper' ? (
             tailTriangle ? (
-              <Line points={[...tailTriangle.points]} closed fill="#ffffff" stroke={stroke} strokeWidth={5} />
-            ) : (
+              <Line
+                points={[...tailTriangle.points]}
+                closed
+                fill="#ffffff"
+                stroke={stroke}
+                strokeWidth={5}
+                dash={props.dialogue.bubbleStyle === 'whisper' ? WHISPER_DASH : undefined}
+              />
+            ) : props.dialogue.bubbleStyle === 'speech' ? (
               <Line
                 points={[
                   bubbleWidth * 0.22,
@@ -441,7 +472,7 @@ function BubbleNode(props: {
                 stroke={stroke}
                 strokeWidth={5}
               />
-            )
+            ) : null
           ) : null}
         </>
       )}
@@ -467,29 +498,49 @@ function BubbleNode(props: {
           }}
         />
       ) : null}
-      {columns.map((column, index) => {
-        const x = (columns.length / 2 - index - 0.5) * fontSize * 1.15
-        return (
-          <Text
-            key={`${props.dialogue.id}-${index}`}
-            x={x - fontSize / 2}
-            y={-(column.length * fontSize * 1.08) / 2}
-            width={fontSize}
-            text={Array.from(toVerticalGlyphs(column)).join('\n')}
-            fontFamily={props.character?.fontFamily || DEFAULT_DIALOGUE_FONT}
-            fontStyle="700"
-            fontSize={fontSize}
-            lineHeight={1.08}
-            align="center"
-            fill={props.dialogue.color || props.character?.color || '#111111'}
-            stroke={isSfx ? '#ffffff' : undefined}
-            strokeWidth={isSfx ? Math.max(5, Math.round(fontSize * 0.18)) : undefined}
-            fillAfterStrokeEnabled={isSfx}
-            lineJoin="round"
-            listening={false}
-          />
-        )
-      })}
+      {isHorizontal ? (
+        <Text
+          x={-textWidth / 2}
+          y={-textHeight / 2}
+          width={textWidth}
+          text={columns.join('\n')}
+          fontFamily={fontFamily}
+          fontStyle="700"
+          fontSize={fontSize}
+          lineHeight={1.35}
+          align="center"
+          fill={props.dialogue.color || props.character?.color || '#111111'}
+          stroke={isSfx ? '#ffffff' : undefined}
+          strokeWidth={isSfx ? Math.max(5, Math.round(fontSize * 0.18)) : undefined}
+          fillAfterStrokeEnabled={isSfx}
+          lineJoin="round"
+          listening={false}
+        />
+      ) : (
+        columns.map((column, index) => {
+          const x = (columns.length / 2 - index - 0.5) * fontSize * 1.15
+          return (
+            <Text
+              key={`${props.dialogue.id}-${index}`}
+              x={x - fontSize / 2}
+              y={-(column.length * fontSize * 1.08) / 2}
+              width={fontSize}
+              text={Array.from(toVerticalGlyphs(column)).join('\n')}
+              fontFamily={fontFamily}
+              fontStyle="700"
+              fontSize={fontSize}
+              lineHeight={1.08}
+              align="center"
+              fill={props.dialogue.color || props.character?.color || '#111111'}
+              stroke={isSfx ? '#ffffff' : undefined}
+              strokeWidth={isSfx ? Math.max(5, Math.round(fontSize * 0.18)) : undefined}
+              fillAfterStrokeEnabled={isSfx}
+              lineJoin="round"
+              listening={false}
+            />
+          )
+        })
+      )}
     </Group>
   )
 }

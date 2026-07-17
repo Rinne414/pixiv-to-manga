@@ -1,4 +1,4 @@
-import type { BubbleStyle, Dialogue } from './types'
+import type { BubbleStyle, Dialogue, TextDirection } from './types'
 
 export interface LayoutBox {
   id: string
@@ -16,12 +16,19 @@ export function dialogueFontScale(dialogue: Pick<Dialogue, 'scale'> & { bubbleSt
 }
 
 export function estimateVerticalTextBox(
-  dialogue: Pick<Dialogue, 'id' | 'text' | 'x' | 'y' | 'scale'> & { bubbleStyle?: BubbleStyle },
+  dialogue: Pick<Dialogue, 'id' | 'text' | 'x' | 'y' | 'scale'> & { bubbleStyle?: BubbleStyle; textDirection?: TextDirection },
 ): LayoutBox {
   const chars = dialogue.text.replace(/\s+/g, '').length
-  const columns = Math.max(1, Math.ceil(chars / 11))
+  const runs = Math.max(1, Math.ceil(chars / 11))
   const scale = dialogueFontScale(dialogue)
-  const width = Math.min(0.28, Math.max(0.08, columns * 0.045 * scale))
+
+  if (dialogue.textDirection === 'horizontal') {
+    const width = Math.min(0.5, Math.max(0.12, Math.min(chars, 11) * 0.03 * scale + 0.06))
+    const height = Math.min(0.3, Math.max(0.08, runs * 0.05 * scale + 0.04))
+    return { id: dialogue.id, x: clamp01(dialogue.x), y: clamp01(dialogue.y), width, height }
+  }
+
+  const width = Math.min(0.28, Math.max(0.08, runs * 0.045 * scale))
   const height = Math.min(0.42, Math.max(0.16, Math.min(chars, 11) * 0.035 * scale + 0.08))
 
   return {

@@ -29,4 +29,16 @@ describe('AI output schemas', () => {
     })
     expect(parsed.dialogues[0].bubbleStyle).toBe('sfx')
   })
+
+  it('accepts shout/whisper styles and per-line direction and font', () => {
+    const parsed = dialogueListSchema.parse({
+      dialogues: [
+        { text: '住手！！', bubbleStyle: 'shout' },
+        { text: 'hey…', bubbleStyle: 'whisper', textDirection: 'horizontal', fontFamily: '"KaiTi", serif' },
+      ],
+    })
+    expect(parsed.dialogues[0].bubbleStyle).toBe('shout')
+    expect(parsed.dialogues[1].textDirection).toBe('horizontal')
+    expect(parsed.dialogues[1].fontFamily).toContain('KaiTi')
+  })
 })
