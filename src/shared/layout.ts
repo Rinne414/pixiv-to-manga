@@ -95,7 +95,10 @@ const PANEL_SNAP_MARGIN = 0.02
  * stay put, strays move to the inside edge of the nearest panel (by center
  * distance). No-op when the page has no panels drawn.
  */
-export function snapDialoguesToPanels<T extends Pick<Dialogue, 'x' | 'y'>>(dialogues: T[], panels: PanelBox[] | undefined): T[] {
+export function snapDialoguesToPanels<T extends Pick<Dialogue, 'x' | 'y'> & { locked?: boolean }>(
+  dialogues: T[],
+  panels: PanelBox[] | undefined,
+): T[] {
   if (!panels?.length) {
     return dialogues
   }
@@ -104,7 +107,8 @@ export function snapDialoguesToPanels<T extends Pick<Dialogue, 'x' | 'y'>>(dialo
       (panel) =>
         dialogue.x >= panel.x && dialogue.x <= panel.x + panel.width && dialogue.y >= panel.y && dialogue.y <= panel.y + panel.height,
     )
-    if (inside) {
+    // User-locked lines are never repositioned, panel or not.
+    if (inside || dialogue.locked) {
       return dialogue
     }
     const nearest = panels.reduce((best, panel) => {

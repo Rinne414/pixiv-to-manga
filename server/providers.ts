@@ -29,10 +29,40 @@ interface SensitiveValue {
   replacement: string
 }
 
+const LOCAL_ENGINE_CANDIDATES = ['http://127.0.0.1:11434/v1', 'http://127.0.0.1:1234/v1']
+const LOCAL_DETECT_TIMEOUT_MS = 1500
+
+/** Probes well-known local OpenAI-compatible endpoints (Ollama, LM Studio). */
+async function detectLocalEngine(fetchImpl: typeof fetch): Promise<{ found: boolean; baseUrl?: string; models?: string[] }> {
+  const candidates = process.env.PTM_LOCAL_DETECT_URLS
+    ? process.env.PTM_LOCAL_DETECT_URLS.split(',')
+        .map((value) => value.trim())
+        .filter(Boolean)
+    : LOCAL_ENGINE_CANDIDATES
+  for (const baseUrl of candidates) {
+    try {
+      const response = await fetchImpl(`${baseUrl.replace(/\/+$/, '')}/models`, {
+        signal: AbortSignal.timeout(LOCAL_DETECT_TIMEOUT_MS),
+      })
+      if (!response.ok) continue
+      const payload = (await response.json()) as { data?: Array<{ id?: unknown }> }
+      const models = (payload.data || []).map((item) => (typeof item.id === 'string' ? item.id : '')).filter(Boolean)
+      if (models.length) {
+        return { found: true, baseUrl, models }
+      }
+    } catch {
+      // Endpoint not running — try the next candidate; "not found" is a normal outcome.
+    }
+  }
+  return { found: false }
+}
+
 export function registerProviderLabRoutes(server: FastifyInstance, context: ProviderLabContext): void {
   const service = new ProviderLabService(context)
 
   server.get('/api/providers', async () => ({ providers: await service.listProviders() }))
+
+  server.post('/api/providers/detect-local', async () => detectLocalEngine(context.fetchImpl || fetch))
 
   server.post('/api/providers', async (request) => {
     const input = providerProfileCreateSchema.parse(request.body)

@@ -99,9 +99,15 @@ test('active engine card mirrors backend route resolution', async ({ page }) => 
   await openStudio(page)
   await clearProviderProfiles(page)
 
-  // No providers and no global route → explicit none-state.
+  // No providers and no global route → explicit none-state with the setup wizard.
   await page.getByTestId('tab-settings').click()
   await expect(page.getByTestId('active-engine-card')).toContainText('No AI engine available')
+
+  // One-click detection probes PTM_LOCAL_DETECT_URLS (the mock provider here)
+  // and auto-creates a keyless local profile that becomes the active engine.
+  await page.getByTestId('detect-local-engine').click()
+  await expect(page.getByTestId('active-engine-card')).toContainText('Local (auto-detected)')
+  await expect(page.getByTestId('active-engine-card')).toContainText('Local')
 
   // A keyless local provider becomes the active engine via profile fallback.
   const providerName = `Engine Card Ollama ${Date.now()}`

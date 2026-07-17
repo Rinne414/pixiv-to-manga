@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { regenerateDialogueTextWithAi } from '../server/ai'
+import { generateDialoguesWithAi, regenerateDialogueTextWithAi } from '../server/ai'
 import { StudioDatabase } from '../server/database'
 import { SecretStore, type KeytarModule } from '../server/secrets'
 
@@ -103,6 +103,23 @@ describe('regenerateDialogueTextWithAi', () => {
       textDensity: 0.65,
     })
     expect(instructed.text).toContain('更搞笑')
+  })
+
+  it('page regeneration preserves user-locked lines and tells the model about them', async () => {
+    const { db, secrets, project, page } = createFixture()
+    db.updateDialogue('line-1', { locked: true })
+
+    const detail = db.getProjectDetail(project.id)
+    const result = await generateDialoguesWithAi({ secrets, db }, detail, detail.pages[0], {
+      mode: 'story',
+      textDensity: 0.65,
+    })
+    expect(result.usedMock).toBe(true)
+    const preserved = result.dialogues.find((item) => item.id === 'line-1')
+    expect(preserved?.text).toBe('原来的第一句。')
+    expect(preserved?.locked).toBe(true)
+    expect(result.dialogues.length).toBeGreaterThan(1)
+    expect(page.id).toBe(detail.pages[0].id)
   })
 
   it('marks the target line, forwards the instruction, and attaches the page image', async () => {

@@ -416,6 +416,12 @@ export async function getActiveAiTarget(): Promise<ActiveEngineInfo | null> {
   return payload.target
 }
 
+export function detectLocalEngine(): Promise<{ found: boolean; baseUrl?: string; models?: string[] }> {
+  return request<{ found: boolean; baseUrl?: string; models?: string[] }>('/api/providers/detect-local', {
+    method: 'POST',
+  })
+}
+
 export function saveSecrets(input: SecretUpdateInput): Promise<SecretStatus> {
   return request<SecretStatus>('/api/settings/secrets', {
     method: 'PUT',

@@ -312,10 +312,11 @@ export function WhiteboardCanvas(props: WhiteboardCanvasProps) {
               shadowOffsetY={10 / props.zoom}
             />
             {image ? <KonvaImage image={image} width={page.width} height={page.height} /> : null}
-            {props.dialogues.map((dialogue) => (
+            {props.dialogues.map((dialogue, index) => (
               <BubbleNode
                 key={dialogue.id}
                 dialogue={dialogue}
+                orderIndex={index}
                 pageWidth={page.width}
                 pageHeight={page.height}
                 zoom={props.zoom}
@@ -449,6 +450,8 @@ export function WhiteboardCanvas(props: WhiteboardCanvasProps) {
 
 function BubbleNode(props: {
   dialogue: Dialogue
+  /** Position within the page's dialogue list; shown as a reading-order badge (editor only). */
+  orderIndex: number
   character?: Character
   pageWidth: number
   pageHeight: number
@@ -618,6 +621,21 @@ function BubbleNode(props: {
           }}
         />
       ) : null}
+      <Group x={-bubbleWidth / 2} y={-bubbleHeight / 2} listening={false}>
+        <Circle radius={12 / props.zoom} fill="rgba(17, 20, 27, 0.78)" />
+        <Text
+          x={-12 / props.zoom}
+          y={-12 / props.zoom}
+          width={24 / props.zoom}
+          height={24 / props.zoom}
+          text={String(props.orderIndex + 1)}
+          fontSize={13 / props.zoom}
+          fontStyle="700"
+          fill="#ffffff"
+          align="center"
+          verticalAlign="middle"
+        />
+      </Group>
       {isHorizontal ? (
         <Text
           x={-textWidth / 2}

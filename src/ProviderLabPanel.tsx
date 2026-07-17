@@ -309,6 +309,26 @@ export function ProviderLabPanel(props: ProviderLabPanelProps) {
     })
   }
 
+  /** One-click first-run setup: probe local engines and create a profile from the hit. */
+  async function detectLocal() {
+    await run(t('providerLab.detectingLocal'), async () => {
+      const result = await api.detectLocalEngine()
+      if (!result.found || !result.baseUrl || !result.models?.length) {
+        throw new Error(t('providerLab.detectNone'))
+      }
+      const saved = await api.createProvider({
+        name: t('providerLab.detectedProviderName'),
+        baseUrl: result.baseUrl,
+        defaultModel: result.models[0],
+        isLocal: true,
+      })
+      const [providerList, capabilityList] = await Promise.all([api.listProviders(), api.listModelCapabilities()])
+      onProvidersChanged(providerList)
+      setCapabilities(capabilityList)
+      selectProvider(saved, capabilityList)
+    })
+  }
+
   async function runTest() {
     if (!selectedProvider || !selectedModelId) return
     await run(t('providerLab.testingProvider'), async () => {
@@ -334,6 +354,18 @@ export function ProviderLabPanel(props: ProviderLabPanelProps) {
       </div>
 
       <ActiveEngineCard engine={activeEngine} />
+      {!activeEngine ? (
+        <button
+          type="button"
+          className="secondary-button"
+          disabled={Boolean(loading)}
+          data-testid="detect-local-engine"
+          onClick={detectLocal}
+        >
+          <Radar size={15} />
+          {t('providerLab.detectLocal')}
+        </button>
+      ) : null}
 
       {error ? (
         <div className="inline-alert">

@@ -24,6 +24,13 @@ export const providerLabStrings = {
     en: 'Add a provider below, or set a Base URL + model in Settings. Local providers (Ollama, LM Studio) need no key.',
     'zh-TW': '請在下方新增 Provider，或在設定填入 Base URL 與模型。本機 Provider（Ollama、LM Studio）不需金鑰。',
   },
+  'providerLab.detectLocal': { en: 'Detect local engine', 'zh-TW': '偵測本機模型' },
+  'providerLab.detectingLocal': { en: 'Detecting local engines', 'zh-TW': '偵測本機模型中' },
+  'providerLab.detectedProviderName': { en: 'Local (auto-detected)', 'zh-TW': '本機（自動偵測）' },
+  'providerLab.detectNone': {
+    en: 'No local engine found. Start Ollama (e.g. ollama pull qwen3-vl:8b) or LM Studio, then try again.',
+    'zh-TW': '找不到本機模型服務。請先啟動 Ollama（如 ollama pull qwen3-vl:8b）或 LM Studio 再試一次。',
+  },
   'providerLab.badgeLocal': { en: 'Local', 'zh-TW': '本機' },
   'providerLab.badgeCloud': { en: 'Cloud API', 'zh-TW': '雲端 API' },
   'providerLab.badgeNoKey': { en: 'no key', 'zh-TW': '無金鑰' },

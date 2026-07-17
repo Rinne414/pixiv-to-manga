@@ -37,6 +37,7 @@ export default defineConfig({
         PTM_DATA_DIR: e2eDataDir,
         PTM_TEST_MEMORY_KEYTAR: '1',
         PTM_PIXIV_MOCK_BASE_URL: 'http://127.0.0.1:5199',
+        PTM_LOCAL_DETECT_URLS: 'http://127.0.0.1:5199',
       },
     },
     {
