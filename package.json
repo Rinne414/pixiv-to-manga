@@ -30,6 +30,7 @@
     "lucide-react": "^1.24.0",
     "mime-types": "^3.0.2",
     "open": "^11.0.0",
+    "pdf-lib": "^1.17.1",
     "react": "^19.2.7",
     "react-dom": "^19.2.7",
     "react-konva": "^19.2.5",

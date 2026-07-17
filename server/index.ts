@@ -12,7 +12,7 @@ import { StudioDatabase } from './database'
 import { SecretStore } from './secrets'
 import { JobHub } from './jobs'
 import { AiJsonOutputError, analyzeStoryWithAi, describeAiTarget, generateDialoguesWithAi } from './ai'
-import { exportProjectBackup, exportRenderedZip } from './exporter'
+import { exportProjectBackup, exportRenderedPdf, exportRenderedZip } from './exporter'
 import { importLocalImages, importPixivArtwork, importProjectBackup } from './importers'
 import { registerProviderLabRoutes } from './providers'
 import { registerContinuationRoutes } from './continuation'
@@ -22,6 +22,7 @@ import { registerPageRoutes } from './pages'
 import {
   analyzeStorySchema,
   createProjectSchema,
+  exportPdfSchema,
   exportZipSchema,
   exportProjectBackupSchema,
   generatePageSchema,
@@ -207,6 +208,11 @@ server.post('/api/pages/:pageId/generate', async (request) => {
 server.post('/api/export/zip', async (request) => {
   const input = exportZipSchema.parse(request.body)
   return exportRenderedZip(db, input)
+})
+
+server.post('/api/export/pdf', async (request) => {
+  const input = exportPdfSchema.parse(request.body)
+  return exportRenderedPdf(db, input)
 })
 
 server.post('/api/export/project-backup', async (request) => {

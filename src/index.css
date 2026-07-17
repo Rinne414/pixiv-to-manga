@@ -1359,6 +1359,102 @@ select:focus {
   }
 }
 
+/* Fullscreen reading preview: rendered pages with direction-aware page turns. */
+.reader-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1100;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  background: rgba(10, 12, 16, 0.95);
+}
+
+.reader-chrome {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  padding: 11px 14px;
+}
+
+.reader-direction {
+  color: rgba(255, 255, 255, 0.55);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.reader-indicator {
+  color: #ffffff;
+  font-size: 13px;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+
+.reader-chrome .icon-button {
+  position: absolute;
+  top: 8px;
+  right: 14px;
+  border-color: rgba(255, 255, 255, 0.25);
+  background: transparent;
+  color: rgba(255, 255, 255, 0.8);
+}
+
+.reader-chrome .icon-button:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: #ffffff;
+}
+
+.reader-stage {
+  position: relative;
+  display: grid;
+  place-items: center;
+  min-height: 0;
+  padding: 0 84px 18px;
+}
+
+.reader-page {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  border-radius: 4px;
+  box-shadow: 0 18px 60px rgba(0, 0, 0, 0.6);
+}
+
+.reader-loading {
+  color: rgba(255, 255, 255, 0.7);
+}
+
+.reader-loading svg {
+  animation: spin 1s linear infinite;
+}
+
+.reader-turn-zone {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 84px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.35);
+  transition: color 140ms ease, background 140ms ease;
+}
+
+.reader-turn-zone:hover {
+  background: rgba(255, 255, 255, 0.06);
+  color: #ffffff;
+}
+
+.reader-turn-zone.left {
+  left: 0;
+}
+
+.reader-turn-zone.right {
+  right: 0;
+}
+
 @keyframes spin {
   to {
     transform: rotate(360deg);

@@ -720,14 +720,17 @@ export function useStudio() {
     })
   }
 
-  async function exportRenderedArchive(format: 'zip' | 'cbz', taskLabel: string) {
+  async function exportRenderedAs(
+    taskLabel: string,
+    send: (input: { projectId: string; pages: Array<{ pageId: string; dataUrl: string }> }) => Promise<{ fileName: string; url: string }>,
+  ) {
     if (!detail) return
     await runTask(taskLabel, async () => {
       const pages = await renderProjectPages(detail)
       if (!pages.length) {
         throw new Error(t('log.noPagesToExport'))
       }
-      const result = await api.exportZip({ projectId: detail.project.id, format, pages })
+      const result = await send({ projectId: detail.project.id, pages })
       setHasExported(true)
       pushLog(t('log.exported', { file: result.fileName }), 'success')
       window.open(result.url, '_blank', 'noopener,noreferrer')
@@ -735,11 +738,15 @@ export function useStudio() {
   }
 
   async function handleExportZip() {
-    await exportRenderedArchive('zip', t('toolbar.exportZip'))
+    await exportRenderedAs(t('toolbar.exportZip'), (input) => api.exportZip({ ...input, format: 'zip' }))
   }
 
   async function handleExportCbz() {
-    await exportRenderedArchive('cbz', t('toolbar.exportCbz'))
+    await exportRenderedAs(t('toolbar.exportCbz'), (input) => api.exportZip({ ...input, format: 'cbz' }))
+  }
+
+  async function handleExportPdf() {
+    await exportRenderedAs(t('toolbar.exportPdf'), (input) => api.exportPdf(input))
   }
 
   async function handleSetReadingDirection(readingDirection: ReadingDirection) {
@@ -857,6 +864,7 @@ export function useStudio() {
     handleDeletePage,
     handleExportZip,
     handleExportCbz,
+    handleExportPdf,
     handleExportActivePage,
     handleExportBackup,
     handleSetReadingDirection,

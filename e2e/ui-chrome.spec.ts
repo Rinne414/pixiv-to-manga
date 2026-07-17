@@ -445,6 +445,48 @@ test('reading direction persists and CBZ export embeds ComicInfo metadata', asyn
   expect(comicInfo).toContain('<Manga>YesAndRightToLeft</Manga>')
   expect(cbz.file('page_001.png')).toBeTruthy()
   expect(cbz.file('manifest.json')).toBeNull()
+
+  // PDF export shares the render path and carries the same reading direction.
+  const pdfResponse = page.waitForResponse(
+    (response) => response.url().includes('/api/export/pdf') && response.status() === 200,
+  )
+  await page.getByTestId('toolbar-export-pdf').click()
+  const exportedPdf = (await (await pdfResponse).json()) as { fileName: string }
+  expect(exportedPdf.fileName).toMatch(/\.pdf$/)
+  await expect(page.locator('.log-list').getByText(/Exported .*\.pdf/)).toBeVisible()
+})
+
+test('reading preview turns pages in the project reading direction', async ({ page }) => {
+  await openStudio(page)
+  await page.getByLabel('Project title').fill(`Reader ${Date.now()}`)
+  await page.getByRole('button', { name: /^Create$/ }).click()
+  await expect(page.locator('.log-list').getByText('Project created.')).toBeVisible()
+
+  const localImportResponse = page.waitForResponse(
+    (response) => response.url().includes('/api/import/local') && response.status() === 200,
+  )
+  await page.getByTestId('local-image-input').setInputFiles([
+    { name: 'reader-1.svg', mimeType: 'image/svg+xml', buffer: Buffer.from(whiteboardSvg()) },
+    { name: 'reader-2.svg', mimeType: 'image/svg+xml', buffer: Buffer.from(whiteboardSvg()) },
+  ])
+  await localImportResponse
+  await expect(page.getByTestId('page-thumb')).toHaveCount(2)
+
+  await page.getByTestId('toolbar-reader').click()
+  await expect(page.getByTestId('reader-overlay')).toBeVisible()
+  await expect(page.getByTestId('reader-indicator')).toHaveText('1 / 2')
+  await expect(page.getByTestId('reader-image')).toBeVisible()
+
+  // Default direction is RTL manga: ArrowLeft advances, ArrowRight goes back.
+  await page.keyboard.press('ArrowLeft')
+  await expect(page.getByTestId('reader-indicator')).toHaveText('2 / 2')
+  await page.keyboard.press('ArrowRight')
+  await expect(page.getByTestId('reader-indicator')).toHaveText('1 / 2')
+  await page.getByTestId('reader-turn-left').click()
+  await expect(page.getByTestId('reader-indicator')).toHaveText('2 / 2')
+
+  await page.keyboard.press('Escape')
+  await expect(page.getByTestId('reader-overlay')).toHaveCount(0)
 })
 
 test('dragging the tail handle sets the tail without moving the bubble', async ({ page }) => {

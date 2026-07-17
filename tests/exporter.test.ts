@@ -3,10 +3,11 @@ import { readFile } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import JSZip from 'jszip'
+import { PDFDocument, ReadingDirection } from 'pdf-lib'
 import { afterEach, describe, expect, it } from 'vitest'
 import type { MultipartFile } from '@fastify/multipart'
 import { StudioDatabase } from '../server/database'
-import { buildComicInfoXml, exportProjectBackup, exportRenderedZip } from '../server/exporter'
+import { buildComicInfoXml, exportProjectBackup, exportRenderedPdf, exportRenderedZip } from '../server/exporter'
 import { importProjectBackup } from '../server/importers'
 
 const PNG_1X1_DATA_URL =
@@ -166,6 +167,29 @@ describe('rendered archive export', () => {
     }
     expect(manifest.project.readingDirection).toBe('ltr')
     expect(manifest.pages[0].file).toBe('page_001.png')
+  })
+})
+
+describe('rendered PDF export', () => {
+  afterEach(() => {
+    delete process.env.PTM_DATA_DIR
+  })
+
+  it('embeds pages and honors the project reading direction in viewer preferences', async () => {
+    const db = createDb()
+    const project = db.createProject({ title: 'PDF 專案', mode: 'story', source: 'local' })
+
+    const rtl = await exportRenderedPdf(db, { projectId: project.id, pages: [{ pageId: 'p1', dataUrl: PNG_1X1_DATA_URL }] })
+    expect(rtl.fileName.endsWith('.pdf')).toBe(true)
+    const rtlDoc = await PDFDocument.load(await readFile(rtl.absolutePath))
+    expect(rtlDoc.getPageCount()).toBe(1)
+    expect(rtlDoc.getTitle()).toBe('PDF 專案')
+    expect(rtlDoc.catalog.getOrCreateViewerPreferences().getReadingDirection()).toBe(ReadingDirection.R2L)
+
+    db.updateProjectReadingDirection(project.id, 'ltr')
+    const ltr = await exportRenderedPdf(db, { projectId: project.id, pages: [{ pageId: 'p1', dataUrl: PNG_1X1_DATA_URL }] })
+    const ltrDoc = await PDFDocument.load(await readFile(ltr.absolutePath))
+    expect(ltrDoc.catalog.getOrCreateViewerPreferences().getReadingDirection()).toBe(ReadingDirection.L2R)
   })
 })
 

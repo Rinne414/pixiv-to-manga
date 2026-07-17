@@ -29,6 +29,8 @@ export const commonStrings = {
   'toolbar.cancel': { en: 'Cancel', 'zh-TW': '取消' },
   'toolbar.exportZip': { en: 'Export ZIP', 'zh-TW': '匯出 ZIP' },
   'toolbar.exportCbz': { en: 'Export CBZ', 'zh-TW': '匯出 CBZ' },
+  'toolbar.exportPdf': { en: 'Export PDF', 'zh-TW': '匯出 PDF' },
+  'toolbar.reader': { en: 'Preview', 'zh-TW': '閱讀預覽' },
   'toolbar.exportPage': { en: 'Export Page', 'zh-TW': '匯出本頁' },
   'toolbar.exportBackup': { en: 'Export Backup', 'zh-TW': '匯出備份' },
   'toolbar.restoreBackup': { en: 'Restore Backup', 'zh-TW': '還原備份' },
@@ -264,6 +266,14 @@ export const commonStrings = {
   'confirm.cancel': { en: 'Cancel', 'zh-TW': '取消' },
   'toast.dismiss': { en: 'Dismiss notification', 'zh-TW': '關閉通知' },
   'toast.notifications': { en: 'Notifications', 'zh-TW': '通知' },
+
+  // Reader preview overlay
+  'reader.title': { en: 'Reading preview', 'zh-TW': '閱讀預覽' },
+  'reader.close': { en: 'Close preview', 'zh-TW': '關閉預覽' },
+  'reader.pageIndicator': { en: '{current} / {total}', 'zh-TW': '{current} / {total}' },
+  'reader.pageAlt': { en: 'Rendered page {n}', 'zh-TW': '第 {n} 頁成品' },
+  'reader.nextPage': { en: 'Next page', 'zh-TW': '下一頁' },
+  'reader.previousPage': { en: 'Previous page', 'zh-TW': '上一頁' },
 
   // Canvas empty state + batch progress
   'canvas.emptyTitle': { en: 'No page selected', 'zh-TW': '尚未選擇頁面' },

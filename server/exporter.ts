@@ -2,6 +2,7 @@ import { createWriteStream, mkdirSync } from 'node:fs'
 import { copyFile, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { ZipArchive } from 'archiver'
+import { PDFDocument, ReadingDirection as PdfReadingDirection } from 'pdf-lib'
 import { getAppDataDir, getExportsDir } from './paths'
 import type { ReadingDirection } from '../src/shared/types'
 import type { StudioDatabase } from './database'
@@ -45,6 +46,32 @@ export async function exportRenderedZip(
   const archivePath = path.join(exportsDir, archiveName)
   await zipDirectory(exportDir, archivePath)
   return { fileName: archiveName, absolutePath: archivePath, url: `/assets/exports/${archiveName}` }
+}
+
+export async function exportRenderedPdf(
+  db: StudioDatabase,
+  input: { projectId: string; pages: Array<{ pageId: string; dataUrl: string }> },
+): Promise<{ fileName: string; absolutePath: string; url: string }> {
+  const project = db.getProject(input.projectId)
+  const document = await PDFDocument.create()
+  document.setTitle(project.title)
+  // PDF readers honor the ViewerPreferences direction for two-page spreads.
+  document
+    .catalog.getOrCreateViewerPreferences()
+    .setReadingDirection(project.readingDirection === 'rtl' ? PdfReadingDirection.R2L : PdfReadingDirection.L2R)
+
+  for (const page of input.pages) {
+    const encoded = page.dataUrl.replace(/^data:image\/png;base64,/, '')
+    const png = await document.embedPng(Buffer.from(encoded, 'base64'))
+    const pdfPage = document.addPage([png.width, png.height])
+    pdfPage.drawImage(png, { x: 0, y: 0, width: png.width, height: png.height })
+  }
+
+  const fileName = `${safeExportName(project.title)}-${Date.now()}.pdf`
+  const exportsDir = getExportsDir()
+  const absolutePath = path.join(exportsDir, fileName)
+  await writeFile(absolutePath, await document.save())
+  return { fileName, absolutePath, url: `/assets/exports/${fileName}` }
 }
 
 /** ComicRack-schema ComicInfo.xml; the de-facto metadata standard for CBZ archives. */

@@ -115,6 +115,8 @@ export const exportZipSchema = z.object({
     .min(1),
 })
 
+export const exportPdfSchema = exportZipSchema.omit({ format: true })
+
 export const updateProjectSchema = z.object({
   readingDirection: z.enum(['ltr', 'rtl']),
 })

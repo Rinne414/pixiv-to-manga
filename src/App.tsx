@@ -7,6 +7,8 @@ import {
   ChevronUp,
   CircleStop,
   Download,
+  Eye,
+  FileText,
   ArchiveRestore,
   ImageDown,
   ImagePlus,
@@ -30,6 +32,7 @@ import {
 } from 'lucide-react'
 import { OnboardingChecklist } from './OnboardingChecklist'
 import { ProviderLabPanel } from './ProviderLabPanel'
+import { ReaderOverlay } from './ReaderOverlay'
 import { StoryContinuePanel } from './StoryContinuePanel'
 import { WhiteboardCanvas } from './WhiteboardCanvas'
 import { CharactersPanel } from './panels/CharactersPanel'
@@ -58,6 +61,7 @@ function App() {
   const { theme, toggleTheme } = useTheme()
   const studio = useStudio()
   const [logCollapsed, setLogCollapsed] = useState(false)
+  const [readerOpen, setReaderOpen] = useState(false)
   const {
     fileInputRef,
     backupInputRef,
@@ -134,8 +138,10 @@ function App() {
               <ToolbarButton icon={Redo2} label={t('toolbar.redo')} testId="toolbar-redo" variant="ghost" disabled={!canRedo || Boolean(busy)} onClick={studio.handleRedo} />
               <ToolbarButton icon={CircleStop} label={t('toolbar.cancel')} testId="toolbar-cancel-job" variant="ghost" disabled={!currentJobId} onClick={studio.handleCancelCurrentJob} />
               <span className="toolbar-divider" />
+              <ToolbarButton icon={Eye} label={t('toolbar.reader')} testId="toolbar-reader" disabled={!detail?.pages.length} onClick={() => setReaderOpen(true)} />
               <ToolbarButton icon={Download} label={t('toolbar.exportZip')} testId="toolbar-export-zip" disabled={!canRun || !detail?.pages.length} onClick={studio.handleExportZip} />
               <ToolbarButton icon={Archive} label={t('toolbar.exportCbz')} testId="toolbar-export-cbz" disabled={!canRun || !detail?.pages.length} onClick={studio.handleExportCbz} />
+              <ToolbarButton icon={FileText} label={t('toolbar.exportPdf')} testId="toolbar-export-pdf" disabled={!canRun || !detail?.pages.length} onClick={studio.handleExportPdf} />
               <ToolbarButton icon={ImageDown} label={t('toolbar.exportPage')} testId="toolbar-export-page" disabled={!canRun || !activePage} onClick={studio.handleExportActivePage} />
               <ToolbarButton icon={Save} label={t('toolbar.exportBackup')} testId="toolbar-export-backup" variant="ghost" disabled={!canRun} onClick={studio.handleExportBackup} />
               <ToolbarButton icon={ArchiveRestore} label={t('toolbar.restoreBackup')} testId="toolbar-restore-backup" variant="ghost" disabled={Boolean(busy)} onClick={() => backupInputRef.current?.click()} />
@@ -423,6 +429,10 @@ function App() {
           </>
         ) : null}
       </footer>
+
+      {readerOpen && detail?.pages.length ? (
+        <ReaderOverlay detail={detail} initialPageIndex={activePage?.index ?? 0} onClose={() => setReaderOpen(false)} />
+      ) : null}
     </div>
   )
 }
