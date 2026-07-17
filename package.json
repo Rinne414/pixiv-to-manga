@@ -84,10 +84,10 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/peter119lee/pixiv-to-manga.git"
+    "url": "git+https://github.com/Rinne414/pixiv-to-manga.git"
   },
-  "homepage": "https://github.com/peter119lee/pixiv-to-manga#readme",
+  "homepage": "https://github.com/Rinne414/pixiv-to-manga#readme",
   "bugs": {
-    "url": "https://github.com/peter119lee/pixiv-to-manga/issues"
+    "url": "https://github.com/Rinne414/pixiv-to-manga/issues"
   }
 }
