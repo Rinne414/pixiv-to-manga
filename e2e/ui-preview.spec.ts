@@ -12,11 +12,11 @@ test('captures UI preview screenshots for light/dark and en/zh chrome states', a
     window.open = () => null
   })
   await page.goto('/')
-  await expect(page.getByText('Studio ready. Local database loaded.')).toBeVisible()
+  await expect(page.locator('.log-list').getByText('Studio ready. Local database loaded.')).toBeVisible()
 
   await page.getByLabel('Project title').fill('Preview Project')
   await page.getByRole('button', { name: /^Create$/ }).click()
-  await expect(page.getByText('Project created.')).toBeVisible()
+  await expect(page.locator('.log-list').getByText('Project created.')).toBeVisible()
 
   const importResponse = page.waitForResponse(
     (response) => response.url().includes('/api/import/local') && response.status() === 200,
@@ -30,9 +30,9 @@ test('captures UI preview screenshots for light/dark and en/zh chrome states', a
   await expect(page.getByTestId('page-thumb')).toHaveCount(1)
 
   await page.getByTestId('toolbar-analyze-story').click()
-  await expect(page.getByText('Story Bible generated with local mock engine.')).toBeVisible()
+  await expect(page.locator('.log-list').getByText('Story Bible generated with local mock engine.')).toBeVisible()
   await page.getByTestId('toolbar-generate-page').click()
-  await expect(page.getByText('Page 1 dialogue generated.')).toBeVisible()
+  await expect(page.locator('.log-list').getByText('Page 1 dialogue generated.')).toBeVisible()
 
   await page.waitForTimeout(500)
   await page.screenshot({ path: path.join(OUTPUT_DIR, '01-light-en-studio.png') })

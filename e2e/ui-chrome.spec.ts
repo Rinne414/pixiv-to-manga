@@ -28,7 +28,7 @@ test('whiteboard canvas zooms with controls, wheel, and fit', async ({ page }) =
   await openStudio(page)
   await page.getByLabel('Project title').fill(`Whiteboard Project ${Date.now()}`)
   await page.getByRole('button', { name: /^Create$/ }).click()
-  await expect(page.getByText('Project created.')).toBeVisible()
+  await expect(page.locator('.log-list').getByText('Project created.')).toBeVisible()
 
   const localImportResponse = page.waitForResponse(
     (response) => response.url().includes('/api/import/local') && response.status() === 200,
@@ -68,7 +68,7 @@ test('dialogue bubbles can be added by double-click and deleted from the panel',
   await openStudio(page)
   await page.getByLabel('Project title').fill(`Bubble CRUD ${Date.now()}`)
   await page.getByRole('button', { name: /^Create$/ }).click()
-  await expect(page.getByText('Project created.')).toBeVisible()
+  await expect(page.locator('.log-list').getByText('Project created.')).toBeVisible()
 
   const localImportResponse = page.waitForResponse(
     (response) => response.url().includes('/api/import/local') && response.status() === 200,
@@ -88,7 +88,7 @@ test('dialogue bubbles can be added by double-click and deleted from the panel',
   )
   await page.mouse.dblclick(stageBox!.x + stageBox!.width / 2, stageBox!.y + stageBox!.height / 2)
   await createResponse
-  await expect(page.getByText('Dialogue added.')).toBeVisible()
+  await expect(page.locator('.log-list').getByText('Dialogue added.')).toBeVisible()
   await expect(page.getByTestId('dialogue-chip')).toHaveCount(1)
   await expect(page.getByTestId('dialogue-chip')).toContainText('……')
 
@@ -100,7 +100,7 @@ test('dialogue bubbles can be added by double-click and deleted from the panel',
   )
   await page.getByTestId('dialogue-delete').click()
   await deleteResponse
-  await expect(page.getByText('Dialogue deleted.')).toBeVisible()
+  await expect(page.locator('.log-list').getByText('Dialogue deleted.')).toBeVisible()
   await expect(page.getByTestId('dialogue-chip')).toHaveCount(1)
 })
 
@@ -108,7 +108,7 @@ test('style prompt persists and characters support add, font choice, and delete'
   await openStudio(page)
   await page.getByLabel('Project title').fill(`Character Tools ${Date.now()}`)
   await page.getByRole('button', { name: /^Create$/ }).click()
-  await expect(page.getByText('Project created.')).toBeVisible()
+  await expect(page.locator('.log-list').getByText('Project created.')).toBeVisible()
 
   const localImportResponse = page.waitForResponse(
     (response) => response.url().includes('/api/import/local') && response.status() === 200,
@@ -122,7 +122,7 @@ test('style prompt persists and characters support add, font choice, and delete'
   await expect(page.locator('.canvas-meta')).toContainText('Page 1')
 
   await page.getByTestId('toolbar-analyze-story').click()
-  await expect(page.getByText('Story Bible generated with local mock engine.')).toBeVisible()
+  await expect(page.locator('.log-list').getByText('Story Bible generated with local mock engine.')).toBeVisible()
 
   const styleSaveResponse = page.waitForResponse(
     (response) => response.url().includes('/story-bible') && response.status() === 200,
@@ -130,9 +130,9 @@ test('style prompt persists and characters support add, font choice, and delete'
   await page.getByTestId('story-style-prompt-input').fill('全部对白使用文言文。')
   await page.getByTestId('story-style-prompt-input').blur()
   await styleSaveResponse
-  await expect(page.getByText('Story Bible saved.').first()).toBeVisible()
+  await expect(page.locator('.log-list').getByText('Story Bible saved.').first()).toBeVisible()
   await page.reload()
-  await expect(page.getByText('Studio ready. Local database loaded.')).toBeVisible()
+  await expect(page.locator('.log-list').getByText('Studio ready. Local database loaded.')).toBeVisible()
   await expect(page.getByTestId('story-style-prompt-input')).toHaveValue('全部对白使用文言文。')
 
   await page.getByTestId('tab-characters').click()
@@ -167,7 +167,7 @@ test('page-range generation only generates pages inside the range', async ({ pag
   await openStudio(page)
   await page.getByLabel('Project title').fill(`Range Project ${Date.now()}`)
   await page.getByRole('button', { name: /^Create$/ }).click()
-  await expect(page.getByText('Project created.')).toBeVisible()
+  await expect(page.locator('.log-list').getByText('Project created.')).toBeVisible()
 
   const localImportResponse = page.waitForResponse(
     (response) => response.url().includes('/api/import/local') && response.status() === 200,
@@ -184,14 +184,14 @@ test('page-range generation only generates pages inside the range', async ({ pag
   await page.getByTestId('generate-range-to').fill('2')
   await page.getByTestId('generate-range-run').click()
 
-  await expect(page.getByText('Pages 2-2 generated.')).toBeVisible()
+  await expect(page.locator('.log-list').getByText('Pages 2-2 generated.')).toBeVisible()
   // Page 1 sits outside the range and must remain untouched.
   await expect(page.getByTestId('page-thumb').nth(0)).toContainText('0 lines / ready')
   await expect(page.getByTestId('page-thumb').nth(1)).toContainText('complete')
 
   // Re-running the same range only reports already-complete pages.
   await page.getByTestId('generate-range-run').click()
-  await expect(page.getByText('All pages in the range are already complete. Use Generate Page to regenerate.')).toBeVisible()
+  await expect(page.locator('.log-list').getByText('All pages in the range are already complete. Use Generate Page to regenerate.')).toBeVisible()
   await expect(page.getByTestId('page-thumb').nth(0)).toContainText('0 lines / ready')
 })
 
@@ -203,7 +203,7 @@ test('onboarding checklist tracks progress and dismissal persists across reloads
 
   await page.getByLabel('Project title').fill(`Onboarding ${Date.now()}`)
   await page.getByRole('button', { name: /^Create$/ }).click()
-  await expect(page.getByText('Project created.')).toBeVisible()
+  await expect(page.locator('.log-list').getByText('Project created.')).toBeVisible()
 
   const importStep = page.getByTestId('onboarding-step').first()
   await expect(importStep).toContainText('Import Pixiv or local images')
@@ -224,7 +224,7 @@ test('onboarding checklist tracks progress and dismissal persists across reloads
   await expect(page.getByTestId('onboarding-card')).toHaveCount(0)
 
   await page.reload()
-  await expect(page.getByText('Studio ready. Local database loaded.')).toBeVisible()
+  await expect(page.locator('.log-list').getByText('Studio ready. Local database loaded.')).toBeVisible()
   await expect(page.getByTestId('onboarding-card')).toHaveCount(0)
 })
 
@@ -232,7 +232,7 @@ test('undo and redo revert dialogue edits through the restore route', async ({ p
   await openStudio(page)
   await page.getByLabel('Project title').fill(`Undo Project ${Date.now()}`)
   await page.getByRole('button', { name: /^Create$/ }).click()
-  await expect(page.getByText('Project created.')).toBeVisible()
+  await expect(page.locator('.log-list').getByText('Project created.')).toBeVisible()
 
   const localImportResponse = page.waitForResponse(
     (response) => response.url().includes('/api/import/local') && response.status() === 200,
@@ -256,14 +256,14 @@ test('undo and redo revert dialogue edits through the restore route', async ({ p
   await rightRail.getByLabel('Text').fill('第一版对白')
   await rightRail.getByLabel('Text').blur()
   await patchResponse
-  await expect(page.getByText('Dialogue saved.')).toBeVisible()
+  await expect(page.locator('.log-list').getByText('Dialogue saved.')).toBeVisible()
 
   const undoResponse = page.waitForResponse(
     (response) => response.url().includes('/dialogues') && response.request().method() === 'PUT' && response.status() === 200,
   )
   await page.getByTestId('toolbar-undo').click()
   await undoResponse
-  await expect(page.getByText('Undo complete.')).toBeVisible()
+  await expect(page.locator('.log-list').getByText('Undo complete.')).toBeVisible()
   await expect(page.getByTestId('dialogue-chip')).toContainText('……')
 
   const redoResponse = page.waitForResponse(
@@ -271,7 +271,7 @@ test('undo and redo revert dialogue edits through the restore route', async ({ p
   )
   await page.getByTestId('toolbar-redo').click()
   await redoResponse
-  await expect(page.getByText('Redo complete.')).toBeVisible()
+  await expect(page.locator('.log-list').getByText('Redo complete.')).toBeVisible()
   await expect(page.getByTestId('dialogue-chip')).toContainText('第一版对白')
 
   // Deleting a dialogue is also undoable, with the original id restored server-side.
@@ -290,7 +290,7 @@ test('pages can be reordered and deleted from the page list', async ({ page }) =
   await openStudio(page)
   await page.getByLabel('Project title').fill(`Page Mgmt ${Date.now()}`)
   await page.getByRole('button', { name: /^Create$/ }).click()
-  await expect(page.getByText('Project created.')).toBeVisible()
+  await expect(page.locator('.log-list').getByText('Project created.')).toBeVisible()
 
   const localImportResponse = page.waitForResponse(
     (response) => response.url().includes('/api/import/local') && response.status() === 200,
@@ -309,13 +309,13 @@ test('pages can be reordered and deleted from the page list', async ({ page }) =
   await expect(page.getByTestId('page-thumb').nth(1)).toContainText('1 lines')
 
   await page.getByTestId('page-move-up').nth(1).click()
-  await expect(page.getByText('Page order updated.')).toBeVisible()
+  await expect(page.locator('.log-list').getByText('Page order updated.')).toBeVisible()
   await expect(page.getByTestId('page-thumb').nth(0)).toContainText('1 lines')
   await expect(page.getByTestId('page-thumb').nth(1)).toContainText('0 lines')
 
-  page.once('dialog', (dialog) => dialog.accept())
   await page.getByTestId('page-delete').nth(1).click()
-  await expect(page.getByText('Page deleted.')).toBeVisible()
+  await page.getByTestId('confirm-dialog-confirm').click()
+  await expect(page.locator('.log-list').getByText('Page deleted.')).toBeVisible()
   await expect(page.getByTestId('page-thumb')).toHaveCount(1)
   await expect(page.getByTestId('page-thumb')).toContainText('1 lines')
 })
@@ -324,7 +324,7 @@ test('single-page export downloads a rendered PNG', async ({ page }) => {
   await openStudio(page)
   await page.getByLabel('Project title').fill(`Export Page ${Date.now()}`)
   await page.getByRole('button', { name: /^Create$/ }).click()
-  await expect(page.getByText('Project created.')).toBeVisible()
+  await expect(page.locator('.log-list').getByText('Project created.')).toBeVisible()
 
   const localImportResponse = page.waitForResponse(
     (response) => response.url().includes('/api/import/local') && response.status() === 200,
@@ -341,14 +341,14 @@ test('single-page export downloads a rendered PNG', async ({ page }) => {
   await page.getByTestId('toolbar-export-page').click()
   const download = await downloadPromise
   expect(download.suggestedFilename()).toMatch(/-page-001\.png$/)
-  await expect(page.getByText('Page 1 exported.')).toBeVisible()
+  await expect(page.locator('.log-list').getByText('Page 1 exported.')).toBeVisible()
 })
 
 test('dragging the tail handle sets the tail without moving the bubble', async ({ page }) => {
   await openStudio(page)
   await page.getByLabel('Project title').fill(`Tail Drag ${Date.now()}`)
   await page.getByRole('button', { name: /^Create$/ }).click()
-  await expect(page.getByText('Project created.')).toBeVisible()
+  await expect(page.locator('.log-list').getByText('Project created.')).toBeVisible()
 
   const localImportResponse = page.waitForResponse(
     (response) => response.url().includes('/api/import/local') && response.status() === 200,
@@ -402,7 +402,7 @@ test('dragging the tail handle sets the tail without moving the bubble', async (
   await page.mouse.move(handleScreenX + 50, handleScreenY + 90, { steps: 6 })
   await page.mouse.up()
   await tailPatchResponse
-  await expect(page.getByText('Dialogue saved.')).toBeVisible()
+  await expect(page.locator('.log-list').getByText('Dialogue saved.')).toBeVisible()
 
   // Regression guard: the handle's dragend must not bubble into a bubble-move PATCH.
   await page.waitForTimeout(300)
@@ -421,7 +421,7 @@ test('custom fonts upload into every font picker and delete cleanly', async ({ p
   await openStudio(page)
   await page.getByLabel('Project title').fill(`Font Lib ${Date.now()}`)
   await page.getByRole('button', { name: /^Create$/ }).click()
-  await expect(page.getByText('Project created.')).toBeVisible()
+  await expect(page.locator('.log-list').getByText('Project created.')).toBeVisible()
 
   const localImportResponse = page.waitForResponse(
     (response) => response.url().includes('/api/import/local') && response.status() === 200,
@@ -433,7 +433,7 @@ test('custom fonts upload into every font picker and delete cleanly', async ({ p
   })
   await localImportResponse
   await page.getByTestId('toolbar-analyze-story').click()
-  await expect(page.getByText('Story Bible generated with local mock engine.')).toBeVisible()
+  await expect(page.locator('.log-list').getByText('Story Bible generated with local mock engine.')).toBeVisible()
 
   await page.getByTestId('tab-characters').click()
   const uploadResponse = page.waitForResponse(
@@ -445,7 +445,7 @@ test('custom fonts upload into every font picker and delete cleanly', async ({ p
     buffer: Buffer.from('fake-font-binary'),
   })
   await uploadResponse
-  await expect(page.getByText('Font "E2E Font" uploaded.')).toBeVisible()
+  await expect(page.locator('.log-list').getByText('Font "E2E Font" uploaded.')).toBeVisible()
   await expect(page.getByTestId('font-row')).toHaveCount(1)
 
   const fontSaveResponse = page.waitForResponse(
@@ -460,7 +460,7 @@ test('custom fonts upload into every font picker and delete cleanly', async ({ p
   )
   await page.getByTestId('font-delete').click()
   await deleteResponse
-  await expect(page.getByText('Font deleted.')).toBeVisible()
+  await expect(page.locator('.log-list').getByText('Font deleted.')).toBeVisible()
   await expect(page.getByTestId('font-row')).toHaveCount(0)
   // The character keeps its stored value via the unknown-font fallback option.
   await expect(page.getByTestId('character-font-select').first()).toHaveValue('"E2E Font"')
@@ -472,7 +472,7 @@ async function openStudio(page: Page) {
   })
   await page.goto('/')
   await expect(page).toHaveTitle(/Pixiv-to-Manga Studio/)
-  await expect(page.getByText('Studio ready. Local database loaded.')).toBeVisible()
+  await expect(page.locator('.log-list').getByText('Studio ready. Local database loaded.')).toBeVisible()
 }
 
 function whiteboardSvg(width = 800, height = 1000): string {

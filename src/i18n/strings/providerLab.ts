@@ -14,6 +14,33 @@ export const providerLabStrings = {
   },
   'providerLab.refresh': { en: 'Refresh', 'zh-TW': '重新整理' },
 
+  // Active engine status card
+  'providerLab.activeEngine': { en: 'Current AI engine', 'zh-TW': '目前使用的 AI' },
+  'providerLab.activeEngineNone': {
+    en: 'No AI engine available',
+    'zh-TW': '沒有可用的 AI',
+  },
+  'providerLab.activeEngineNoneHint': {
+    en: 'Add a provider below, or set a Base URL + model in Settings. Local providers (Ollama, LM Studio) need no key.',
+    'zh-TW': '請在下方新增 Provider，或在設定填入 Base URL 與模型。本機 Provider（Ollama、LM Studio）不需金鑰。',
+  },
+  'providerLab.badgeLocal': { en: 'Local', 'zh-TW': '本機' },
+  'providerLab.badgeCloud': { en: 'Cloud API', 'zh-TW': '雲端 API' },
+  'providerLab.badgeNoKey': { en: 'no key', 'zh-TW': '無金鑰' },
+  'providerLab.viaGlobal': { en: 'via global Settings', 'zh-TW': '來自全域設定' },
+
+  // Read-only detected capabilities + NSFW confirmation
+  'providerLab.capabilitiesDetected': { en: 'Detected capabilities', 'zh-TW': '已偵測能力' },
+  'providerLab.capabilitiesHint': {
+    en: 'Auto-detected by discovery or test. No manual entry needed.',
+    'zh-TW': '由探索或測試自動偵測，不需手動填寫。',
+  },
+  'providerLab.nsfwSection': { en: 'NSFW / R-18 (user-confirmed)', 'zh-TW': 'NSFW / R-18（需使用者確認）' },
+  'providerLab.nsfwHint': {
+    en: 'Adult capabilities are never auto-detected. Enable only for models you have verified allow it.',
+    'zh-TW': '成人內容能力不會自動偵測。僅在你確認模型支援時才啟用。',
+  },
+
   // Provider list
   'providerLab.providers': { en: 'Providers', 'zh-TW': 'Provider 清單' },
   'providerLab.providerRowMeta': { en: '{kind} / {keyState}', 'zh-TW': '{kind} / {keyState}' },
@@ -71,9 +98,6 @@ export const providerLabStrings = {
   'providerLab.statusUserConfirmed': { en: 'user-confirmed', 'zh-TW': '使用者確認' },
   'providerLab.statusUnsupported': { en: 'unsupported', 'zh-TW': '不支援' },
 
-  // Capability Matrix
-  'providerLab.capabilityMatrix': { en: 'Capability Matrix', 'zh-TW': '能力矩陣' },
-  'providerLab.noModelSelected': { en: 'No model selected', 'zh-TW': '尚未選擇模型' },
   'providerLab.saveFlags': { en: 'Save flags', 'zh-TW': '儲存旗標' },
 
   // Capability flag labels
@@ -83,28 +107,6 @@ export const providerLabStrings = {
   'providerLab.capJsonSchema': { en: 'JSON Schema', 'zh-TW': 'JSON Schema' },
   'providerLab.capAdultInput': { en: 'Adult input', 'zh-TW': '成人內容輸入' },
   'providerLab.capAdultGeneration': { en: 'Adult generation', 'zh-TW': '成人內容生成' },
-
-  // NSFW route hints
-  'providerLab.hintNoVision': {
-    en: 'Images are blocked because this model is not marked Vision-capable.',
-    'zh-TW': '因為此模型未標記為支援 Vision，圖片將被封鎖。',
-  },
-  'providerLab.hintNoImageGeneration': {
-    en: 'Story continuation image generation is blocked until image generation is enabled.',
-    'zh-TW': '在啟用圖片生成之前，故事續作的圖片生成將被封鎖。',
-  },
-  'providerLab.hintNoAdultInput': {
-    en: 'R-18 image input is blocked for external providers unless adult input is explicitly allowed.',
-    'zh-TW': '除非明確允許成人內容輸入，否則外部 Provider 的 R-18 圖片輸入將被封鎖。',
-  },
-  'providerLab.hintNoAdultGeneration': {
-    en: 'R-18 generation is blocked until adult generation is explicitly allowed.',
-    'zh-TW': '在明確允許成人內容生成之前，R-18 生成將被封鎖。',
-  },
-  'providerLab.hintDefault': {
-    en: 'Route can accept image and R-18 requests only when the user enables R-18 for that job.',
-    'zh-TW': '只有在使用者為該任務啟用 R-18 時，路由才會接受圖片與 R-18 請求。',
-  },
 
   // Test Controls
   'providerLab.testControls': { en: 'Test Controls', 'zh-TW': '測試控制' },
@@ -143,10 +145,6 @@ export const providerLabStrings = {
   'providerLab.errorRequiredFields': {
     en: 'Provider name, base URL, and default model are required.',
     'zh-TW': 'Provider 名稱、Base URL 與預設模型為必填。',
-  },
-  'providerLab.errorCapabilityRecord': {
-    en: 'Capability save requires a backend capability record from discovery or test first.',
-    'zh-TW': '儲存能力設定前，需先透過探索或測試取得後端能力紀錄。',
   },
   'providerLab.unknownError': { en: 'Unknown error', 'zh-TW': '未知錯誤' },
 } satisfies Record<string, LocalizedText>

@@ -1,6 +1,19 @@
 import { useEffect, useMemo, useState } from 'react'
 import type { FormEvent } from 'react'
-import { CheckCircle2, FlaskConical, KeyRound, Loader2, Radar, Save, ShieldAlert, Trash2, XCircle } from 'lucide-react'
+import {
+  AlertTriangle,
+  CheckCircle2,
+  Cloud,
+  FlaskConical,
+  HardDrive,
+  KeyRound,
+  Loader2,
+  Radar,
+  Save,
+  ShieldAlert,
+  Trash2,
+  XCircle,
+} from 'lucide-react'
 import type {
   DiscoveredModel,
   ModelCapability,
@@ -9,18 +22,22 @@ import type {
   ProviderTestInput,
   ProviderTestResponse,
 } from './api'
+import type { SecretStatus } from './shared/types'
 import * as api from './api'
 import { useI18n } from './i18n/context'
 import type { MessageKey } from './i18n/messages'
+import { resolveActiveEngine } from './shared/activeProvider'
 
-const capabilityKeys: Array<keyof ModelCapabilityFlags> = [
+// Read-only capability flags: backend auto-detects these via discovery/test.
+const detectedCapabilityKeys = [
   'supportsVision',
   'supportsImageGeneration',
   'supportsStreaming',
   'supportsJsonSchema',
-  'allowsAdultInput',
-  'allowsAdultGeneration',
-]
+] as const
+
+// NSFW flags: never auto-detected — user must explicitly confirm (safety invariant).
+const nsfwCapabilityKeys = ['allowsAdultInput', 'allowsAdultGeneration'] as const
 
 const capabilityLabelKeys: Record<keyof ModelCapabilityFlags, MessageKey> = {
   supportsVision: 'providerLab.capVision',
@@ -43,15 +60,6 @@ const capabilityStatusKeys: Partial<Record<string, MessageKey>> = {
   detected: 'providerLab.statusDetected',
   'user-confirmed': 'providerLab.statusUserConfirmed',
   unsupported: 'providerLab.statusUnsupported',
-}
-
-const emptyFlags: ModelCapabilityFlags = {
-  supportsVision: false,
-  supportsImageGeneration: false,
-  supportsStreaming: false,
-  supportsJsonSchema: false,
-  allowsAdultInput: false,
-  allowsAdultGeneration: false,
 }
 
 const defaultTests: ProviderTestInput['tests'] = {
@@ -78,20 +86,33 @@ const emptyForm: ProviderFormState = {
   apiKey: '',
 }
 
-export function ProviderLabPanel() {
+export interface ProviderLabPanelProps {
+  secretStatus: SecretStatus | null
+  providers: ProviderProfile[]
+  /** Pushes refreshed provider lists back up so useStudio (onboarding, settings) stays in sync. */
+  onProvidersChanged: (providers: ProviderProfile[]) => void
+}
+
+export function ProviderLabPanel(props: ProviderLabPanelProps) {
   const { t } = useI18n()
-  const [providers, setProviders] = useState<ProviderProfile[]>([])
+  // Provider profiles live in useStudio (single source of truth); this panel only
+  // reads props.providers and reports refreshed lists via onProvidersChanged.
+  const { providers, onProvidersChanged } = props
   const [capabilities, setCapabilities] = useState<ModelCapability[]>([])
   const [models, setModels] = useState<DiscoveredModel[]>([])
   const [selectedProviderId, setSelectedProviderId] = useState('')
   const [selectedModelId, setSelectedModelId] = useState('')
   const [form, setForm] = useState<ProviderFormState>(emptyForm)
-  const [capabilityDraft, setCapabilityDraft] = useState<ModelCapabilityFlags>(emptyFlags)
+  const [nsfwDraft, setNsfwDraft] = useState<{ allowsAdultInput: boolean; allowsAdultGeneration: boolean }>({
+    allowsAdultInput: false,
+    allowsAdultGeneration: false,
+  })
   const [tests, setTests] = useState<ProviderTestInput['tests']>(defaultTests)
   const [testResult, setTestResult] = useState<ProviderTestResponse | null>(null)
   const [loading, setLoading] = useState('')
   const [error, setError] = useState('')
 
+  const activeEngine = useMemo(() => resolveActiveEngine(props.secretStatus, providers), [props.secretStatus, providers])
   const selectedProvider = providers.find((provider) => provider.id === selectedProviderId)
   const selectedCapability = capabilities.find(
     (capability) => capability.providerId === selectedProviderId && capability.modelId === selectedModelId,
@@ -132,13 +153,13 @@ export function ProviderLabPanel() {
       try {
         const [providerList, capabilityList] = await Promise.all([api.listProviders(), api.listModelCapabilities()])
         if (cancelled) return
-        const provider = providerList[0]
-        setProviders(providerList)
+        onProvidersChanged(providerList)
         setCapabilities(capabilityList)
+        const provider = providerList[0]
         setSelectedProviderId(provider?.id || '')
         setSelectedModelId(provider?.defaultModel || '')
         setForm(provider ? providerToForm(provider) : emptyForm)
-        setCapabilityDraft(provider ? flagsFor(capabilityList, provider.id, provider.defaultModel) : emptyFlags)
+        setNsfwDraft(provider ? nsfwFlagsFor(capabilityList, provider.id, provider.defaultModel) : { allowsAdultInput: false, allowsAdultGeneration: false })
       } catch (nextError) {
         if (!cancelled) setError(errorMessage(nextError, t('providerLab.unknownError')))
       } finally {
@@ -150,7 +171,7 @@ export function ProviderLabPanel() {
     return () => {
       cancelled = true
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- initial load runs once on mount
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- initial load runs once on mount; onProvidersChanged is a stable setState
   }, [])
 
   async function refresh() {
@@ -161,14 +182,14 @@ export function ProviderLabPanel() {
   }
 
   function acceptProviderLabData(providerList: ProviderProfile[], capabilityList: ModelCapability[]) {
-    setProviders(providerList)
+    onProvidersChanged(providerList)
     setCapabilities(capabilityList)
     const provider = providerList.find((item) => item.id === selectedProviderId) || providerList[0]
     if (!provider) {
       setSelectedProviderId('')
       setSelectedModelId('')
       setForm(emptyForm)
-      setCapabilityDraft(emptyFlags)
+      setNsfwDraft({ allowsAdultInput: false, allowsAdultGeneration: false })
       return
     }
     selectProvider(provider, capabilityList)
@@ -179,17 +200,17 @@ export function ProviderLabPanel() {
     setSelectedProviderId(provider.id)
     setSelectedModelId(modelId)
     setForm(providerToForm(provider))
-    setCapabilityDraft(flagsFor(capabilityList, provider.id, modelId))
+    setNsfwDraft(nsfwFlagsFor(capabilityList, provider.id, modelId))
   }
 
   function selectModel(modelId: string) {
     setSelectedModelId(modelId)
-    setCapabilityDraft(flagsFor(capabilities, selectedProviderId, modelId))
+    setNsfwDraft(nsfwFlagsFor(capabilities, selectedProviderId, modelId))
   }
 
   function selectModelWithCapabilities(modelId: string, capabilityList: ModelCapability[]) {
     setSelectedModelId(modelId)
-    setCapabilityDraft(flagsFor(capabilityList, selectedProviderId, modelId))
+    setNsfwDraft(nsfwFlagsFor(capabilityList, selectedProviderId, modelId))
   }
 
   async function run(label: string, task: () => Promise<void>) {
@@ -219,12 +240,11 @@ export function ProviderLabPanel() {
       }
 
       const saved = form.id ? await api.updateProvider(form.id, payload) : await api.createProvider(payload)
-      setProviders((current) =>
-        current.some((provider) => provider.id === saved.id)
-          ? current.map((provider) => (provider.id === saved.id ? saved : provider))
-          : [saved, ...current],
-      )
-      selectProvider(saved)
+      // Refresh the shared list so the provider rows and active-engine card reflect the change.
+      const [providerList, capabilityList] = await Promise.all([api.listProviders(), api.listModelCapabilities()])
+      onProvidersChanged(providerList)
+      setCapabilities(capabilityList)
+      selectProvider(saved, capabilityList)
     })
   }
 
@@ -232,12 +252,12 @@ export function ProviderLabPanel() {
     if (!selectedProvider) return
     await run(t('providerLab.deletingProvider'), async () => {
       await api.deleteProvider(selectedProvider.id)
-      setProviders((current) => current.filter((provider) => provider.id !== selectedProvider.id))
       setCapabilities((current) => current.filter((capability) => capability.providerId !== selectedProvider.id))
       setModels([])
       setSelectedProviderId('')
       setSelectedModelId('')
       setTestResult(null)
+      await refresh()
     })
   }
 
@@ -253,14 +273,21 @@ export function ProviderLabPanel() {
     })
   }
 
-  async function saveCapabilities() {
+  /** NSFW flags are the only user-editable capabilities; they reuse the existing capability record. */
+  async function saveNsfwFlags() {
     if (!selectedCapability) {
-      setError(t('providerLab.errorCapabilityRecord'))
       return
     }
-
     await run(t('providerLab.savingCapabilities'), async () => {
-      const saved = await api.updateModelCapability(selectedCapability.id, capabilityDraft)
+      // Preserve the auto-detected flags; only the NSFW toggles are user input.
+      const saved = await api.updateModelCapability(selectedCapability.id, {
+        supportsVision: selectedCapability.supportsVision,
+        supportsImageGeneration: selectedCapability.supportsImageGeneration,
+        supportsStreaming: selectedCapability.supportsStreaming,
+        supportsJsonSchema: selectedCapability.supportsJsonSchema,
+        allowsAdultInput: nsfwDraft.allowsAdultInput,
+        allowsAdultGeneration: nsfwDraft.allowsAdultGeneration,
+      })
       setCapabilities((current) => current.map((capability) => (capability.id === saved.id ? saved : capability)))
     })
   }
@@ -272,7 +299,7 @@ export function ProviderLabPanel() {
       const capabilityList = await api.listModelCapabilities()
       setTestResult(result)
       setCapabilities(capabilityList)
-      setCapabilityDraft(flagsFor(capabilityList, selectedProvider.id, selectedModelId))
+      setNsfwDraft(nsfwFlagsFor(capabilityList, selectedProvider.id, selectedModelId))
     })
   }
 
@@ -289,6 +316,8 @@ export function ProviderLabPanel() {
         </button>
       </div>
 
+      <ActiveEngineCard engine={activeEngine} />
+
       {error ? (
         <div className="inline-alert">
           <ShieldAlert size={15} />
@@ -304,7 +333,7 @@ export function ProviderLabPanel() {
               <button
                 key={provider.id}
                 type="button"
-                className={`provider-row ${provider.id === selectedProviderId ? 'active' : ''}`}
+                className={`provider-row ${provider.id === selectedProviderId ? 'active' : ''} ${provider.id === activeEngine?.provider?.id ? 'is-active-engine' : ''}`}
                 onClick={() => selectProvider(provider)}
               >
                 <strong>{provider.name}</strong>
@@ -392,36 +421,53 @@ export function ProviderLabPanel() {
               </button>
             ))
           ) : (
-            <p className="empty-text">{t('providerLab.emptyModels')}</p>
+            <p className="empty-text compact-empty">{t('providerLab.emptyModels')}</p>
           )}
         </div>
       </div>
 
-      <div className="provider-section">
-        <div className="section-heading compact-heading">
-          <div>
-            <strong>{t('providerLab.capabilityMatrix')}</strong>
-            <span>{selectedModelId || t('providerLab.noModelSelected')}</span>
+      {selectedCapability ? (
+        <div className="provider-section capability-readout">
+          <div className="section-heading compact-heading">
+            <div>
+              <strong>{t('providerLab.capabilitiesDetected')}</strong>
+              <span>{t('providerLab.capabilitiesHint')}</span>
+            </div>
           </div>
-          <button type="button" className="secondary-button" disabled={!selectedCapability || Boolean(loading)} onClick={saveCapabilities}>
-            <Save size={15} />
-            {t('providerLab.saveFlags')}
-          </button>
+          <div className="capability-badges">
+            {detectedCapabilityKeys.map((key) => (
+              <span key={key} className={`cap-badge ${selectedCapability[key] ? 'on' : 'off'}`}>
+                {selectedCapability[key] ? <CheckCircle2 size={13} /> : <XCircle size={13} />}
+                {t(capabilityLabelKeys[key])}
+              </span>
+            ))}
+          </div>
+
+          <div className="nsfw-controls">
+            <div className="panel-heading">
+              <ShieldAlert size={14} />
+              {t('providerLab.nsfwSection')}
+            </div>
+            <span className="field-hint">{t('providerLab.nsfwHint')}</span>
+            <div className="capability-matrix">
+              {nsfwCapabilityKeys.map((key) => (
+                <label key={key} className="capability-cell">
+                  <input
+                    type="checkbox"
+                    checked={nsfwDraft[key]}
+                    onChange={(event) => setNsfwDraft({ ...nsfwDraft, [key]: event.target.checked })}
+                  />
+                  <span>{t(capabilityLabelKeys[key])}</span>
+                </label>
+              ))}
+            </div>
+            <button type="button" className="secondary-button" disabled={Boolean(loading)} onClick={saveNsfwFlags}>
+              <Save size={15} />
+              {t('providerLab.saveFlags')}
+            </button>
+          </div>
         </div>
-        <div className="capability-matrix">
-          {capabilityKeys.map((key) => (
-            <label key={key} className="capability-cell">
-              <input
-                type="checkbox"
-                checked={capabilityDraft[key]}
-                onChange={(event) => setCapabilityDraft({ ...capabilityDraft, [key]: event.target.checked })}
-              />
-              <span>{t(capabilityLabelKeys[key])}</span>
-            </label>
-          ))}
-        </div>
-        <NsfwRouteHint provider={selectedProvider} flags={capabilityDraft} />
-      </div>
+      ) : null}
 
       <div className="provider-section">
         <div className="section-heading compact-heading">
@@ -442,35 +488,46 @@ export function ProviderLabPanel() {
             </label>
           ))}
         </div>
-        {testResult ? <ProviderTestReadout result={testResult} /> : <p className="empty-text">{t('providerLab.emptyTestResult')}</p>}
+        {testResult ? <ProviderTestReadout result={testResult} /> : <p className="empty-text compact-empty">{t('providerLab.emptyTestResult')}</p>}
       </div>
     </section>
   )
 }
 
-function NsfwRouteHint({ provider, flags }: { provider?: ProviderProfile; flags: ModelCapabilityFlags }) {
+function ActiveEngineCard({ engine }: { engine: ReturnType<typeof resolveActiveEngine> }) {
   const { t } = useI18n()
-  const hints: string[] = []
-  if (!flags.supportsVision) {
-    hints.push(t('providerLab.hintNoVision'))
-  }
-  if (!flags.supportsImageGeneration) {
-    hints.push(t('providerLab.hintNoImageGeneration'))
-  }
-  if (!provider?.isLocal && !flags.allowsAdultInput) {
-    hints.push(t('providerLab.hintNoAdultInput'))
-  }
-  if (!flags.allowsAdultGeneration) {
-    hints.push(t('providerLab.hintNoAdultGeneration'))
-  }
-  if (!hints.length) {
-    hints.push(t('providerLab.hintDefault'))
+
+  if (!engine) {
+    return (
+      <div className="active-engine-card none" data-testid="active-engine-card">
+        <AlertTriangle size={18} />
+        <div className="active-engine-body">
+          <span className="active-engine-caption">{t('providerLab.activeEngine')}</span>
+          <strong>{t('providerLab.activeEngineNone')}</strong>
+          <span>{t('providerLab.activeEngineNoneHint')}</span>
+        </div>
+      </div>
+    )
   }
 
+  const name = engine.provider?.name || engine.apiBaseUrl
+  const Icon = engine.isLocal ? HardDrive : Cloud
+
   return (
-    <div className="route-hint">
-      <ShieldAlert size={15} />
-      <span>{hints.join(' ')}</span>
+    <div className="active-engine-card" data-testid="active-engine-card">
+      <div className={`engine-badge ${engine.isLocal ? 'local' : 'cloud'}`}>
+        <Icon size={13} />
+        {engine.isLocal ? t('providerLab.badgeLocal') : t('providerLab.badgeCloud')}
+      </div>
+      <div className="active-engine-body">
+        <span className="active-engine-caption">{t('providerLab.activeEngine')}</span>
+        <strong>{name}</strong>
+        <span className="active-engine-model">{engine.modelName}</span>
+        <span className="active-engine-sub">
+          {engine.source === 'global' && !engine.provider ? t('providerLab.viaGlobal') : engine.apiBaseUrl}
+          {!engine.hasApiKey && !engine.isLocal ? ` · ${t('providerLab.badgeNoKey')}` : ''}
+        </span>
+      </div>
     </div>
   )
 }
@@ -507,20 +564,16 @@ function ProviderTestReadout({ result }: { result: ProviderTestResponse }) {
   )
 }
 
-function pickFlags(capability: ModelCapability): ModelCapabilityFlags {
-  return {
-    supportsVision: capability.supportsVision,
-    supportsImageGeneration: capability.supportsImageGeneration,
-    supportsStreaming: capability.supportsStreaming,
-    supportsJsonSchema: capability.supportsJsonSchema,
-    allowsAdultInput: capability.allowsAdultInput,
-    allowsAdultGeneration: capability.allowsAdultGeneration,
-  }
-}
-
-function flagsFor(capabilities: ModelCapability[], providerId: string, modelId: string): ModelCapabilityFlags {
+function nsfwFlagsFor(
+  capabilities: ModelCapability[],
+  providerId: string,
+  modelId: string,
+): { allowsAdultInput: boolean; allowsAdultGeneration: boolean } {
   const capability = capabilities.find((item) => item.providerId === providerId && item.modelId === modelId)
-  return capability ? pickFlags(capability) : emptyFlags
+  return {
+    allowsAdultInput: capability?.allowsAdultInput ?? false,
+    allowsAdultGeneration: capability?.allowsAdultGeneration ?? false,
+  }
 }
 
 function providerToForm(provider: ProviderProfile): ProviderFormState {

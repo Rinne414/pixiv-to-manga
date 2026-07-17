@@ -21,6 +21,9 @@ playwright-report
 .plans/**/artifacts/
 .plans/**/browser-smoke-result*.json
 
+# Assistant/tooling scratch directories
+.zcode/
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

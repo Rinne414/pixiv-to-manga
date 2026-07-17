@@ -8,12 +8,18 @@ import { useI18n } from './i18n/context'
 import type { MessageKey } from './i18n/messages'
 import type { MessageParams } from './i18n/types'
 import { cryptoId, clampNumber } from './uiUtils'
+import { useToast } from './toastContext'
 import * as api from './api'
 
 export type InspectorTab = 'story' | 'characters' | 'dialogue' | 'layout' | 'settings'
 export type EntryMode = 'studio' | 'continue'
 export type LogLevel = 'info' | 'success' | 'error'
 type Translator = (key: MessageKey, params?: MessageParams) => string
+
+export interface BatchProgress {
+  current: number
+  total: number
+}
 
 export interface LogEntry {
   id: string
@@ -77,6 +83,7 @@ function pageSnapshot(
 /** Container hook: owns all Manga Studio state and handlers; App.tsx stays a view shell. */
 export function useStudio() {
   const { t } = useI18n()
+  const toast = useToast()
   const fileInputRef = useRef<HTMLInputElement | null>(null)
   const backupInputRef = useRef<HTMLInputElement | null>(null)
   const [projects, setProjects] = useState<Project[]>([])
@@ -104,6 +111,7 @@ export function useStudio() {
   const [providers, setProviders] = useState<api.ProviderProfile[]>([])
   const [customFonts, setCustomFonts] = useState<FontAsset[]>([])
   const [hasExported, setHasExported] = useState(false)
+  const [batchProgress, setBatchProgress] = useState<BatchProgress | null>(null)
   const [undoStack, setUndoStack] = useState<HistoryCommand[]>([])
   const [redoStack, setRedoStack] = useState<HistoryCommand[]>([])
   // Last server-confirmed detail: history snapshots diff against this, never against
@@ -225,9 +233,14 @@ export function useStudio() {
     return error instanceof Error ? error.message : t('log.unknownError')
   }
 
-  function pushLog(message: string, level: LogLevel = 'info') {
+  function pushLog(message: string, level: LogLevel = 'info', options?: { toast?: boolean }) {
     const time = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })
     setLogs((current) => [{ id: cryptoId(), time, level, message }, ...current].slice(0, 80))
+    // Errors always surface as toasts; successes do too unless the caller opts out
+    // (blur-triggered auto-saves and edits already visible on canvas stay log-only).
+    if (level === 'error' || (level === 'success' && options?.toast !== false)) {
+      toast.pushToast(message, level)
+    }
   }
 
   function recordHistory(command: HistoryCommand) {
@@ -330,7 +343,7 @@ export function useStudio() {
       if (beforeBible && next.project.storyBible) {
         recordHistory({ scope: 'bible', projectId: next.project.id, before: beforeBible, after: next.project.storyBible })
       }
-      pushLog(t('log.storyBibleSaved'), 'success')
+      pushLog(t('log.storyBibleSaved'), 'success', { toast: false })
     } catch (error) {
       pushLog(describeError(error), 'error')
       acceptDetail(await api.getProject(detail.project.id))
@@ -353,7 +366,7 @@ export function useStudio() {
         serverDetailRef.current = nextBaseline
         recordDialogueChange(target.pageId, before, pageSnapshot(nextBaseline, target.pageId))
       }
-      pushLog(t('log.dialogueSaved'), 'success')
+      pushLog(t('log.dialogueSaved'), 'success', { toast: false })
     } catch (error) {
       pushLog(describeError(error), 'error')
       if (detail) {
@@ -376,7 +389,7 @@ export function useStudio() {
       }
       setSelectedDialogueId(created.id)
       setActiveTab('dialogue')
-      pushLog(t('log.dialogueAdded'), 'success')
+      pushLog(t('log.dialogueAdded'), 'success', { toast: false })
     } catch (error) {
       pushLog(describeError(error), 'error')
     }
@@ -397,7 +410,7 @@ export function useStudio() {
         recordDialogueChange(target.pageId, before, pageSnapshot(nextBaseline, target.pageId))
       }
       setSelectedDialogueId((current) => (current === id ? '' : current))
-      pushLog(t('log.dialogueDeleted'), 'success')
+      pushLog(t('log.dialogueDeleted'), 'success', { toast: false })
     } catch (error) {
       pushLog(describeError(error), 'error')
     }
@@ -497,20 +510,26 @@ export function useStudio() {
         pushLog(messages.allComplete)
         return
       }
-      for (const page of pendingPages) {
-        pushLog(t('log.generatingPage', { n: page.index + 1 }))
-        const before = pageSnapshot(serverDetailRef.current, page.id)
-        const next = await api.generatePage(page.id, { mode: generateMode, textDensity }, { onJobId: setCurrentJobId, onEvent: handleJobEvent })
-        acceptDetail(next)
-        recordDialogueChange(page.id, before, pageSnapshot(next, page.id))
-        if (next.raw) {
-          setRawOutput({ title: t('raw.pageTitle', { n: page.index + 1 }), text: next.raw })
+      setBatchProgress({ current: 0, total: pendingPages.length })
+      try {
+        for (const page of pendingPages) {
+          pushLog(t('log.generatingPage', { n: page.index + 1 }))
+          const before = pageSnapshot(serverDetailRef.current, page.id)
+          const next = await api.generatePage(page.id, { mode: generateMode, textDensity }, { onJobId: setCurrentJobId, onEvent: handleJobEvent })
+          acceptDetail(next)
+          recordDialogueChange(page.id, before, pageSnapshot(next, page.id))
+          if (next.raw) {
+            setRawOutput({ title: t('raw.pageTitle', { n: page.index + 1 }), text: next.raw })
+          }
+          setBatchProgress((current) => (current ? { ...current, current: current.current + 1 } : current))
         }
+        if (skippedCount > 0) {
+          pushLog(t('log.skippedCompletedPages', { count: skippedCount }))
+        }
+        pushLog(messages.done, 'success')
+      } finally {
+        setBatchProgress(null)
       }
-      if (skippedCount > 0) {
-        pushLog(t('log.skippedCompletedPages', { count: skippedCount }))
-      }
-      pushLog(messages.done, 'success')
     })
   }
 
@@ -584,7 +603,7 @@ export function useStudio() {
         serverDetailRef.current = nextBaseline
         recordDialogueChange(activePage.id, before, pageSnapshot(nextBaseline, activePage.id))
       }
-      pushLog(t('log.layoutAdjusted'), 'success')
+      pushLog(t('log.layoutAdjusted'), 'success', { toast: false })
     })
   }
 
@@ -595,7 +614,7 @@ export function useStudio() {
       acceptDetail(await applyHistoryState(command, 'before'))
       setUndoStack((current) => current.slice(0, -1))
       setRedoStack((current) => [...current, command].slice(-HISTORY_LIMIT))
-      pushLog(t('log.undone'), 'success')
+      pushLog(t('log.undone'), 'success', { toast: false })
     })
   }
 
@@ -606,7 +625,7 @@ export function useStudio() {
       acceptDetail(await applyHistoryState(command, 'after'))
       setRedoStack((current) => current.slice(0, -1))
       setUndoStack((current) => [...current, command].slice(-HISTORY_LIMIT))
-      pushLog(t('log.redone'), 'success')
+      pushLog(t('log.redone'), 'success', { toast: false })
     })
   }
 
@@ -627,14 +646,21 @@ export function useStudio() {
       acceptDetail(next)
       // Page indexes shifted under the recorded snapshots; stale history must not restore them.
       clearHistory()
-      pushLog(t('log.pageMoved'), 'success')
+      pushLog(t('log.pageMoved'), 'success', { toast: false })
     })
   }
 
   async function handleDeletePage(pageId: string) {
     const page = detail?.pages.find((item) => item.id === pageId)
     if (!page) return
-    if (!window.confirm(t('studio.deletePageConfirm', { n: page.index + 1 }))) return
+    const confirmed = await toast.confirm({
+      title: t('confirm.deletePageTitle'),
+      message: t('confirm.deletePageMessage', { n: page.index + 1 }),
+      confirmLabel: t('confirm.delete'),
+      cancelLabel: t('confirm.cancel'),
+      danger: true,
+    })
+    if (!confirmed) return
     await runTask(t('log.deletingPage', { n: page.index + 1 }), async () => {
       const next = await api.deletePage(pageId)
       acceptDetail(next)
@@ -757,8 +783,10 @@ export function useStudio() {
     setZoom,
     secretStatus,
     providers,
+    setProviders,
     customFonts,
     hasExported,
+    batchProgress,
     settingsForm,
     setSettingsForm,
     // derived

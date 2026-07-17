@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type Konva from 'konva'
 import { Circle, Ellipse, Group, Image as KonvaImage, Layer, Line, Rect, Stage, Text } from 'react-konva'
-import { Frame, ImagePlus, Minus, Plus, Scan } from 'lucide-react'
+import { Frame, ImagePlus, Loader2, Minus, Plus, Scan, Upload } from 'lucide-react'
 import type { Asset, Character, Dialogue, Page } from './shared/types'
+import type { BatchProgress } from './useStudio'
 import { computeTailTriangle, computeThoughtTrail, dialogueTailLocal, tailLocalToPage } from './shared/bubbleTail'
 import { findDialogueCharacter } from './shared/characters'
 import { DEFAULT_DIALOGUE_FONT } from './fonts'
@@ -33,6 +34,9 @@ interface WhiteboardCanvasProps {
   onSelectDialogue: (id: string) => void
   onPatchDialogue: (id: string, patch: Partial<Dialogue>) => Promise<void>
   onAddDialogue: (x: number, y: number) => void
+  batchProgress?: BatchProgress | null
+  onImportLocal?: () => void
+  onImportPixiv?: () => void
 }
 
 /**
@@ -168,8 +172,23 @@ export function WhiteboardCanvas(props: WhiteboardCanvasProps) {
   if (!props.page || !props.asset) {
     return (
       <div className="empty-canvas">
-        <ImagePlus size={34} />
-        <span>{t('studio.emptyCanvas')}</span>
+        <ImagePlus size={40} />
+        <strong className="empty-canvas-title">{t('canvas.emptyTitle')}</strong>
+        <span className="empty-canvas-hint">{t('canvas.emptyHint')}</span>
+        <div className="empty-canvas-actions">
+          {props.onImportPixiv ? (
+            <button type="button" className="primary-button" data-testid="empty-import-pixiv" onClick={props.onImportPixiv}>
+              <ImagePlus size={15} />
+              {t('toolbar.importPixiv')}
+            </button>
+          ) : null}
+          {props.onImportLocal ? (
+            <button type="button" className="secondary-button" data-testid="empty-import-local" onClick={props.onImportLocal}>
+              <Upload size={15} />
+              {t('toolbar.localImages')}
+            </button>
+          ) : null}
+        </div>
       </div>
     )
   }
@@ -266,6 +285,13 @@ export function WhiteboardCanvas(props: WhiteboardCanvasProps) {
           <Frame size={15} />
         </button>
       </div>
+
+      {props.batchProgress ? (
+        <div className="canvas-progress" role="status" aria-live="polite">
+          <Loader2 size={15} />
+          <span>{t('canvas.generating', { current: props.batchProgress.current + 1, total: props.batchProgress.total })}</span>
+        </div>
+      ) : null}
     </div>
   )
 }

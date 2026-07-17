@@ -1,6 +1,9 @@
+import { useState } from 'react'
 import type { ComponentType } from 'react'
 import {
   BookOpen,
+  ChevronDown,
+  ChevronUp,
   CircleStop,
   Download,
   ArchiveRestore,
@@ -53,6 +56,7 @@ function App() {
   const { locale, setLocale, t } = useI18n()
   const { theme, toggleTheme } = useTheme()
   const studio = useStudio()
+  const [logCollapsed, setLogCollapsed] = useState(false)
   const {
     fileInputRef,
     backupInputRef,
@@ -84,6 +88,7 @@ function App() {
     providers,
     customFonts,
     hasExported,
+    batchProgress,
     canUndo,
     canRedo,
     zoom,
@@ -93,7 +98,7 @@ function App() {
   const canRun = Boolean(detail && !busy)
 
   return (
-    <div className="studio-shell">
+    <div className="studio-shell" data-log-collapsed={logCollapsed}>
       <header className="topbar">
         <div className="brand">
           <div className="brand-mark">P</div>
@@ -119,16 +124,19 @@ function App() {
             <>
               <ToolbarButton icon={ImagePlus} label={t('toolbar.importPixiv')} testId="toolbar-import-pixiv" disabled={!canRun} onClick={() => setActiveTab('story')} />
               <ToolbarButton icon={Upload} label={t('toolbar.localImages')} testId="toolbar-import-local" disabled={Boolean(busy)} onClick={() => fileInputRef.current?.click()} />
+              <span className="toolbar-divider" />
               <ToolbarButton icon={WandSparkles} label={t('toolbar.analyzeStory')} testId="toolbar-analyze-story" disabled={!canRun} onClick={studio.handleAnalyzeStory} />
-              <ToolbarButton icon={Play} label={t('toolbar.generatePage')} testId="toolbar-generate-page" disabled={!canRun || !activePage} onClick={studio.handleGenerateActivePage} />
-              <ToolbarButton icon={Sparkles} label={t('toolbar.generateAll')} testId="toolbar-generate-all" disabled={!canRun} onClick={studio.handleGenerateAll} />
-              <ToolbarButton icon={Undo2} label={t('toolbar.undo')} testId="toolbar-undo" disabled={!canUndo || Boolean(busy)} onClick={studio.handleUndo} />
-              <ToolbarButton icon={Redo2} label={t('toolbar.redo')} testId="toolbar-redo" disabled={!canRedo || Boolean(busy)} onClick={studio.handleRedo} />
-              <ToolbarButton icon={CircleStop} label={t('toolbar.cancel')} testId="toolbar-cancel-job" disabled={!currentJobId} onClick={studio.handleCancelCurrentJob} />
+              <ToolbarButton icon={Play} label={t('toolbar.generatePage')} testId="toolbar-generate-page" priority="primary" disabled={!canRun || !activePage} onClick={studio.handleGenerateActivePage} />
+              <ToolbarButton icon={Sparkles} label={t('toolbar.generateAll')} testId="toolbar-generate-all" priority="primary" disabled={!canRun} onClick={studio.handleGenerateAll} />
+              <span className="toolbar-divider" />
+              <ToolbarButton icon={Undo2} label={t('toolbar.undo')} testId="toolbar-undo" variant="ghost" disabled={!canUndo || Boolean(busy)} onClick={studio.handleUndo} />
+              <ToolbarButton icon={Redo2} label={t('toolbar.redo')} testId="toolbar-redo" variant="ghost" disabled={!canRedo || Boolean(busy)} onClick={studio.handleRedo} />
+              <ToolbarButton icon={CircleStop} label={t('toolbar.cancel')} testId="toolbar-cancel-job" variant="ghost" disabled={!currentJobId} onClick={studio.handleCancelCurrentJob} />
+              <span className="toolbar-divider" />
               <ToolbarButton icon={Download} label={t('toolbar.exportZip')} testId="toolbar-export-zip" disabled={!canRun || !detail?.pages.length} onClick={studio.handleExportZip} />
               <ToolbarButton icon={ImageDown} label={t('toolbar.exportPage')} testId="toolbar-export-page" disabled={!canRun || !activePage} onClick={studio.handleExportActivePage} />
-              <ToolbarButton icon={Save} label={t('toolbar.exportBackup')} testId="toolbar-export-backup" disabled={!canRun} onClick={studio.handleExportBackup} />
-              <ToolbarButton icon={ArchiveRestore} label={t('toolbar.restoreBackup')} testId="toolbar-restore-backup" disabled={Boolean(busy)} onClick={() => backupInputRef.current?.click()} />
+              <ToolbarButton icon={Save} label={t('toolbar.exportBackup')} testId="toolbar-export-backup" variant="ghost" disabled={!canRun} onClick={studio.handleExportBackup} />
+              <ToolbarButton icon={ArchiveRestore} label={t('toolbar.restoreBackup')} testId="toolbar-restore-backup" variant="ghost" disabled={Boolean(busy)} onClick={() => backupInputRef.current?.click()} />
             </>
           ) : null}
         </div>
@@ -272,6 +280,9 @@ function App() {
             }}
             onPatchDialogue={studio.commitDialogue}
             onAddDialogue={(x, y) => studio.handleAddDialogue({ x, y })}
+            batchProgress={batchProgress}
+            onImportLocal={() => fileInputRef.current?.click()}
+            onImportPixiv={() => setActiveTab('story')}
           />
         </section>
 
@@ -365,35 +376,46 @@ function App() {
                 onSubmit={studio.handleSaveSettings}
                 disabled={Boolean(busy)}
               />
-              <ProviderLabPanel />
+              <ProviderLabPanel secretStatus={secretStatus} providers={providers} onProvidersChanged={studio.setProviders} />
             </>
           )}
         </aside>
       </main>
       )}
 
-      <footer className="log-panel">
-        <div className="panel-heading">
+      <footer className="log-panel" data-collapsed={logCollapsed}>
+        <button
+          type="button"
+          className="log-toggle"
+          aria-expanded={!logCollapsed}
+          aria-label={t('logPanel.title')}
+          onClick={() => setLogCollapsed((current) => !current)}
+        >
           <RefreshCw size={16} />
           <span>{t('logPanel.title')}</span>
-        </div>
-        <div className="log-list">
-          {logs.length === 0 ? (
-            <p className="empty-text">{t('logPanel.empty')}</p>
-          ) : (
-            logs.map((entry) => (
-              <div key={entry.id} className={`log-row ${entry.level}`}>
-                <time>{entry.time}</time>
-                <span>{entry.message}</span>
-              </div>
-            ))
-          )}
-        </div>
-        {rawOutput ? (
-          <details className="raw-output-panel">
-            <summary>{rawOutput.title}</summary>
-            <textarea readOnly value={rawOutput.text} data-testid="raw-ai-output" />
-          </details>
+          {logCollapsed ? <ChevronUp size={15} /> : <ChevronDown size={15} />}
+        </button>
+        {!logCollapsed ? (
+          <>
+            <div className="log-list">
+              {logs.length === 0 ? (
+                <p className="empty-text">{t('logPanel.empty')}</p>
+              ) : (
+                logs.map((entry) => (
+                  <div key={entry.id} className={`log-row ${entry.level}`}>
+                    <time>{entry.time}</time>
+                    <span>{entry.message}</span>
+                  </div>
+                ))
+              )}
+            </div>
+            {rawOutput ? (
+              <details className="raw-output-panel">
+                <summary>{rawOutput.title}</summary>
+                <textarea readOnly value={rawOutput.text} data-testid="raw-ai-output" />
+              </details>
+            ) : null}
+          </>
         ) : null}
       </footer>
     </div>
@@ -404,6 +426,8 @@ function ToolbarButton(props: {
   icon: ComponentType<IconProps>
   label: string
   testId: string
+  priority?: 'primary'
+  variant?: 'ghost'
   disabled?: boolean
   onClick: () => void
 }) {
@@ -412,6 +436,8 @@ function ToolbarButton(props: {
     <button
       type="button"
       className="toolbar-button"
+      data-priority={props.priority || undefined}
+      data-variant={props.variant || undefined}
       disabled={props.disabled}
       onClick={props.onClick}
       title={props.label}

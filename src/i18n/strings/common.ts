@@ -59,12 +59,7 @@ export const commonStrings = {
   'studio.movePageUp': { en: 'Move page up', 'zh-TW': '頁面上移' },
   'studio.movePageDown': { en: 'Move page down', 'zh-TW': '頁面下移' },
   'studio.deletePage': { en: 'Delete page', 'zh-TW': '刪除頁面' },
-  'studio.deletePageConfirm': {
-    en: 'Delete page {n}? Its dialogue will be removed.',
-    'zh-TW': '刪除第 {n} 頁？其對白將一併刪除。',
-  },
   'studio.projectRowSummary': { en: '{source} / {mode}', 'zh-TW': '{source} / {mode}' },
-  'studio.emptyCanvas': { en: 'Import pages to start.', 'zh-TW': '先匯入頁面即可開始。' },
 
   // Whiteboard controls
   'whiteboard.zoomIn': { en: 'Zoom in', 'zh-TW': '放大' },
@@ -250,6 +245,19 @@ export const commonStrings = {
   'log.storyBibleSaved': { en: 'Story Bible saved.', 'zh-TW': '故事聖經已儲存。' },
   'log.dialogueSaved': { en: 'Dialogue saved.', 'zh-TW': '對白已儲存。' },
   'log.unknownError': { en: 'Unknown error', 'zh-TW': '未知錯誤' },
+
+  // Confirm dialog + toasts
+  'confirm.deletePageTitle': { en: 'Delete page?', 'zh-TW': '刪除頁面？' },
+  'confirm.deletePageMessage': { en: 'Delete page {n}? Its dialogue will be removed.', 'zh-TW': '刪除第 {n} 頁？其對白將一併刪除。' },
+  'confirm.delete': { en: 'Delete', 'zh-TW': '刪除' },
+  'confirm.cancel': { en: 'Cancel', 'zh-TW': '取消' },
+  'toast.dismiss': { en: 'Dismiss notification', 'zh-TW': '關閉通知' },
+  'toast.notifications': { en: 'Notifications', 'zh-TW': '通知' },
+
+  // Canvas empty state + batch progress
+  'canvas.emptyTitle': { en: 'No page selected', 'zh-TW': '尚未選擇頁面' },
+  'canvas.emptyHint': { en: 'Import images or a Pixiv artwork to start composing.', 'zh-TW': '匯入圖片或 Pixiv 作品即可開始創作。' },
+  'canvas.generating': { en: 'Generating {current}/{total}…', 'zh-TW': '生成中 {current}/{total}…' },
 
   // Raw AI output panel
   'raw.storyBibleTitle': { en: 'Story Bible Raw Output', 'zh-TW': '故事聖經原始輸出' },

@@ -19,7 +19,7 @@ test('Provider Lab creates a keyed provider, discovers models, tests capabilitie
 
   await page.getByLabel('Project title').fill(`E2E Project ${Date.now()}`)
   await page.getByRole('button', { name: /^Create$/ }).click()
-  await expect(page.getByText('Project created.')).toBeVisible()
+  await expect(page.locator('.log-list').getByText('Project created.')).toBeVisible()
 
   const providersLoad = page.waitForResponse((response) => response.url().includes('/api/providers') && response.status() === 200)
   const capabilitiesLoad = page.waitForResponse(
@@ -74,7 +74,7 @@ test('Provider Lab creates a keyed provider, discovers models, tests capabilitie
   )
   await page.getByTestId('toolbar-export-backup').click()
   const backupZip = (await (await backupResponse).json()) as { absolutePath: string }
-  await expect(page.getByText(/Backup exported/)).toBeVisible()
+  await expect(page.locator('.log-list').getByText(/Backup exported/)).toBeVisible()
   expect(await zipTextCorpus(backupZip.absolutePath)).not.toContain(dummySecret)
 
   const clipping = await page.evaluate(() =>
@@ -108,12 +108,12 @@ test('Pixiv import form downloads mocked artwork with saved cookie and keeps sec
   await openStudio(page)
   await page.getByLabel('Project title').fill(`Pixiv UI Project ${Date.now()}`)
   await page.getByRole('button', { name: /^Create$/ }).click()
-  await expect(page.getByText('Project created.')).toBeVisible()
+  await expect(page.locator('.log-list').getByText('Project created.')).toBeVisible()
 
   await page.getByTestId('tab-settings').click()
   await page.getByLabel('Pixiv Cookie').fill(pixivCookie)
   await page.getByRole('button', { name: /Save Settings/ }).click()
-  await expect(page.getByText('Settings saved to system credential store.')).toBeVisible()
+  await expect(page.locator('.log-list').getByText('Settings saved to system credential store.')).toBeVisible()
   await expect(page.getByLabel('Pixiv Cookie')).toHaveValue('')
   await expect(page.getByText(pixivCookie)).toHaveCount(0)
 
@@ -125,7 +125,7 @@ test('Pixiv import form downloads mocked artwork with saved cookie and keeps sec
   )
   await page.locator('.pixiv-form').getByRole('button', { name: /^Import Pixiv$/ }).click()
   await pixivImportResponse
-  await expect(page.getByText('Pixiv artwork imported.')).toBeVisible()
+  await expect(page.locator('.log-list').getByText('Pixiv artwork imported.')).toBeVisible()
   await expect(page.getByTestId('page-thumb')).toHaveCount(1)
   await expect(page.locator('.canvas-meta')).toContainText('320x480')
 
@@ -144,7 +144,7 @@ test('Pixiv import form downloads mocked artwork with saved cookie and keeps sec
   )
   await page.getByTestId('toolbar-export-backup').click()
   const backupZip = (await (await backupResponse).json()) as { absolutePath: string }
-  await expect(page.getByText(/Backup exported/)).toBeVisible()
+  await expect(page.locator('.log-list').getByText(/Backup exported/)).toBeVisible()
   expect(await zipTextCorpus(backupZip.absolutePath)).not.toContain(pixivCookie)
   expect(directMockRequests).toEqual([])
 })
@@ -161,7 +161,7 @@ test('raw AI output is shown when model JSON repair fails', async ({ page }) => 
   await clearProviderProfiles(page)
   await page.getByLabel('Project title').fill(`Raw Output Project ${Date.now()}`)
   await page.getByRole('button', { name: /^Create$/ }).click()
-  await expect(page.getByText('Project created.')).toBeVisible()
+  await expect(page.locator('.log-list').getByText('Project created.')).toBeVisible()
 
   const localImportResponse = page.waitForResponse(
     (response) => response.url().includes('/api/import/local') && response.status() === 200,
@@ -201,7 +201,7 @@ test('raw AI output is shown when model JSON repair fails', async ({ page }) => 
   expect(capabilityResponse.ok()).toBe(true)
 
   await page.getByTestId('toolbar-analyze-story').click()
-  await expect(page.getByText(/AI output could not be parsed after repair/)).toBeVisible()
+  await expect(page.locator('.log-list').getByText(/AI output could not be parsed after repair/)).toBeVisible()
   await page.getByText('Raw AI Output').click()
   await expect(page.getByTestId('raw-ai-output')).toHaveValue(/invalid-json-smoke output/)
   expect(directProviderRequests).toEqual([])
@@ -219,7 +219,7 @@ test('active generation jobs can be cancelled from the toolbar', async ({ page }
   await clearProviderProfiles(page)
   await page.getByLabel('Project title').fill(`Cancel Project ${Date.now()}`)
   await page.getByRole('button', { name: /^Create$/ }).click()
-  await expect(page.getByText('Project created.')).toBeVisible()
+  await expect(page.locator('.log-list').getByText('Project created.')).toBeVisible()
 
   const localImportResponse = page.waitForResponse(
     (response) => response.url().includes('/api/import/local') && response.status() === 200,
@@ -261,8 +261,8 @@ test('active generation jobs can be cancelled from the toolbar', async ({ page }
   await page.getByTestId('toolbar-analyze-story').click()
   await expect(page.getByTestId('toolbar-cancel-job')).toBeEnabled()
   await page.getByTestId('toolbar-cancel-job').click()
-  await expect(page.getByText('Cancellation requested.')).toBeVisible()
-  await expect(page.getByText('Job cancelled.')).toBeVisible()
+  await expect(page.locator('.log-list').getByText('Cancellation requested.')).toBeVisible()
+  await expect(page.locator('.log-list').getByText('Job cancelled.')).toBeVisible()
   await expect(page.getByTestId('toolbar-cancel-job')).toBeDisabled()
   expect(directProviderRequests).toEqual([])
 })
@@ -289,7 +289,7 @@ test('Story Continue entry inspects references and generates a local continuatio
     buffer: Buffer.from(continuationSvg()),
   })
   await inspectResponse
-  await expect(page.getByText('1 reference image(s) inspected.')).toBeVisible()
+  await expect(page.locator('.log-list').getByText('1 reference image(s) inspected.')).toBeVisible()
   await expect(page.getByTestId('continuation-reference-row')).toContainText('continue-reference.svg')
   await expect(page.locator('.metadata-editor').getByLabel('Tags')).toHaveValue(/same heroine/)
 
@@ -299,7 +299,7 @@ test('Story Continue entry inspects references and generates a local continuatio
   )
   await page.locator('.continue-controls').getByRole('button', { name: /Generate/ }).click()
   await generateResponse
-  await expect(page.getByText('Continuation generated with local mock engine.')).toBeVisible()
+  await expect(page.locator('.log-list').getByText('Continuation generated with local mock engine.')).toBeVisible()
   await expect(page.getByTestId('continuation-output')).toBeVisible()
   await page.getByText('Expanded prompt').click()
   await expect(page.getByTestId('continuation-expanded-prompt')).toHaveValue(/school rooftop/)
@@ -311,7 +311,7 @@ test('workspace remains usable without page-level horizontal overflow on narrow 
   await openStudio(page)
   await page.getByLabel('Project title').fill(`Narrow Project ${Date.now()}`)
   await page.getByRole('button', { name: /^Create$/ }).click()
-  await expect(page.getByText('Project created.')).toBeVisible()
+  await expect(page.locator('.log-list').getByText('Project created.')).toBeVisible()
 
   const localImportResponse = page.waitForResponse(
     (response) => response.url().includes('/api/import/local') && response.status() === 200,
@@ -352,7 +352,7 @@ test('long page lists remain scrollable without horizontal clipping', async ({ p
   await openStudio(page)
   await page.getByLabel('Project title').fill(`Long Project ${Date.now()}`)
   await page.getByRole('button', { name: /^Create$/ }).click()
-  await expect(page.getByText('Project created.')).toBeVisible()
+  await expect(page.locator('.log-list').getByText('Project created.')).toBeVisible()
 
   const files = Array.from({ length: 16 }, (_, index) => ({
     name: `long-page-${String(index + 1).padStart(2, '0')}.svg`,
@@ -364,7 +364,7 @@ test('long page lists remain scrollable without horizontal clipping', async ({ p
   )
   await page.getByTestId('local-image-input').setInputFiles(files)
   await localImportResponse
-  await expect(page.getByText('16 image(s) imported.')).toBeVisible()
+  await expect(page.locator('.log-list').getByText('16 image(s) imported.')).toBeVisible()
   await expect(page.getByTestId('page-thumb')).toHaveCount(16)
 
   const railMetrics = await page.locator('.left-rail').evaluate((element) => ({
@@ -395,7 +395,7 @@ test('main manga workflow imports local art, generates editable dialogue, export
   await clearProviderProfiles(page)
   await page.getByLabel('Project title').fill(`Workflow Project ${Date.now()}`)
   await page.getByRole('button', { name: /^Create$/ }).click()
-  await expect(page.getByText('Project created.')).toBeVisible()
+  await expect(page.locator('.log-list').getByText('Project created.')).toBeVisible()
 
   const localImportResponse = page.waitForResponse(
     (response) => response.url().includes('/api/import/local') && response.status() === 200,
@@ -413,12 +413,12 @@ test('main manga workflow imports local art, generates editable dialogue, export
     },
   ])
   await localImportResponse
-  await expect(page.getByText('2 image(s) imported.')).toBeVisible()
+  await expect(page.locator('.log-list').getByText('2 image(s) imported.')).toBeVisible()
   await expect(page.getByTestId('page-thumb')).toHaveCount(2)
   await expect(page.locator('.canvas-meta')).toContainText('800x1000')
 
   await page.getByTestId('toolbar-analyze-story').click()
-  await expect(page.getByText('Story Bible generated with local mock engine.')).toBeVisible()
+  await expect(page.locator('.log-list').getByText('Story Bible generated with local mock engine.')).toBeVisible()
   await expect(page.getByTestId('story-synopsis-input')).toBeVisible()
 
   const storySaveResponse = page.waitForResponse(
@@ -427,7 +427,7 @@ test('main manga workflow imports local art, generates editable dialogue, export
   await page.getByTestId('story-synopsis-input').fill('手动修改后的故事圣经。')
   await page.getByTestId('story-synopsis-input').blur()
   await storySaveResponse
-  await expect(page.getByText('Story Bible saved.').first()).toBeVisible()
+  await expect(page.locator('.log-list').getByText('Story Bible saved.').first()).toBeVisible()
 
   await page.getByTestId('tab-characters').click()
   const characterSaveResponse = page.waitForResponse(
@@ -436,14 +436,14 @@ test('main manga workflow imports local art, generates editable dialogue, export
   await page.getByTestId('character-name-input').first().fill('手动夏海')
   await page.getByTestId('character-name-input').first().blur()
   await characterSaveResponse
-  await expect(page.getByText('Story Bible saved.').first()).toBeVisible()
+  await expect(page.locator('.log-list').getByText('Story Bible saved.').first()).toBeVisible()
 
   await page.getByTestId('toolbar-generate-page').click()
-  await expect(page.getByText('Page 1 dialogue generated.')).toBeVisible()
+  await expect(page.locator('.log-list').getByText('Page 1 dialogue generated.')).toBeVisible()
   await expect(page.getByTestId('page-thumb').first()).toContainText('3 lines / complete')
   await page.getByTestId('toolbar-generate-all').click()
-  await expect(page.getByText('All pages generated.')).toBeVisible()
-  await expect(page.getByText('1 completed page(s) skipped (already generated).')).toBeVisible()
+  await expect(page.locator('.log-list').getByText('All pages generated.')).toBeVisible()
+  await expect(page.locator('.log-list').getByText('1 completed page(s) skipped (already generated).')).toBeVisible()
   await expect(page.getByTestId('page-thumb').filter({ hasText: '3 lines / complete' })).toHaveCount(2)
   await page.getByTestId('tab-dialogue').click()
   await expect(page.getByTestId('dialogue-chip')).toHaveCount(3)
@@ -455,7 +455,7 @@ test('main manga workflow imports local art, generates editable dialogue, export
   await rightRail.getByLabel('Text').fill('测试对白已经手动改过。')
   await rightRail.getByLabel('Text').blur()
   await dialoguePatchResponse
-  await expect(page.getByText('Dialogue saved.')).toBeVisible()
+  await expect(page.locator('.log-list').getByText('Dialogue saved.')).toBeVisible()
 
   const lockResponse = page.waitForResponse(
     (response) => response.url().includes('/api/dialogues/') && response.request().method() === 'PATCH' && response.status() === 200,
@@ -466,7 +466,7 @@ test('main manga workflow imports local art, generates editable dialogue, export
 
   // Bulk generation must not overwrite pages that already hold (possibly hand-edited) dialogue.
   await page.getByTestId('toolbar-generate-all').click()
-  await expect(page.getByText('All pages are already complete. Use Generate Page to regenerate a page.')).toBeVisible()
+  await expect(page.locator('.log-list').getByText('All pages are already complete. Use Generate Page to regenerate a page.')).toBeVisible()
   await expect(rightRail.getByTestId('dialogue-chip').filter({ hasText: '测试对白已经手动改过。' })).toBeVisible()
 
   await page.getByTestId('tab-layout').click()
@@ -475,14 +475,14 @@ test('main manga workflow imports local art, generates editable dialogue, export
   )
   await rightRail.getByRole('button', { name: /Avoid overlap/ }).click()
   await layoutResponse
-  await expect(page.getByText('Layout adjusted.')).toBeVisible()
+  await expect(page.locator('.log-list').getByText('Layout adjusted.')).toBeVisible()
 
   const exportResponse = page.waitForResponse(
     (response) => response.url().includes('/api/export/zip') && response.status() === 200,
   )
   await page.getByTestId('toolbar-export-zip').click()
   const exportedZip = await (await exportResponse).json()
-  await expect(page.getByText(/Exported .*\.zip/)).toBeVisible()
+  await expect(page.locator('.log-list').getByText(/Exported .*\.zip/)).toBeVisible()
   const zip = await JSZip.loadAsync(await readFile(exportedZip.absolutePath))
   expect(zip.file('manifest.json')).toBeTruthy()
   const renderedPage = zip.file('page_001.png')
@@ -496,20 +496,20 @@ test('main manga workflow imports local art, generates editable dialogue, export
   )
   await page.getByTestId('toolbar-export-backup').click()
   const backupZip = await (await backupResponse).json()
-  await expect(page.getByText(/Backup exported/)).toBeVisible()
+  await expect(page.locator('.log-list').getByText(/Backup exported/)).toBeVisible()
 
   const restoreResponse = page.waitForResponse(
     (response) => response.url().includes('/api/import/project-backup') && response.status() === 200,
   )
   await page.getByTestId('project-backup-input').setInputFiles(backupZip.absolutePath)
   await restoreResponse
-  await expect(page.getByText(/Backup restored:/)).toBeVisible()
+  await expect(page.locator('.log-list').getByText(/Backup restored:/)).toBeVisible()
   await expect(page.getByTestId('page-thumb')).toHaveCount(2)
   await page.getByTestId('tab-dialogue').click()
   await expect(page.getByTestId('dialogue-chip').filter({ hasText: '测试对白已经手动改过。' })).toBeVisible()
 
   await page.reload()
-  await expect(page.getByText('Studio ready. Local database loaded.')).toBeVisible()
+  await expect(page.locator('.log-list').getByText('Studio ready. Local database loaded.')).toBeVisible()
   await expect(page.getByTestId('page-thumb')).toHaveCount(2)
   await page.getByTestId('tab-dialogue').click()
   await expect(page.getByTestId('dialogue-chip').filter({ hasText: '测试对白已经手动改过。' })).toBeVisible()
@@ -524,7 +524,7 @@ async function openStudio(page: Page) {
   await page.goto('/')
   await expect(page).toHaveTitle(/Pixiv-to-Manga Studio/)
   await expect(page.getByRole('heading', { name: 'Pixiv-to-Manga Studio' })).toBeVisible()
-  await expect(page.getByText('Studio ready. Local database loaded.')).toBeVisible()
+  await expect(page.locator('.log-list').getByText('Studio ready. Local database loaded.')).toBeVisible()
 }
 
 async function clearProviderProfiles(page: Page) {
