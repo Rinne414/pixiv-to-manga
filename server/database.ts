@@ -22,6 +22,7 @@ import type {
   ProjectMode,
   ProjectSource,
   ProviderProfile,
+  ReadingDirection,
   StoryBible,
 } from '../src/shared/types'
 
@@ -74,6 +75,13 @@ export class StudioDatabase {
       )
       .run(id, input.title, input.mode, input.source, now, now, null)
     return this.getProject(id)
+  }
+
+  updateProjectReadingDirection(projectId: string, readingDirection: ReadingDirection): Project {
+    this.getProject(projectId)
+    this.db.prepare('UPDATE projects SET readingDirection = ? WHERE id = ?').run(readingDirection, projectId)
+    this.touchProject(projectId)
+    return this.getProject(projectId)
   }
 
   upsertSetting(key: string, value: string): void {
@@ -565,6 +573,7 @@ export class StudioDatabase {
         title TEXT NOT NULL,
         mode TEXT NOT NULL,
         source TEXT NOT NULL,
+        readingDirection TEXT NOT NULL DEFAULT 'rtl',
         createdAt TEXT NOT NULL,
         updatedAt TEXT NOT NULL,
         storyBibleJson TEXT
@@ -663,6 +672,7 @@ export class StudioDatabase {
     this.ensureColumn('model_capabilities', 'supportsImageGeneration', 'INTEGER NOT NULL DEFAULT 0')
     this.ensureColumn('dialogues', 'tailX', 'REAL')
     this.ensureColumn('dialogues', 'tailY', 'REAL')
+    this.ensureColumn('projects', 'readingDirection', "TEXT NOT NULL DEFAULT 'rtl'")
   }
 
   private ensureColumn(table: string, column: string, definition: string): void {
@@ -725,6 +735,7 @@ function projectFromRow(row: Row): Project {
     title: String(row.title),
     mode: row.mode as ProjectMode,
     source: row.source as ProjectSource,
+    readingDirection: row.readingDirection === 'ltr' ? 'ltr' : 'rtl',
     createdAt: String(row.createdAt),
     updatedAt: String(row.updatedAt),
     storyBible,

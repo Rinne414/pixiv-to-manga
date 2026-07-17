@@ -1,5 +1,7 @@
+import { readFile } from 'node:fs/promises'
 import { expect, test } from '@playwright/test'
 import type { Page } from '@playwright/test'
+import JSZip from 'jszip'
 import { estimateVerticalTextBox } from '../src/shared/layout'
 import { toVerticalColumns } from '../src/shared/text'
 
@@ -342,6 +344,59 @@ test('single-page export downloads a rendered PNG', async ({ page }) => {
   const download = await downloadPromise
   expect(download.suggestedFilename()).toMatch(/-page-001\.png$/)
   await expect(page.locator('.log-list').getByText('Page 1 exported.')).toBeVisible()
+})
+
+test('reading direction persists and CBZ export embeds ComicInfo metadata', async ({ page }) => {
+  await openStudio(page)
+  await page.getByLabel('Project title').fill(`CBZ Export ${Date.now()}`)
+  await page.getByRole('button', { name: /^Create$/ }).click()
+  await expect(page.locator('.log-list').getByText('Project created.')).toBeVisible()
+
+  const localImportResponse = page.waitForResponse(
+    (response) => response.url().includes('/api/import/local') && response.status() === 200,
+  )
+  await page.getByTestId('local-image-input').setInputFiles({
+    name: 'cbz-page.svg',
+    mimeType: 'image/svg+xml',
+    buffer: Buffer.from(whiteboardSvg()),
+  })
+  await localImportResponse
+  await expect(page.locator('.canvas-meta')).toContainText('Page 1')
+
+  // Manga default is right-to-left; switching to LTR persists on the project.
+  await page.getByTestId('tab-layout').click()
+  await expect(page.getByTestId('reading-direction-rtl')).toHaveClass(/active/)
+  const patchToLtr = page.waitForResponse(
+    (response) => response.url().includes('/api/projects/') && response.request().method() === 'PATCH' && response.status() === 200,
+  )
+  await page.getByTestId('reading-direction-ltr').click()
+  await patchToLtr
+  await expect(page.getByTestId('reading-direction-ltr')).toHaveClass(/active/)
+
+  await page.reload()
+  await page.getByTestId('tab-layout').click()
+  await expect(page.getByTestId('reading-direction-ltr')).toHaveClass(/active/)
+
+  // Back to RTL so the exported CBZ carries the manga page-turn direction.
+  const patchToRtl = page.waitForResponse(
+    (response) => response.url().includes('/api/projects/') && response.request().method() === 'PATCH' && response.status() === 200,
+  )
+  await page.getByTestId('reading-direction-rtl').click()
+  await patchToRtl
+
+  const exportResponse = page.waitForResponse(
+    (response) => response.url().includes('/api/export/zip') && response.status() === 200,
+  )
+  await page.getByTestId('toolbar-export-cbz').click()
+  const exported = (await (await exportResponse).json()) as { fileName: string; absolutePath: string }
+  expect(exported.fileName).toMatch(/\.cbz$/)
+  await expect(page.locator('.log-list').getByText(/Exported .*\.cbz/)).toBeVisible()
+
+  const cbz = await JSZip.loadAsync(await readFile(exported.absolutePath))
+  const comicInfo = await cbz.file('ComicInfo.xml')!.async('string')
+  expect(comicInfo).toContain('<Manga>YesAndRightToLeft</Manga>')
+  expect(cbz.file('page_001.png')).toBeTruthy()
+  expect(cbz.file('manifest.json')).toBeNull()
 })
 
 test('dragging the tail handle sets the tail without moving the bubble', async ({ page }) => {

@@ -30,6 +30,8 @@ const backupProjectDataSchema = z.object({
     title: z.string().min(1).max(120),
     mode: z.enum(['story', 'translation']),
     source: z.enum(['pixiv', 'local', 'mixed', 'sample']),
+    // Absent in pre-v0.4 backups; restore falls back to the DB default ('rtl').
+    readingDirection: z.enum(['ltr', 'rtl']).optional(),
     storyBible: storyBibleSchema.optional(),
   }),
   pages: z.array(
@@ -231,6 +233,9 @@ export async function importProjectBackup(db: StudioDatabase, file: MultipartFil
     mode: data.project.mode as ProjectMode,
     source: data.project.source as ProjectSource,
   })
+  if (data.project.readingDirection) {
+    db.updateProjectReadingDirection(restoredProject.id, data.project.readingDirection)
+  }
   const assetIdMap = new Map<string, string>()
   const pageIdMap = new Map<string, string>()
   const characterIdMap = new Map<string, string>()

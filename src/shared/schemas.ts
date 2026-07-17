@@ -103,6 +103,8 @@ export const generatePageSchema = z.object({
 
 export const exportZipSchema = z.object({
   projectId: z.string(),
+  // 'zip' bundles PNGs + manifest.json; 'cbz' emits a comic-reader archive with ComicInfo.xml.
+  format: z.enum(['zip', 'cbz']).default('zip'),
   pages: z
     .array(
       z.object({
@@ -111,6 +113,10 @@ export const exportZipSchema = z.object({
       }),
     )
     .min(1),
+})
+
+export const updateProjectSchema = z.object({
+  readingDirection: z.enum(['ltr', 'rtl']),
 })
 
 export const exportProjectBackupSchema = z.object({

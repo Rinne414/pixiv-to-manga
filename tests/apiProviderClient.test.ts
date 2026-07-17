@@ -275,6 +275,7 @@ const projectDetail: ProjectDetail = {
     title: 'Async Project',
     mode: 'story',
     source: 'local',
+    readingDirection: 'rtl',
     createdAt: '2026-06-20T00:00:00.000Z',
     updatedAt: '2026-06-20T00:00:00.000Z',
   },

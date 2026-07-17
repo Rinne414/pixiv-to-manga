@@ -8,6 +8,7 @@ import type {
   PageStatus,
   Project,
   ProjectDetail,
+  ReadingDirection,
   SecretStatus,
   StoryBible,
 } from './shared/types'
@@ -341,10 +342,21 @@ export function deleteCustomFont(id: string): Promise<{ ok: boolean }> {
 
 export function exportZip(input: {
   projectId: string
+  format?: 'zip' | 'cbz'
   pages: Array<{ pageId: string; dataUrl: string }>
 }): Promise<{ fileName: string; absolutePath: string; url: string }> {
   return request<{ fileName: string; absolutePath: string; url: string }>('/api/export/zip', {
     method: 'POST',
+    body: JSON.stringify(input),
+  })
+}
+
+export function updateProjectSettings(
+  projectId: string,
+  input: { readingDirection: ReadingDirection },
+): Promise<ProjectDetail> {
+  return request<ProjectDetail>(`/api/projects/${projectId}`, {
+    method: 'PATCH',
     body: JSON.stringify(input),
   })
 }

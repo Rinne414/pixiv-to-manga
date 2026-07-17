@@ -6,8 +6,11 @@ import JSZip from 'jszip'
 import { afterEach, describe, expect, it } from 'vitest'
 import type { MultipartFile } from '@fastify/multipart'
 import { StudioDatabase } from '../server/database'
-import { exportProjectBackup } from '../server/exporter'
+import { buildComicInfoXml, exportProjectBackup, exportRenderedZip } from '../server/exporter'
 import { importProjectBackup } from '../server/importers'
+
+const PNG_1X1_DATA_URL =
+  'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=='
 
 function createDb(): StudioDatabase {
   const dir = mkdtempSync(path.join(os.tmpdir(), 'ptm-export-test-'))
@@ -96,5 +99,81 @@ describe('project backup export', () => {
     expect(restored.characters[0].name).toBe('夏海')
     expect(restored.dialogues[0].text).toBe('备份对白')
     expect(restored.dialogues[0].pageId).toBe(restored.pages[0].id)
+  })
+
+  it('round-trips the project reading direction through backup and restore', async () => {
+    const db = createDb()
+    const project = db.createProject({ title: 'Direction Project', mode: 'story', source: 'local' })
+    db.updateProjectReadingDirection(project.id, 'ltr')
+
+    const result = await exportProjectBackup(db, { projectId: project.id })
+    const restored = await importProjectBackup(db, {
+      mimetype: 'application/zip',
+      toBuffer: async () => readFile(result.absolutePath),
+    } as MultipartFile)
+    expect(restored.project.readingDirection).toBe('ltr')
+  })
+})
+
+describe('rendered archive export', () => {
+  afterEach(() => {
+    delete process.env.PTM_DATA_DIR
+  })
+
+  it('CBZ export writes pages plus ComicInfo.xml carrying the RTL reading direction', async () => {
+    const db = createDb()
+    const project = db.createProject({ title: 'CBZ & Friends', mode: 'story', source: 'local' })
+
+    const result = await exportRenderedZip(db, {
+      projectId: project.id,
+      format: 'cbz',
+      pages: [{ pageId: 'page-1', dataUrl: PNG_1X1_DATA_URL }],
+    })
+
+    expect(result.fileName.endsWith('.cbz')).toBe(true)
+    const archive = await JSZip.loadAsync(await readFile(result.absolutePath))
+    const comicInfo = await archive.file('ComicInfo.xml')!.async('string')
+    expect(comicInfo).toContain('<Manga>YesAndRightToLeft</Manga>')
+    expect(comicInfo).toContain('<Title>CBZ &amp; Friends</Title>')
+    expect(comicInfo).toContain('<PageCount>1</PageCount>')
+    expect(archive.file('page_001.png')).toBeTruthy()
+    expect(archive.file('manifest.json')).toBeNull()
+  })
+
+  it('LTR projects mark CBZ as Manga=No while zip format keeps the app manifest', async () => {
+    const db = createDb()
+    const project = db.createProject({ title: 'LTR Comic', mode: 'story', source: 'local' })
+    db.updateProjectReadingDirection(project.id, 'ltr')
+
+    const cbz = await exportRenderedZip(db, {
+      projectId: project.id,
+      format: 'cbz',
+      pages: [{ pageId: 'page-1', dataUrl: PNG_1X1_DATA_URL }],
+    })
+    const cbzArchive = await JSZip.loadAsync(await readFile(cbz.absolutePath))
+    expect(await cbzArchive.file('ComicInfo.xml')!.async('string')).toContain('<Manga>No</Manga>')
+
+    const zip = await exportRenderedZip(db, {
+      projectId: project.id,
+      pages: [{ pageId: 'page-1', dataUrl: PNG_1X1_DATA_URL }],
+    })
+    expect(zip.fileName.endsWith('.zip')).toBe(true)
+    const zipArchive = await JSZip.loadAsync(await readFile(zip.absolutePath))
+    expect(zipArchive.file('ComicInfo.xml')).toBeNull()
+    const manifest = JSON.parse(await zipArchive.file('manifest.json')!.async('string')) as {
+      project: { readingDirection: string }
+      pages: Array<{ file: string }>
+    }
+    expect(manifest.project.readingDirection).toBe('ltr')
+    expect(manifest.pages[0].file).toBe('page_001.png')
+  })
+})
+
+describe('buildComicInfoXml', () => {
+  it('escapes XML-reserved characters in titles', () => {
+    const xml = buildComicInfoXml({ title: `<A & "B" 'C'>`, pageCount: 3, readingDirection: 'rtl' })
+    expect(xml).toContain('<Title>&lt;A &amp; &quot;B&quot; &apos;C&apos;&gt;</Title>')
+    expect(xml).toContain('<PageCount>3</PageCount>')
+    expect(xml).toContain('<Manga>YesAndRightToLeft</Manga>')
   })
 })

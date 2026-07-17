@@ -3,34 +3,77 @@ import { copyFile, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { ZipArchive } from 'archiver'
 import { getAppDataDir, getExportsDir } from './paths'
+import type { ReadingDirection } from '../src/shared/types'
 import type { StudioDatabase } from './database'
+
+export type RenderedExportFormat = 'zip' | 'cbz'
 
 export async function exportRenderedZip(
   db: StudioDatabase,
-  input: { projectId: string; pages: Array<{ pageId: string; dataUrl: string }> },
+  input: { projectId: string; format?: RenderedExportFormat; pages: Array<{ pageId: string; dataUrl: string }> },
 ): Promise<{ fileName: string; absolutePath: string; url: string }> {
   const project = db.getProject(input.projectId)
-  const exportId = `${project.title.replace(/[^\w\u4e00-\u9fa5-]+/g, '_')}-${Date.now()}`
+  const format = input.format || 'zip'
+  const exportId = `${safeExportName(project.title)}-${Date.now()}`
   const exportsDir = getExportsDir()
   const exportDir = path.join(exportsDir, exportId)
   mkdirSync(exportDir, { recursive: true })
 
-  const manifest = {
-    project,
-    exportedAt: new Date().toISOString(),
-    pages: input.pages.map((page, index) => ({ pageId: page.pageId, file: `page_${String(index + 1).padStart(3, '0')}.png` })),
-  }
-  await writeFile(path.join(exportDir, 'manifest.json'), JSON.stringify(manifest, null, 2), 'utf8')
-
   for (let index = 0; index < input.pages.length; index += 1) {
     const encoded = input.pages[index].dataUrl.replace(/^data:image\/png;base64,/, '')
-    await writeFile(path.join(exportDir, `page_${String(index + 1).padStart(3, '0')}.png`), Buffer.from(encoded, 'base64'))
+    await writeFile(path.join(exportDir, pageFileName(index)), Buffer.from(encoded, 'base64'))
   }
 
-  const zipName = `${exportId}.zip`
-  const zipPath = path.join(exportsDir, zipName)
-  await zipDirectory(exportDir, zipPath)
-  return { fileName: zipName, absolutePath: zipPath, url: `/assets/exports/${zipName}` }
+  if (format === 'cbz') {
+    // CBZ readers (Komga, Kavita, Mihon, CDisplayEx, ...) read title and page-turn
+    // direction from ComicInfo.xml; the app-internal manifest stays zip-only.
+    await writeFile(
+      path.join(exportDir, 'ComicInfo.xml'),
+      buildComicInfoXml({ title: project.title, pageCount: input.pages.length, readingDirection: project.readingDirection }),
+      'utf8',
+    )
+  } else {
+    const manifest = {
+      project,
+      exportedAt: new Date().toISOString(),
+      pages: input.pages.map((page, index) => ({ pageId: page.pageId, file: pageFileName(index) })),
+    }
+    await writeFile(path.join(exportDir, 'manifest.json'), JSON.stringify(manifest, null, 2), 'utf8')
+  }
+
+  const archiveName = `${exportId}.${format}`
+  const archivePath = path.join(exportsDir, archiveName)
+  await zipDirectory(exportDir, archivePath)
+  return { fileName: archiveName, absolutePath: archivePath, url: `/assets/exports/${archiveName}` }
+}
+
+/** ComicRack-schema ComicInfo.xml; the de-facto metadata standard for CBZ archives. */
+export function buildComicInfoXml(input: { title: string; pageCount: number; readingDirection: ReadingDirection }): string {
+  const manga = input.readingDirection === 'rtl' ? 'YesAndRightToLeft' : 'No'
+  return [
+    '<?xml version="1.0" encoding="utf-8"?>',
+    '<ComicInfo xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:xsd="http://www.w3.org/2001/XMLSchema">',
+    `  <Title>${escapeXml(input.title)}</Title>`,
+    `  <Series>${escapeXml(input.title)}</Series>`,
+    `  <PageCount>${input.pageCount}</PageCount>`,
+    '  <LanguageISO>zh</LanguageISO>',
+    `  <Manga>${manga}</Manga>`,
+    '</ComicInfo>',
+    '',
+  ].join('\n')
+}
+
+function pageFileName(index: number): string {
+  return `page_${String(index + 1).padStart(3, '0')}.png`
+}
+
+function escapeXml(value: string): string {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&apos;')
 }
 
 export async function exportProjectBackup(

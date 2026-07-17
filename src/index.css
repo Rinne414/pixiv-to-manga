@@ -915,6 +915,17 @@ select:focus {
   overflow-wrap: anywhere;
 }
 
+.field-stack {
+  display: grid;
+  gap: 6px;
+}
+
+.field-label {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
 .story-readout {
   display: grid;
   gap: 10px;

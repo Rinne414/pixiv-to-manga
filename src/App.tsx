@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import type { ComponentType } from 'react'
 import {
+  Archive,
   BookOpen,
   ChevronDown,
   ChevronUp,
@@ -134,6 +135,7 @@ function App() {
               <ToolbarButton icon={CircleStop} label={t('toolbar.cancel')} testId="toolbar-cancel-job" variant="ghost" disabled={!currentJobId} onClick={studio.handleCancelCurrentJob} />
               <span className="toolbar-divider" />
               <ToolbarButton icon={Download} label={t('toolbar.exportZip')} testId="toolbar-export-zip" disabled={!canRun || !detail?.pages.length} onClick={studio.handleExportZip} />
+              <ToolbarButton icon={Archive} label={t('toolbar.exportCbz')} testId="toolbar-export-cbz" disabled={!canRun || !detail?.pages.length} onClick={studio.handleExportCbz} />
               <ToolbarButton icon={ImageDown} label={t('toolbar.exportPage')} testId="toolbar-export-page" disabled={!canRun || !activePage} onClick={studio.handleExportActivePage} />
               <ToolbarButton icon={Save} label={t('toolbar.exportBackup')} testId="toolbar-export-backup" variant="ghost" disabled={!canRun} onClick={studio.handleExportBackup} />
               <ToolbarButton icon={ArchiveRestore} label={t('toolbar.restoreBackup')} testId="toolbar-restore-backup" variant="ghost" disabled={Boolean(busy)} onClick={() => backupInputRef.current?.click()} />
@@ -361,6 +363,8 @@ function App() {
               setRangeFrom={studio.setRangeFromInput}
               setRangeTo={studio.setRangeToInput}
               onGenerateRange={studio.handleGenerateRange}
+              readingDirection={detail?.project.readingDirection}
+              onReadingDirectionChange={studio.handleSetReadingDirection}
               selectedDialogue={selectedDialogue}
               onCommit={studio.commitDialogue}
               onAvoidOverlap={studio.handleAvoidOverlap}

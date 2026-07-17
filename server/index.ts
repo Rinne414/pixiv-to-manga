@@ -28,6 +28,7 @@ import {
   pixivImportSchema,
   secretUpdateSchema,
   storyBibleSchema,
+  updateProjectSchema,
 } from '../src/shared/schemas'
 
 const PORT = Number(process.env.PTM_SERVER_PORT || 4174)
@@ -92,6 +93,13 @@ server.post('/api/projects', async (request) => {
 
 server.get('/api/projects/:id', async (request) => {
   const { id } = request.params as { id: string }
+  return db.getProjectDetail(id)
+})
+
+server.patch('/api/projects/:id', async (request) => {
+  const { id } = request.params as { id: string }
+  const input = updateProjectSchema.parse(request.body)
+  db.updateProjectReadingDirection(id, input.readingDirection)
   return db.getProjectDetail(id)
 })
 

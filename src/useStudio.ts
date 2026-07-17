@@ -1,6 +1,17 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { ChangeEvent, FormEvent } from 'react'
-import type { Dialogue, FontAsset, JobEvent, Page, PageStatus, Project, ProjectDetail, SecretStatus, StoryBible } from './shared/types'
+import type {
+  Dialogue,
+  FontAsset,
+  JobEvent,
+  Page,
+  PageStatus,
+  Project,
+  ProjectDetail,
+  ReadingDirection,
+  SecretStatus,
+  StoryBible,
+} from './shared/types'
 import { resolveDialogueCollisions } from './shared/layout'
 import { renderPageToDataUrl, renderProjectPages } from './canvasExport'
 import { registerCustomFont } from './fonts'
@@ -703,17 +714,34 @@ export function useStudio() {
     })
   }
 
-  async function handleExportZip() {
+  async function exportRenderedArchive(format: 'zip' | 'cbz', taskLabel: string) {
     if (!detail) return
-    await runTask(t('toolbar.exportZip'), async () => {
+    await runTask(taskLabel, async () => {
       const pages = await renderProjectPages(detail)
       if (!pages.length) {
         throw new Error(t('log.noPagesToExport'))
       }
-      const result = await api.exportZip({ projectId: detail.project.id, pages })
+      const result = await api.exportZip({ projectId: detail.project.id, format, pages })
       setHasExported(true)
       pushLog(t('log.exported', { file: result.fileName }), 'success')
       window.open(result.url, '_blank', 'noopener,noreferrer')
+    })
+  }
+
+  async function handleExportZip() {
+    await exportRenderedArchive('zip', t('toolbar.exportZip'))
+  }
+
+  async function handleExportCbz() {
+    await exportRenderedArchive('cbz', t('toolbar.exportCbz'))
+  }
+
+  async function handleSetReadingDirection(readingDirection: ReadingDirection) {
+    if (!detail || detail.project.readingDirection === readingDirection) return
+    await runTask(t('log.savingDirection'), async () => {
+      const next = await api.updateProjectSettings(detail.project.id, { readingDirection })
+      acceptDetail(next)
+      pushLog(t('log.readingDirectionSaved'), 'success', { toast: false })
     })
   }
 
@@ -821,8 +849,10 @@ export function useStudio() {
     handleMovePage,
     handleDeletePage,
     handleExportZip,
+    handleExportCbz,
     handleExportActivePage,
     handleExportBackup,
+    handleSetReadingDirection,
     handleSaveSettings,
     handleUploadFont,
     handleDeleteCustomFont,

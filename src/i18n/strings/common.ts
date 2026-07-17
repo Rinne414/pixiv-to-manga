@@ -28,6 +28,7 @@ export const commonStrings = {
   'toolbar.redo': { en: 'Redo', 'zh-TW': '重做' },
   'toolbar.cancel': { en: 'Cancel', 'zh-TW': '取消' },
   'toolbar.exportZip': { en: 'Export ZIP', 'zh-TW': '匯出 ZIP' },
+  'toolbar.exportCbz': { en: 'Export CBZ', 'zh-TW': '匯出 CBZ' },
   'toolbar.exportPage': { en: 'Export Page', 'zh-TW': '匯出本頁' },
   'toolbar.exportBackup': { en: 'Export Backup', 'zh-TW': '匯出備份' },
   'toolbar.restoreBackup': { en: 'Restore Backup', 'zh-TW': '還原備份' },
@@ -139,6 +140,13 @@ export const commonStrings = {
   'dialogue.empty': { en: 'Generate or select dialogue.', 'zh-TW': '先生成或選擇對白。' },
 
   // Layout panel
+  'layout.readingDirection': { en: 'Reading direction', 'zh-TW': '閱讀方向' },
+  'layout.readingRtl': { en: 'Right to left', 'zh-TW': '右至左（漫畫）' },
+  'layout.readingLtr': { en: 'Left to right', 'zh-TW': '左至右' },
+  'layout.readingDirectionHint': {
+    en: 'Stored with the project and embedded in CBZ exports for comic readers.',
+    'zh-TW': '隨專案儲存，並寫入 CBZ 匯出的閱讀器 metadata。',
+  },
   'layout.textDensity': { en: 'Text density', 'zh-TW': '文字密度' },
   'layout.canvasZoom': { en: 'Canvas zoom', 'zh-TW': '畫布縮放' },
   'layout.avoidOverlap': { en: 'Avoid overlap', 'zh-TW': '自動避讓' },
@@ -238,6 +246,8 @@ export const commonStrings = {
   'log.layoutAdjusted': { en: 'Layout adjusted.', 'zh-TW': '版面已調整。' },
   'log.noPagesToExport': { en: 'No pages to export', 'zh-TW': '沒有可匯出的頁面' },
   'log.exported': { en: 'Exported {file}', 'zh-TW': '已匯出 {file}' },
+  'log.savingDirection': { en: 'Saving reading direction', 'zh-TW': '儲存閱讀方向中' },
+  'log.readingDirectionSaved': { en: 'Reading direction saved.', 'zh-TW': '閱讀方向已儲存。' },
   'log.exportBackupTask': { en: 'Export project backup', 'zh-TW': '匯出專案備份' },
   'log.backupExported': { en: 'Backup exported {file}', 'zh-TW': '備份已匯出 {file}' },
   'log.savingSettings': { en: 'Saving settings', 'zh-TW': '儲存設定中' },

@@ -2,12 +2,15 @@ export type ProjectMode = 'story' | 'translation'
 export type ProjectSource = 'pixiv' | 'local' | 'mixed' | 'sample'
 export type PageStatus = 'ready' | 'analyzing' | 'generating' | 'complete' | 'error'
 export type BubbleStyle = 'speech' | 'soft' | 'thought' | 'caption'
+/** Page-turn direction for readers/exports; 'rtl' is the manga convention. */
+export type ReadingDirection = 'ltr' | 'rtl'
 
 export interface Project {
   id: string
   title: string
   mode: ProjectMode
   source: ProjectSource
+  readingDirection: ReadingDirection
   createdAt: string
   updatedAt: string
   storyBible?: StoryBible

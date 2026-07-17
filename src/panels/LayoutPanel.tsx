@@ -1,5 +1,5 @@
 import { PanelRight, Play } from 'lucide-react'
-import type { Dialogue } from '../shared/types'
+import type { Dialogue, ReadingDirection } from '../shared/types'
 import { WHITEBOARD_MAX_ZOOM, WHITEBOARD_MIN_ZOOM } from '../WhiteboardCanvas'
 import { useI18n } from '../i18n/context'
 import { clampNumber } from '../uiUtils'
@@ -17,6 +17,8 @@ export function LayoutPanel(props: {
   setRangeFrom: (value: string) => void
   setRangeTo: (value: string) => void
   onGenerateRange: () => void
+  readingDirection?: ReadingDirection
+  onReadingDirectionChange: (direction: ReadingDirection) => void
   selectedDialogue?: Dialogue
   onCommit: (id: string, patch: Partial<Dialogue>) => void
   onAvoidOverlap: () => void
@@ -33,6 +35,30 @@ export function LayoutPanel(props: {
         <button type="button" className={props.mode === 'translation' ? 'active' : ''} onClick={() => props.setMode('translation')}>
           {t('mode.translation')}
         </button>
+      </div>
+      <div className="field-stack">
+        <span className="field-label">{t('layout.readingDirection')}</span>
+        <div className="segmented">
+          <button
+            type="button"
+            className={props.readingDirection === 'rtl' ? 'active' : ''}
+            data-testid="reading-direction-rtl"
+            disabled={props.disabled || !props.readingDirection}
+            onClick={() => props.onReadingDirectionChange('rtl')}
+          >
+            {t('layout.readingRtl')}
+          </button>
+          <button
+            type="button"
+            className={props.readingDirection === 'ltr' ? 'active' : ''}
+            data-testid="reading-direction-ltr"
+            disabled={props.disabled || !props.readingDirection}
+            onClick={() => props.onReadingDirectionChange('ltr')}
+          >
+            {t('layout.readingLtr')}
+          </button>
+        </div>
+        <span className="field-hint">{t('layout.readingDirectionHint')}</span>
       </div>
       <label className="range-row">
         <span>{t('layout.textDensity')}</span>
