@@ -95,6 +95,42 @@ test('Provider Lab creates a keyed provider, discovers models, tests capabilitie
   expect(directProviderRequests).toEqual([])
 })
 
+test('active engine card mirrors backend route resolution', async ({ page }) => {
+  await openStudio(page)
+  await clearProviderProfiles(page)
+
+  // No providers and no global route → explicit none-state.
+  await page.getByTestId('tab-settings').click()
+  await expect(page.getByTestId('active-engine-card')).toContainText('No AI engine available')
+
+  // A keyless local provider becomes the active engine via profile fallback.
+  const providerName = `Engine Card Ollama ${Date.now()}`
+  const providerResponse = await page.request.post('/api/providers', {
+    data: { name: providerName, baseUrl: 'http://127.0.0.1:11434', defaultModel: 'llama3', isLocal: true },
+  })
+  expect(providerResponse.ok()).toBe(true)
+  await page.reload()
+  await page.getByTestId('tab-settings').click()
+  await expect(page.getByTestId('active-engine-card')).toContainText(providerName)
+  await expect(page.getByTestId('active-engine-card')).toContainText('Local')
+
+  try {
+    // A configured-but-unusable global route means NO engine, even though a usable
+    // local profile exists — the backend never falls back while global is set.
+    const saveUnusable = await page.request.put('/api/settings/secrets', {
+      data: { apiBaseUrl: 'https://unusable.example.test/v1', modelName: 'ghost-model' },
+    })
+    expect(saveUnusable.ok()).toBe(true)
+    await page.reload()
+    await page.getByTestId('tab-settings').click()
+    await expect(page.getByTestId('active-engine-card')).toContainText('No AI engine available')
+  } finally {
+    // Restore the empty global route so later tests keep profile-based routing.
+    const restore = await page.request.put('/api/settings/secrets', { data: { apiBaseUrl: '', modelName: '' } })
+    expect(restore.ok()).toBe(true)
+  }
+})
+
 test('Pixiv import form downloads mocked artwork with saved cookie and keeps secrets out of backup', async ({ page }) => {
   const pixivCookie = 'PHPSESSID=e2e-pixiv-cookie'
   const directMockRequests: string[] = []

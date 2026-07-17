@@ -66,6 +66,17 @@ test('whiteboard canvas zooms with controls, wheel, and fit', async ({ page }) =
     .toBeGreaterThan(parseInt(fitValue, 10))
 })
 
+test('success toasts surface in the overlay and dismiss on click', async ({ page }) => {
+  await openStudio(page)
+  await page.getByLabel('Project title').fill(`Toast Check ${Date.now()}`)
+  await page.getByRole('button', { name: /^Create$/ }).click()
+
+  const toast = page.locator('.toast-card.success', { hasText: 'Project created.' })
+  await expect(toast).toBeVisible()
+  await toast.getByRole('button', { name: 'Dismiss notification' }).click()
+  await expect(toast).toHaveCount(0)
+})
+
 test('dialogue bubbles can be added by double-click and deleted from the panel', async ({ page }) => {
   await openStudio(page)
   await page.getByLabel('Project title').fill(`Bubble CRUD ${Date.now()}`)
@@ -323,6 +334,12 @@ test('pages can be reordered and deleted from the page list', async ({ page }) =
   await expect(page.locator('.log-list').getByText('Page order updated.')).toBeVisible()
   await expect(page.getByTestId('page-thumb').nth(0)).toContainText('1 lines')
   await expect(page.getByTestId('page-thumb').nth(1)).toContainText('0 lines')
+
+  // Cancelling the confirm dialog must keep the page; confirming deletes it.
+  await page.getByTestId('page-delete').nth(1).click()
+  await page.getByTestId('confirm-dialog-cancel').click()
+  await expect(page.getByTestId('confirm-dialog-cancel')).toHaveCount(0)
+  await expect(page.getByTestId('page-thumb')).toHaveCount(2)
 
   await page.getByTestId('page-delete').nth(1).click()
   await page.getByTestId('confirm-dialog-confirm').click()

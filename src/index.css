@@ -1204,11 +1204,13 @@ select:focus {
   display: none;
 }
 
-/* Toast overlay: fixed top-right stack of transient notifications. */
+/* Toast overlay: fixed stack floating over the canvas's top-right corner —
+ * left of the 416px inspector rail so cards never block its tabs and fields
+ * (canvas-meta sits top-left, canvas-progress top-center, zoom bottom-right). */
 .toast-stack {
   position: fixed;
   top: 70px;
-  right: 16px;
+  right: 432px;
   z-index: 1000;
   display: grid;
   gap: 9px;
@@ -1388,6 +1390,11 @@ select:focus {
 
   .canvas-panel {
     min-height: 640px;
+  }
+
+  /* Single-column layout: the inspector rail is no longer on the right edge. */
+  .toast-stack {
+    right: 16px;
   }
 }
 

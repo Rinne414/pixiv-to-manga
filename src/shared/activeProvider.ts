@@ -49,9 +49,12 @@ export interface ActiveEngine {
 
 /**
  * Frontend mirror of the backend resolveAiTarget() selection (server/ai.ts):
- *   1. Global Base URL + model wins when set; it must match a local provider or
- *      carry a key (global key OR the matched provider's own key).
- *   2. Otherwise the first provider profile with a key (or a local provider) is active.
+ *   1. Global Base URL + model wins when both are set; it must match a local
+ *      provider or carry a key (global key OR the matched provider's own key) —
+ *      otherwise generation has NO engine (the backend never falls back to
+ *      provider profiles while a global route is configured).
+ *   2. Without a (complete) global route, the first provider profile with a key
+ *      (or a local provider) is active.
  *   3. Nothing usable → null.
  *
  * Used only for display ("which AI am I really using?"); the backend remains the
@@ -80,6 +83,9 @@ export function resolveActiveEngine(
         source: 'global',
       }
     }
+    // Backend parity (server/ai.ts resolveAiTarget): a configured-but-unusable
+    // global route returns null outright — it must not fall back to profiles.
+    return null
   }
 
   for (const provider of providers) {

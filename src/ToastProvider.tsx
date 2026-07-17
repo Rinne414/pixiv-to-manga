@@ -58,7 +58,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
   const pushToast = useCallback(
     (message: string, level: ToastLevel) => {
       const id = cryptoId()
-      setToasts((current) => [...current, { id, level, message }].slice(-MAX_TOASTS))
+      setToasts((current) => evictOverflow([...current, { id, level, message }]))
       if (level === 'success' || level === 'info') {
         const handle = setTimeout(() => dismissToast(id), SUCCESS_LIFETIME)
         timers.current.set(id, handle)
@@ -66,6 +66,18 @@ export function ToastProvider({ children }: { children: ReactNode }) {
     },
     [dismissToast],
   )
+
+  // Timers of evicted toasts are reconciled here rather than inside the state
+  // updater, which must stay side-effect free.
+  useEffect(() => {
+    const active = new Set(toasts.map((toast) => toast.id))
+    timers.current.forEach((handle, id) => {
+      if (!active.has(id)) {
+        clearTimeout(handle)
+        timers.current.delete(id)
+      }
+    })
+  }, [toasts])
 
   const confirm = useCallback((options: ConfirmOptions) => {
     return new Promise<boolean>((resolve) => {
@@ -113,6 +125,14 @@ export function ToastProvider({ children }: { children: ReactNode }) {
   )
 }
 
+/** Overflow drops the oldest auto-dismissing toast first; persistent errors survive longest. */
+function evictOverflow(toasts: ToastEntry[]): ToastEntry[] {
+  if (toasts.length <= MAX_TOASTS) return toasts
+  const dropIndex = toasts.findIndex((toast) => toast.level !== 'error')
+  const removeAt = dropIndex === -1 ? 0 : dropIndex
+  return toasts.filter((_, index) => index !== removeAt)
+}
+
 function ToastCard(props: { toast: ToastEntry; onDismiss: () => void }) {
   const { t } = useI18n()
   const { toast, onDismiss } = props
@@ -139,16 +159,41 @@ function ConfirmDialog(props: {
   onConfirm: () => void
 }) {
   const { options, onCancel, onConfirm } = props
+  const cardRef = useRef<HTMLDivElement | null>(null)
   const initialFocusRef = useRef<HTMLButtonElement | null>(null)
 
-  // Enter activates whichever button holds focus (native behavior); only Escape
-  // needs a global listener. Danger dialogs focus Cancel so a stray Enter cannot
-  // destroy data; safe dialogs focus Confirm to keep the old window.confirm flow.
+  // Focus exactly once on mount — background toast re-renders must not steal
+  // focus back — and hand focus to the opening element again on close. Danger
+  // dialogs focus Cancel so a stray Enter cannot destroy data; safe dialogs
+  // focus Confirm to keep the old window.confirm flow.
   useEffect(() => {
+    const opener = document.activeElement instanceof HTMLElement ? document.activeElement : null
     initialFocusRef.current?.focus()
+    return () => opener?.focus()
+  }, [])
+
+  // Enter activates whichever button holds focus (native behavior); Escape
+  // cancels and Tab cycles inside the card so aria-modal matches reality.
+  useEffect(() => {
     function handleKeyDown(event: KeyboardEvent) {
       if (event.key === 'Escape') {
         onCancel()
+        return
+      }
+      if (event.key !== 'Tab') return
+      const card = cardRef.current
+      if (!card) return
+      const buttons = Array.from(card.querySelectorAll<HTMLButtonElement>('button'))
+      if (!buttons.length) return
+      const first = buttons[0]
+      const last = buttons[buttons.length - 1]
+      const active = document.activeElement
+      if (event.shiftKey && (active === first || !card.contains(active))) {
+        event.preventDefault()
+        last.focus()
+      } else if (!event.shiftKey && (active === last || !card.contains(active))) {
+        event.preventDefault()
+        first.focus()
       }
     }
     window.addEventListener('keydown', handleKeyDown)
@@ -168,7 +213,7 @@ function ConfirmDialog(props: {
         }
       }}
     >
-      <div className={`confirm-card ${options.danger ? 'danger' : ''}`}>
+      <div className={`confirm-card ${options.danger ? 'danger' : ''}`} ref={cardRef}>
         <h2 id="confirm-title">{options.title}</h2>
         <p id="confirm-message">{options.message}</p>
         <div className="confirm-actions">

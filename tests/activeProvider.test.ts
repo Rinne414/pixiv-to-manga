@@ -62,11 +62,24 @@ describe('resolveActiveEngine', () => {
     expect(engine?.provider?.id).toBe('normalized')
   })
 
-  it('falls back to the first usable provider profile when the global route is unusable', () => {
-    const keyless = provider({ id: 'keyless' })
+  it('returns null for a configured-but-unusable global route even when usable profiles exist (backend parity)', () => {
+    // server/ai.ts resolveAiTarget: while global Base URL + model are both set,
+    // an unusable route means NO engine — it never falls back to provider profiles.
+    const localOllama = provider({ id: 'ollama', baseUrl: 'http://localhost:11434/v1', defaultModel: 'llama3', isLocal: true })
     const keyed = provider({ id: 'keyed', baseUrl: 'https://keyed.example.com/v1', defaultModel: 'keyed-model', hasApiKey: true })
     const engine = resolveActiveEngine(
       { apiBaseUrl: 'https://unmatched.example.com/v1', modelName: 'missing', hasApiKey: false },
+      [localOllama, keyed],
+    )
+    expect(engine).toBeNull()
+  })
+
+  it('falls back to the first usable provider profile when the global route is incomplete', () => {
+    const keyless = provider({ id: 'keyless' })
+    const keyed = provider({ id: 'keyed', baseUrl: 'https://keyed.example.com/v1', defaultModel: 'keyed-model', hasApiKey: true })
+    const engine = resolveActiveEngine(
+      // Base URL without a model is not a complete global route; the backend scans profiles.
+      { apiBaseUrl: 'https://unmatched.example.com/v1', modelName: '', hasApiKey: false },
       [keyless, keyed],
     )
     expect(engine).toMatchObject({
