@@ -12,14 +12,14 @@ jobs:
       # Tests never touch a real OS credential store.
       PTM_TEST_MEMORY_KEYTAR: '1'
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       # keytar is an optionalDependency with a graceful runtime fallback, but
       # libsecret lets its prebuild install cleanly on Linux runners.
       - name: Install libsecret
         run: sudo apt-get update && sudo apt-get install -y libsecret-1-dev
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           # node:sqlite needs a recent runtime; keep in sync with package.json engines.
           node-version: '24'
