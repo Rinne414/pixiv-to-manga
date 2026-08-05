@@ -6,15 +6,25 @@ Pixiv-to-Manga Studio imports Pixiv or local image sets, asks an AI model to cre
 
 ## Quick Start (no dev tools needed)
 
-Once the package is published to npm, the fastest path is:
+Requires [Node.js 24 LTS or newer](https://nodejs.org/).
+
+### Option A — portable zip (recommended for non-developers)
+
+1. Download the latest `pixiv-to-manga-*-portable.zip` from [GitHub Releases](https://github.com/Rinne414/pixiv-to-manga/releases).
+2. Unzip it anywhere.
+3. Double-click `start-portable.cmd` (Windows) or run `./start-portable.sh` (macOS/Linux).
+
+The first run installs production dependencies only; afterwards it starts from the prebuilt bundles.
+
+### Option B — npm / npx
 
 ```bash
 npx pixiv-to-manga
 ```
 
-That downloads the prebuilt studio, starts the local server, and opens your browser (set `PTM_OPEN_BROWSER=0` to suppress). Requires [Node.js 24 LTS or newer](https://nodejs.org/).
+That downloads the prebuilt studio, starts the local server, and opens your browser (set `PTM_OPEN_BROWSER=0` to suppress).
 
-Running from a clone works the same way:
+### Option C — clone this repository
 
 1. Install [Node.js 24 LTS or newer](https://nodejs.org/).
 2. Download or clone this repository.
@@ -25,7 +35,7 @@ The first run installs dependencies and builds the app; afterwards it starts in 
 ## Current Scope
 
 - Local web service with React, Vite, TypeScript, Fastify, and SQLite.
-- Pixiv artwork import and local image import.
+- Bounded Pixiv batch import for up to 50 explicit artworks / 200 images, with preview selection, pause/resume/cancel/retry, restart recovery, low-frequency serial requests, and local image import.
 - Two-stage AI workflow: vision-assisted story analysis, then page dialogue generation.
 - Per-line AI rewrite: select any bubble, optionally type an instruction (shorter / funnier / a character note), and regenerate just that line with full page context — undoable like any edit.
 - Manual panel frames: draw numbered reading-order frames on the whiteboard; generation prompts describe them (RTL-aware) and placement snaps strays into the nearest frame — panel-aware layout without OCR/ML.
@@ -44,6 +54,8 @@ The first run installs dependencies and builds the app; afterwards it starts in 
 - Speech-bubble tail control: drag the tail handle on a selected bubble to point it at the speaker; thought bubbles trail dots, exports match the editor.
 - Vertical-writing typography: CJK kinsoku line-breaking plus vertical presentation forms for punctuation (、。「」！？ etc.).
 - SFX text style for onomatopoeia: bubble-less outlined display text (1.6x size), also available to AI generation for sound effects.
+- Project lettering defaults: change font, size, text color, and SFX outline globally after generation; save defaults for new lines or explicitly apply them to existing dialogue. A separate action recolors lines from their character cards.
+- Non-destructive cleanup layer: paint/mosaic over unwanted source text or marks with an eraser, persisted per page and included in reader preview and PNG/ZIP/CBZ/PDF exports without changing the original asset.
 - Bubble craft pack: shout (jagged burst) and whisper (dashed) bubble styles, per-line vertical/horizontal text direction, and per-line font overrides — all WYSIWYG with exports.
 - Reading-order badges on every bubble in the editor (never exported) so page flow is visible at a glance.
 - Single-page PNG export next to the full ZIP export.
@@ -54,9 +66,10 @@ The first run installs dependencies and builds the app; afterwards it starts in 
 - Reusable style prompt on the Story tab, injected into every story analysis and dialogue generation as a mandatory style rule.
 - Infinite whiteboard canvas: wheel zoom anchored at the cursor, drag-to-pan, fit/100% controls; WYSIWYG with PNG export.
 - Light/dark theme switch and English / Traditional Chinese (zh-TW) UI language switch, both persisted locally.
-- Keyless local providers: Ollama / LM Studio profiles (`isLocal`) work without an API key; external providers still require one.
+- Keyless local providers: Ollama / LM Studio profiles work without an API key only when `isLocal` is set and the URL is loopback/private; external providers still require one.
 - Local project persistence in SQLite plus an asset folder.
 - API keys and Pixiv cookies saved through the system credential store with `keytar`.
+- Public Pixiv imports omit Cookie by default; private imports can opt into the saved session and R-18 imports require it. The app exposes a session test and rate-limit/account-risk guidance, but cannot guarantee zero Pixiv account risk.
 - PNG ZIP export with project manifest.
 - Project Backup ZIP export/restore with manifest, database slice, and project assets for migration.
 
@@ -74,8 +87,8 @@ Open [http://localhost:5173](http://localhost:5173).
 1. Start Ollama (default `http://127.0.0.1:11434`) and pull a vision-capable model, e.g. `ollama pull qwen3-vl:8b`.
 2. In the app: Settings tab → Provider Lab → Create provider:
    - Base URL `http://127.0.0.1:11434/v1`, Default model `qwen3-vl:8b`, check **Local provider**, leave API key empty.
-3. Click **Discover** to list installed models, then **Run test** (enable `vision`) to verify capability flags.
-4. Under **Detected capabilities**, confirm **Vision** was picked up; for NSFW routing, explicitly enable **Adult input** / **Adult generation** in the NSFW / R-18 section (never auto-detected, user-confirmed only), and turn on R-18 in the Story panel per project. Routes fail closed without matching flags.
+3. Click **Discover** to list installed models. Known vision models (including Qwen2/2.5/3-VL) and provider metadata are recognized automatically; **Run test** verifies all safe capabilities by default when a model remains unknown.
+4. Local providers automatically allow adult-content routing because content stays on the configured local endpoint. R-18 remains off per project until enabled in the Story panel. External adult capability requires explicit provider metadata, unmoderated provider metadata, or a model-scoped user confirmation; model names never grant capability evidence.
 5. Leave the global Settings Base URL/Model empty (or point them at the same profile) — generation picks the first usable provider automatically.
 
 ## Verification

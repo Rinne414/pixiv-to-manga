@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { readFile } from 'node:fs/promises'
 import path from 'node:path'
+import sharp from 'sharp'
 import type {
   ActiveEngineInfo,
   Asset,
@@ -14,14 +15,14 @@ import type {
   StoryBible,
 } from '../src/shared/types'
 import { dialogueListSchema, regeneratedLineSchema, storyBibleSchema } from '../src/shared/schemas'
-import { type ZodType, type z } from 'zod'
+import { z, type ZodType } from 'zod'
 import { parsePossiblyWrappedJson } from '../src/shared/jsonRepair'
 import { resolveDialogueCollisions, snapDialoguesToPanels } from '../src/shared/layout'
 import { evaluateRouteSafety, type RouteSafetyResult, type SafetyClass } from '../src/shared/routeSafety'
 import type { StudioDatabase } from './database'
 import type { SecretStore } from './secrets'
 import { getAppDataDir } from './paths'
-import { findMatchingCapability, findMatchingProvider, normalizeModelId } from './providerResolution'
+import { findMatchingCapability, findMatchingProvider, isTrustedLocalProvider, normalizeModelId } from './providerResolution'
 
 type ParsedStoryBible = z.infer<typeof storyBibleSchema>
 type ChatContentPart =
@@ -32,6 +33,19 @@ interface AiTarget {
   modelName: string
   apiKey: string
   supportsStreaming: boolean
+  supportsJsonSchema: boolean
+}
+
+interface JsonSchemaResponseFormat {
+  name: string
+  schema: Record<string, unknown>
+}
+
+interface OpenAiChatOptions {
+  signal: AbortSignal | undefined
+  stream: boolean
+  onDelta: ((accumulated: string) => void) | undefined
+  responseFormat: JsonSchemaResponseFormat | undefined
 }
 
 export interface AiContext {
@@ -56,23 +70,57 @@ export class AiJsonOutputError extends Error {
   }
 }
 
+export class AiProviderRefusalError extends Error {
+  readonly raw: string
+  readonly repairedRaw?: string
+
+  constructor(input: { raw: string; repairedRaw?: string }) {
+    super('AI provider refused the request: content_policy')
+    this.name = 'AiProviderRefusalError'
+    this.raw = input.raw
+    this.repairedRaw = input.repairedRaw
+  }
+}
+
+export class AiProviderHttpError extends Error {
+  readonly status: number
+  readonly endpoint: string
+  readonly model: string
+  readonly responseBody: string
+
+  constructor(input: { status: number; endpoint: string; model: string; responseBody: string }) {
+    super(`AI provider request failed: HTTP ${input.status}`)
+    this.name = 'AiProviderHttpError'
+    this.status = input.status
+    this.endpoint = input.endpoint
+    this.model = input.model
+    this.responseBody = input.responseBody
+  }
+}
+
 export async function analyzeStoryWithAi(
   context: AiContext,
   detail: ProjectDetail,
   input: { userBrief: string; r18Enabled: boolean },
 ): Promise<{ storyBible: StoryBible; raw: string; usedMock: boolean }> {
-  const target = await resolveAiTarget(context)
   // The style prompt is user-authored config, not model output; re-analysis must never drop it.
   const preservedStylePrompt = detail.project.storyBible?.stylePrompt
     ? { stylePrompt: detail.project.storyBible.stylePrompt }
     : {}
 
-  if (!target) {
+  if (!(await resolveAiRoute(context))) {
     const mock = { ...mockStoryBible(detail, input), ...preservedStylePrompt }
     return { storyBible: mock, raw: JSON.stringify(mock, null, 2), usedMock: true }
   }
 
   const imageParts = await projectImageParts(detail, 6)
+  const target = await resolveAiTarget(context, {
+    r18Enabled: input.r18Enabled,
+    imagePresent: imageParts.length > 0,
+    safetyClass: input.r18Enabled ? 'explicit' : 'safe',
+  })
+  if (!target) throw new Error('AI route became unavailable during story analysis')
+
   ensureAiGenerationAllowed(context, {
     apiBaseUrl: target.apiBaseUrl,
     modelName: target.modelName,
@@ -83,11 +131,14 @@ export async function analyzeStoryWithAi(
 
   const stylePrompt = detail.project.storyBible?.stylePrompt?.trim()
   const prompt = `你是漫画编剧。请先观察随后的漫画页面图片，再基于画面、项目页数和用户补充，创建中文 Story Bible。必须只返回 JSON，字段为 synopsis, tone, characters, pageBeats, userBrief, r18Enabled。characters 每项包含 name, description, voice, color, bubbleStyle。pageBeats 每项包含 pageIndex, summary, intent。项目标题：${detail.project.title}。页数：${detail.pages.length}。用户补充：${input.userBrief || '无'}。${stylePrompt ? `风格要求（必须遵守）：${stylePrompt}。` : ''}R18: ${input.r18Enabled ? 'true' : 'false'}。`
+  const responseFormat = target.supportsJsonSchema ? jsonSchemaResponseFormat('story_bible', storyBibleSchema) : undefined
   const raw = await openAiChatJson(target.apiBaseUrl, target.modelName, target.apiKey, [{ type: 'text', text: prompt }, ...imageParts], {
     signal: context.signal,
     stream: target.supportsStreaming,
     onDelta: context.onDelta,
+    responseFormat,
   })
+  if (imageParts.length > 0) recordVisionSupport(context, target)
   const repaired = await parseWithOneRepair({
     raw,
     schema: storyBibleSchema,
@@ -97,6 +148,7 @@ export async function analyzeStoryWithAi(
     stream: target.supportsStreaming,
     schemaHint: 'StoryBible JSON: synopsis, tone, characters[], pageBeats[], userBrief, r18Enabled',
     signal: context.signal,
+    responseFormat,
   })
   return {
     storyBible: { ...normalizeStoryBible(repaired.parsed, detail.project.id), ...preservedStylePrompt },
@@ -111,12 +163,11 @@ export async function generateDialoguesWithAi(
   page: Page,
   input: { mode: 'story' | 'translation'; textDensity: number },
 ): Promise<{ dialogues: Dialogue[]; raw: string; usedMock: boolean }> {
-  const target = await resolveAiTarget(context)
   const storyBible = detail.project.storyBible || mockStoryBible(detail, { userBrief: '', r18Enabled: false })
   // User-locked lines survive regeneration; the model writes around them.
   const lockedLines = detail.dialogues.filter((item) => item.pageId === page.id && item.locked)
 
-  if (!target) {
+  if (!(await resolveAiRoute(context))) {
     const dialogues = resolveDialogueCollisions([...lockedLines, ...mockDialogues(page, storyBible, input.mode)])
     return { dialogues, raw: JSON.stringify({ dialogues }, null, 2), usedMock: true }
   }
@@ -124,6 +175,13 @@ export async function generateDialoguesWithAi(
   const pageImageParts = await pageImagePartsForDetail(detail, page)
   const nextPage = detail.pages.find((item) => item.index === page.index + 1)
   const nextPageImageParts = nextPage ? await pageImagePartsForDetail(detail, nextPage) : []
+  const target = await resolveAiTarget(context, {
+    r18Enabled: storyBible.r18Enabled,
+    imagePresent: pageImageParts.length + nextPageImageParts.length > 0,
+    safetyClass: storyBible.r18Enabled ? 'explicit' : 'safe',
+  })
+  if (!target) throw new Error('AI route became unavailable during page generation')
+
   ensureAiGenerationAllowed(context, {
     apiBaseUrl: target.apiBaseUrl,
     modelName: target.modelName,
@@ -150,11 +208,14 @@ export async function generateDialoguesWithAi(
   if (nextPageImageParts.length) {
     content.push({ type: 'text', text: '下一页画面（仅供衔接参考，不要为它生成对白）：' }, ...nextPageImageParts)
   }
+  const responseFormat = target.supportsJsonSchema ? jsonSchemaResponseFormat('page_dialogues', dialogueListSchema) : undefined
   const raw = await openAiChatJson(target.apiBaseUrl, target.modelName, target.apiKey, content, {
     signal: context.signal,
     stream: target.supportsStreaming,
     onDelta: context.onDelta,
+    responseFormat,
   })
+  if (pageImageParts.length + nextPageImageParts.length > 0) recordVisionSupport(context, target)
   const repaired = await parseWithOneRepair({
     raw,
     schema: dialogueListSchema,
@@ -164,6 +225,7 @@ export async function generateDialoguesWithAi(
     stream: target.supportsStreaming,
     schemaHint: 'Dialogue list JSON: {"dialogues":[{"text","characterName","x","y","scale","rotation","bubbleStyle","color","locked"}]}',
     signal: context.signal,
+    responseFormat,
   })
   const parsed = repaired.parsed
   // Models only return characterName; resolve the ID so per-character styling (font, color) applies.
@@ -211,19 +273,25 @@ export async function regenerateDialogueTextWithAi(
   dialogue: Dialogue,
   input: { instruction: string; mode: 'story' | 'translation'; textDensity: number },
 ): Promise<{ text: string; raw: string; usedMock: boolean }> {
-  const target = await resolveAiTarget(context)
   const storyBible = detail.project.storyBible || mockStoryBible(detail, { userBrief: '', r18Enabled: false })
   const page = detail.pages.find((item) => item.id === dialogue.pageId)
   if (!page) {
     throw new Error('Dialogue page not found')
   }
 
-  if (!target) {
+  if (!(await resolveAiRoute(context))) {
     const text = input.instruction ? `（${input.instruction}）${dialogue.text}` : `重写版：${dialogue.text}`
     return { text, raw: JSON.stringify({ text }, null, 2), usedMock: true }
   }
 
   const pageImageParts = await pageImagePartsForDetail(detail, page)
+  const target = await resolveAiTarget(context, {
+    r18Enabled: storyBible.r18Enabled,
+    imagePresent: pageImageParts.length > 0,
+    safetyClass: storyBible.r18Enabled ? 'explicit' : 'safe',
+  })
+  if (!target) throw new Error('AI route became unavailable during dialogue regeneration')
+
   ensureAiGenerationAllowed(context, {
     apiBaseUrl: target.apiBaseUrl,
     modelName: target.modelName,
@@ -246,11 +314,14 @@ export async function regenerateDialogueTextWithAi(
     .join('\n')
   const stylePrompt = storyBible.stylePrompt?.trim()
   const prompt = `你是漫画对白编辑。请只重写标记为【要重写的这句】的那一句中文对白，其余对白保持不变、仅作上下文。模式：${input.mode === 'translation' ? '视觉翻译/改写' : '原创故事对白'}。故事：${storyBible.synopsis}。本页剧情：${beat?.summary || '未指定'}。${character ? `说话角色 ${character.name} 的声音：${character.voice}。` : ''}${stylePrompt ? `风格要求（必须遵守）：${stylePrompt}。` : ''}${input.instruction ? `用户修改指示（最优先遵守）：${input.instruction}。` : ''}文本密度：${input.textDensity}。本页对白：\n${siblingLines}\n必须只返回 JSON：{"text":"重写后的这一句"}。`
+  const responseFormat = target.supportsJsonSchema ? jsonSchemaResponseFormat('dialogue_rewrite', regeneratedLineSchema) : undefined
   const raw = await openAiChatJson(target.apiBaseUrl, target.modelName, target.apiKey, [{ type: 'text', text: prompt }, ...pageImageParts], {
     signal: context.signal,
     stream: target.supportsStreaming,
     onDelta: context.onDelta,
+    responseFormat,
   })
+  if (pageImageParts.length > 0) recordVisionSupport(context, target)
   const repaired = await parseWithOneRepair({
     raw,
     schema: regeneratedLineSchema,
@@ -260,6 +331,7 @@ export async function regenerateDialogueTextWithAi(
     stream: target.supportsStreaming,
     schemaHint: 'Rewrite JSON: {"text":"..."}',
     signal: context.signal,
+    responseFormat,
   })
   return { text: repaired.parsed.text, raw: repaired.raw, usedMock: false }
 }
@@ -270,76 +342,107 @@ interface ResolvedAiRoute extends AiTarget {
   provider?: ProviderProfile
 }
 
+interface AiRouteRequirements {
+  r18Enabled: boolean
+  imagePresent: boolean
+  safetyClass: SafetyClass
+}
+
 /**
  * Single source of truth for "which AI route will generations use":
- *   1. Global Base URL + model win when both are set; the route must match a
- *      local provider or carry a key (global key OR the matched provider's own
- *      key) — otherwise there is NO engine (no fallback to profiles).
- *   2. Without a complete global route, the first provider profile with a key
- *      (or a local provider) is active.
+ *   1. Saved Provider profiles are the primary connection path.
+ *   2. The legacy global Base URL + model is considered only as a fallback.
  */
 async function resolveAiRoute(context: AiContext): Promise<ResolvedAiRoute | null> {
-  const status = await context.secrets.status()
-  const globalApiKey = await context.secrets.getApiKey()
+  return (await resolveAiRoutes(context))[0] || null
+}
 
-  if (status.apiBaseUrl && status.modelName) {
-    const matchingProvider = context.db
-      ? findMatchingProvider(context.db.listProviders(), status.apiBaseUrl, status.modelName)
-      : undefined
-    const capability = matchingProvider && context.db ? findMatchingCapability(context.db, matchingProvider.id, status.modelName) : undefined
-    const providerApiKey = matchingProvider ? await context.secrets.getProviderApiKey(matchingProvider.id) : null
-    const apiKey = globalApiKey || providerApiKey
-    // Local providers (Ollama, LM Studio, ...) may run without an API key; external routes still require one.
-    if (!apiKey && !matchingProvider?.isLocal) {
-      return null
-    }
-    return {
-      apiBaseUrl: status.apiBaseUrl,
-      modelName: status.modelName,
-      apiKey: apiKey || '',
-      supportsStreaming: Boolean(capability?.supportsStreaming),
-      isLocal: Boolean(matchingProvider?.isLocal),
-      source: 'global',
-      provider: matchingProvider,
-    }
-  }
+async function resolveAiRoutes(context: AiContext): Promise<ResolvedAiRoute[]> {
+  const [status, globalApiKey] = await Promise.all([context.secrets.status(), context.secrets.getApiKey()])
+  const providers = context.db?.listProviders() || []
+  const routes: ResolvedAiRoute[] = []
 
-  if (!context.db) {
-    return null
-  }
-
-  for (const provider of context.db.listProviders()) {
+  for (const provider of providers) {
     if (!provider.baseUrl || !provider.defaultModel) {
       continue
     }
     const apiKey = await context.secrets.getProviderApiKey(provider.id)
-    if (apiKey || provider.isLocal) {
-      const capability = findMatchingCapability(context.db, provider.id, provider.defaultModel)
-      return {
+    const isLocal = isTrustedLocalProvider(provider)
+    if (apiKey || isLocal) {
+      const capability = context.db ? findMatchingCapability(context.db, provider.id, provider.defaultModel) : undefined
+      routes.push({
         apiBaseUrl: provider.baseUrl,
         modelName: provider.defaultModel,
         apiKey: apiKey || '',
         supportsStreaming: Boolean(capability?.supportsStreaming),
-        isLocal: provider.isLocal,
+        supportsJsonSchema: Boolean(capability?.supportsJsonSchema),
+        isLocal,
         source: 'provider',
         provider,
-      }
+      })
     }
   }
 
-  return null
+  if (status.apiBaseUrl && status.modelName) {
+    const matchingProvider = findMatchingProvider(providers, status.apiBaseUrl, status.modelName)
+    const isLocal = matchingProvider ? isTrustedLocalProvider(matchingProvider) : false
+    const duplicateProviderRoute = routes.some((route) => route.provider?.id === matchingProvider?.id)
+    if (!duplicateProviderRoute && (globalApiKey || isLocal)) {
+      const capability = matchingProvider && context.db
+        ? findMatchingCapability(context.db, matchingProvider.id, status.modelName)
+        : undefined
+      routes.push({
+        apiBaseUrl: status.apiBaseUrl,
+        modelName: status.modelName,
+        apiKey: globalApiKey || '',
+        supportsStreaming: Boolean(capability?.supportsStreaming),
+        supportsJsonSchema: Boolean(capability?.supportsJsonSchema),
+        isLocal,
+        source: 'global',
+        provider: matchingProvider,
+      })
+    }
+  }
+
+  return routes
 }
 
-async function resolveAiTarget(context: AiContext): Promise<AiTarget | null> {
-  const route = await resolveAiRoute(context)
-  if (!route) {
+async function resolveAiTarget(context: AiContext, requirements: AiRouteRequirements): Promise<AiTarget | null> {
+  const routes = await resolveAiRoutes(context)
+  if (!routes.length) {
     return null
   }
+  if (!context.db) {
+    return aiTargetFromRoute(routes[0])
+  }
+
+  const providers = context.db.listProviders()
+  const capabilities = context.db.listModelCapabilities()
+  let firstBlockedReason: string | undefined
+  for (const route of routes) {
+    const result = evaluateAiGenerationRoute({
+      apiBaseUrl: route.apiBaseUrl,
+      modelName: route.modelName,
+      ...requirements,
+      providers,
+      capabilities,
+    })
+    if (result.allow) {
+      return aiTargetFromRoute(route)
+    }
+    firstBlockedReason ||= result.reason
+  }
+
+  throw new Error(`AI route blocked by provider safety policy: ${firstBlockedReason || 'no_compatible_provider'}`)
+}
+
+function aiTargetFromRoute(route: ResolvedAiRoute): AiTarget {
   return {
     apiBaseUrl: route.apiBaseUrl,
     modelName: route.modelName,
     apiKey: route.apiKey,
     supportsStreaming: route.supportsStreaming,
+    supportsJsonSchema: route.supportsJsonSchema,
   }
 }
 
@@ -376,20 +479,46 @@ export function evaluateAiGenerationRoute(input: {
       )
     : undefined
 
-  if ((input.r18Enabled || input.imagePresent) && !capability) {
-    return {
-      allow: false,
-      reason: input.imagePresent ? 'vision_required' : 'adult_generation_not_allowed',
-    }
+  if (input.r18Enabled && !capability) {
+    return { allow: false, reason: 'adult_generation_capability_unknown' }
+  }
+
+  if (input.r18Enabled && capability?.capabilitySources.allowsAdultGeneration === 'unknown') {
+    return { allow: false, reason: 'adult_generation_capability_unknown' }
+  }
+  if (
+    input.imagePresent &&
+    (input.safetyClass === 'suggestive' || input.safetyClass === 'explicit') &&
+    capability?.capabilitySources.allowsAdultInput === 'unknown'
+  ) {
+    return { allow: false, reason: 'adult_input_capability_unknown' }
   }
 
   return evaluateRouteSafety({
-    supportsVision: capability?.supportsVision ?? false,
+    supportsVision:
+      !capability || capability.capabilitySources.supportsVision === 'unknown'
+        ? true
+        : capability.supportsVision,
     allowsAdultInput: capability?.allowsAdultInput ?? false,
     allowsAdultGeneration: capability?.allowsAdultGeneration ?? false,
     r18: input.r18Enabled,
     imagePresent: input.imagePresent,
     safetyClass: input.safetyClass,
+  })
+}
+
+function recordVisionSupport(context: AiContext, target: AiTarget): void {
+  if (!context.db) return
+  const provider = findMatchingProvider(context.db.listProviders(), target.apiBaseUrl, target.modelName)
+  if (!provider) return
+  const current = findMatchingCapability(context.db, provider.id, target.modelName)
+  if (current?.capabilitySources.supportsVision === 'user') return
+  context.db.upsertModelCapability({
+    providerId: provider.id,
+    modelId: target.modelName,
+    supportsVision: true,
+    capabilitySources: { supportsVision: 'tested' },
+    source: current?.source === 'user' ? 'user' : 'tested',
   })
 }
 
@@ -425,13 +554,14 @@ async function openAiChatJson(
   model: string,
   apiKey: string,
   content: ChatContentPart[],
-  options: { signal?: AbortSignal; stream?: boolean; onDelta?: (accumulated: string) => void } = {},
+  options: OpenAiChatOptions,
 ): Promise<string> {
   const timeoutSignal = AbortSignal.timeout(AI_REQUEST_TIMEOUT_MS)
   const signal = options.signal ? AbortSignal.any([options.signal, timeoutSignal]) : timeoutSignal
   let contentText: string
   try {
-    const response = await fetch(`${baseUrl.replace(/\/+$/, '')}/chat/completions`, {
+    const endpoint = `${baseUrl.replace(/\/+$/, '')}/chat/completions`
+    const response = await fetch(endpoint, {
       method: 'POST',
       signal,
       headers: {
@@ -443,12 +573,25 @@ async function openAiChatJson(
         model,
         messages: [{ role: 'user', content }],
         temperature: 0.9,
-        stream: options.stream === true,
+        stream: options.stream,
+        ...(options.responseFormat
+          ? {
+              response_format: {
+                type: 'json_schema',
+                json_schema: options.responseFormat,
+              },
+            }
+          : {}),
       }),
     })
 
     if (!response.ok) {
-      throw new Error(`AI request failed: HTTP ${response.status}`)
+      throw new AiProviderHttpError({
+        status: response.status,
+        endpoint,
+        model,
+        responseBody: sanitizeProviderResponseBody(await response.text()),
+      })
     }
 
     // The same signal covers the body read; a stalled stream times out too.
@@ -570,18 +713,27 @@ async function parseWithOneRepair<T>(input: {
   stream: boolean
   schemaHint: string
   signal?: AbortSignal
+  responseFormat: JsonSchemaResponseFormat | undefined
 }): Promise<{ parsed: T; raw: string }> {
   try {
     return { parsed: input.schema.parse(parsePossiblyWrappedJson(input.raw)), raw: input.raw }
   } catch (error) {
+    if (isProviderRefusal(input.raw)) {
+      throw new AiProviderRefusalError({ raw: input.raw })
+    }
     const repairPrompt = `上一次模型输出不是有效 JSON 或不符合 schema。请只返回修正后的 JSON，不要解释。\nSchema: ${input.schemaHint}\n错误: ${error instanceof Error ? error.message : 'unknown'}\n原始输出:\n${input.raw.slice(0, 12000)}`
     const repairedRaw = await openAiChatJson(input.baseUrl, input.model, input.apiKey, [{ type: 'text', text: repairPrompt }], {
       signal: input.signal,
       stream: input.stream,
+      onDelta: undefined,
+      responseFormat: input.responseFormat,
     })
     try {
       return { parsed: input.schema.parse(parsePossiblyWrappedJson(repairedRaw)), raw: repairedRaw }
     } catch (repairError) {
+      if (isProviderRefusal(repairedRaw)) {
+        throw new AiProviderRefusalError({ raw: input.raw, repairedRaw })
+      }
       throw new AiJsonOutputError({
         message: `AI output could not be parsed after repair: ${repairError instanceof Error ? repairError.message : 'unknown'}`,
         raw: input.raw,
@@ -590,6 +742,33 @@ async function parseWithOneRepair<T>(input: {
       })
     }
   }
+}
+
+function jsonSchemaResponseFormat<T>(name: string, schema: ZodType<T>): JsonSchemaResponseFormat {
+  const jsonSchema = Object.fromEntries(
+    Object.entries(z.toJSONSchema(schema)).filter(([key]) => key !== '$schema'),
+  )
+  return { name, schema: jsonSchema }
+}
+
+function isProviderRefusal(raw: string): boolean {
+  const normalized = raw.toLowerCase().replaceAll('’', "'")
+  return [
+    /\bi (?:cannot|can't|won't) (?:assist|help|comply)\b/,
+    /\bi (?:must|have to) (?:decline|refuse)\b/,
+    /\b(?:request|content) (?:violates|conflicts with) (?:the )?(?:policy|guideline)/,
+    /(?:无法|不能|不便)(?:协助|帮助|处理|满足).*(?:请求|内容)/,
+  ].some((pattern) => pattern.test(normalized))
+}
+
+function sanitizeProviderResponseBody(raw: string): string {
+  const trimmed = raw.trim().slice(0, 1200)
+  if (!trimmed) return '[empty response body]'
+  return trimmed
+    .replace(/data:image\/[^;\s"']+;base64,[a-z0-9+/=]+/gi, '[redacted image payload]')
+    .replace(/\bsk-[a-z0-9._-]+\b/gi, '[redacted secret]')
+    .replace(/bearer\s+[a-z0-9._-]+/gi, 'Bearer [redacted]')
+    .replace(/(api[_-]?key["'=:\s]+)[^,"'\s}]+/gi, '$1[redacted]')
 }
 
 async function projectImageParts(detail: ProjectDetail, maxImages: number): Promise<ChatContentPart[]> {
@@ -625,12 +804,18 @@ function previousPageDialogueLines(detail: ProjectDetail, page: Page): string {
 
 async function assetToImagePart(asset: Asset): Promise<ChatContentPart> {
   const data = await readFile(assetAbsolutePath(asset))
+  const compatibleImage = await aiCompatibleImage(data, asset.mimeType)
   return {
     type: 'image_url',
     image_url: {
-      url: `data:${asset.mimeType};base64,${data.toString('base64')}`,
+      url: `data:${compatibleImage.mimeType};base64,${compatibleImage.data.toString('base64')}`,
     },
   }
+}
+
+async function aiCompatibleImage(data: Buffer, mimeType: string): Promise<{ data: Buffer; mimeType: string }> {
+  if (mimeType !== 'image/svg+xml') return { data, mimeType }
+  return { data: await sharp(data).png().toBuffer(), mimeType: 'image/png' }
 }
 
 function assetAbsolutePath(asset: Asset): string {

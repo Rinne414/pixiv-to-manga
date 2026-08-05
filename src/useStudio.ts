@@ -1,9 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { ChangeEvent, FormEvent } from 'react'
 import type {
+  CleanupStroke,
   Dialogue,
   FontAsset,
   JobEvent,
+  LetteringDefaults,
   Page,
   PanelBox,
   Project,
@@ -12,6 +14,7 @@ import type {
   SecretStatus,
   StoryBible,
 } from './shared/types'
+import type { ConnectionMode } from './shared/types'
 import { resolveDialogueCollisions } from './shared/layout'
 import { registerCustomFont } from './fonts'
 import { pageSnapshot, useStudioHistory } from './studio/useStudioHistory'
@@ -58,6 +61,9 @@ export function useStudio() {
   const toast = useToast()
   const fileInputRef = useRef<HTMLInputElement | null>(null)
   const backupInputRef = useRef<HTMLInputElement | null>(null)
+  const detailRequestVersionRef = useRef(0)
+  const selectedProjectIdRef = useRef('')
+  const mountedRef = useRef(false)
   const [projects, setProjects] = useState<Project[]>([])
   const [detail, setDetail] = useState<ProjectDetail | null>(null)
   const [selectedProjectId, setSelectedProjectId] = useState<string>('')
@@ -105,6 +111,12 @@ export function useStudio() {
   )
   const selectedDialogue =
     activeDialogues.find((dialogue) => dialogue.id === selectedDialogueId) || activeDialogues[0]
+  const letteringDefaults: LetteringDefaults = detail?.project.letteringDefaults || {
+    scale: 1,
+    color: '#141414',
+    sfxStrokeColor: '#ffffff',
+    sfxStrokeWidth: 0.18,
+  }
 
   // runTask/pushLog/acceptDetail are function declarations below; hoisting makes
   // them safe to hand to the domain hooks here.
@@ -134,6 +146,14 @@ export function useStudio() {
   })
 
   useEffect(() => {
+    mountedRef.current = true
+    return () => {
+      mountedRef.current = false
+      detailRequestVersionRef.current += 1
+    }
+  }, [])
+
+  useEffect(() => {
     let cancelled = false
 
     async function boot() {
@@ -157,7 +177,7 @@ export function useStudio() {
           modelName: status.modelName,
         }))
         if (projectList[0]) {
-          setSelectedProjectId(projectList[0].id)
+          selectProject(projectList[0].id)
         }
         pushLog(t('log.studioReady'), 'success')
       } catch (error) {
@@ -174,29 +194,11 @@ export function useStudio() {
 
   useEffect(() => {
     if (!selectedProjectId) return
-    let cancelled = false
+    if (serverDetailRef.current?.project.id === selectedProjectId) return
     // History commands reference dialogue/page ids of one project; a switch invalidates them.
     history.clearHistory()
 
-    api
-      .getProject(selectedProjectId)
-      .then((next) => {
-        if (cancelled) return
-        setDetail(next)
-        serverDetailRef.current = next
-        setGenerateMode(next.project.mode)
-        setSelectedPageId((current) => (next.pages.some((page) => page.id === current) ? current : next.pages[0]?.id || ''))
-      })
-      .catch((error) => pushLog(describeError(error), 'error'))
-      .finally(() => {
-        if (!cancelled) {
-          setBusy('')
-        }
-      })
-
-    return () => {
-      cancelled = true
-    }
+    void refreshSelectedProject(selectedProjectId).catch((error) => pushLog(describeError(error), 'error'))
     // eslint-disable-next-line react-hooks/exhaustive-deps -- reload only when the selected project changes
   }, [selectedProjectId])
 
@@ -226,7 +228,11 @@ export function useStudio() {
   })
 
   function describeError(error: unknown): string {
-    return error instanceof Error ? error.message : t('log.unknownError')
+    if (!(error instanceof Error)) return t('log.unknownError')
+    return localizedProviderHttpError(error, t)
+      || localizedAiRouteError(error.message, t)
+      || localizedAiProviderError(error.message, t)
+      || error.message
   }
 
   function pushLog(message: string, level: LogLevel = 'info', options?: { toast?: boolean }) {
@@ -240,6 +246,8 @@ export function useStudio() {
   }
 
   function acceptDetail(next: ProjectDetail) {
+    detailRequestVersionRef.current += 1
+    selectedProjectIdRef.current = next.project.id
     serverDetailRef.current = next
     setDetail(next)
     setProjects((current) => {
@@ -251,6 +259,57 @@ export function useStudio() {
     setSelectedProjectId(next.project.id)
     setSelectedPageId((current) => (next.pages.some((page) => page.id === current) ? current : next.pages[0]?.id || ''))
     setGenerateMode(next.project.mode)
+  }
+
+  function selectProject(projectId: string) {
+    if (selectedProjectIdRef.current === projectId) {
+      if (!serverDetailRef.current) {
+        void refreshSelectedProject(projectId).catch((error) => pushLog(describeError(error), 'error'))
+      }
+      return
+    }
+    selectedProjectIdRef.current = projectId
+    detailRequestVersionRef.current += 1
+    serverDetailRef.current = null
+    setDetail(null)
+    setSelectedPageId('')
+    setSelectedProjectId(projectId)
+  }
+
+  async function refreshSelectedProject(projectId: string): Promise<ProjectDetail | null> {
+    if (!mountedRef.current || selectedProjectIdRef.current !== projectId) return null
+    const requestVersion = detailRequestVersionRef.current + 1
+    detailRequestVersionRef.current = requestVersion
+    try {
+      const next = await api.getProject(projectId)
+      if (
+        !mountedRef.current
+        || selectedProjectIdRef.current !== projectId
+        || detailRequestVersionRef.current !== requestVersion
+      ) return null
+      acceptDetail(next)
+      return next
+    } catch (error) {
+      if (
+        !mountedRef.current
+        || selectedProjectIdRef.current !== projectId
+        || detailRequestVersionRef.current !== requestVersion
+      ) return null
+      throw error
+    }
+  }
+
+  async function loadInitialProject(projectId: string): Promise<ProjectDetail | null> {
+    if (!mountedRef.current || selectedProjectIdRef.current) return null
+    selectedProjectIdRef.current = projectId
+    try {
+      return await refreshSelectedProject(projectId)
+    } catch (error) {
+      if (selectedProjectIdRef.current === projectId && !serverDetailRef.current) {
+        selectedProjectIdRef.current = ''
+      }
+      throw error
+    }
   }
 
   async function runTask(label: string, task: () => Promise<void>) {
@@ -322,7 +381,7 @@ export function useStudio() {
       pushLog(t('log.storyBibleSaved'), 'success', { toast: false })
     } catch (error) {
       pushLog(describeError(error), 'error')
-      acceptDetail(await api.getProject(detail.project.id))
+      await refreshSelectedProject(detail.project.id)
     }
   }
 
@@ -346,7 +405,7 @@ export function useStudio() {
     } catch (error) {
       pushLog(describeError(error), 'error')
       if (detail) {
-        acceptDetail(await api.getProject(detail.project.id))
+        await refreshSelectedProject(detail.project.id)
       }
     }
   }
@@ -467,6 +526,18 @@ export function useStudio() {
       setPixivUrl('')
       pushLog(t('log.pixivImported'), 'success')
     })
+  }
+
+  async function handlePixivBatchImported(projectId: string) {
+    const next = selectedProjectIdRef.current
+      ? await refreshSelectedProject(projectId)
+      : await loadInitialProject(projectId)
+    if (!next) return
+    pushLog(t('log.pixivBatchImported', { count: next.pages.length }), 'success')
+  }
+
+  function handlePixivBatchError(message: string) {
+    pushLog(message, 'error')
   }
 
   async function handleAnalyzeStory() {
@@ -665,6 +736,37 @@ export function useStudio() {
     }
   }
 
+  async function handleSetCleanup(pageId: string, cleanupStrokes: CleanupStroke[]) {
+    try {
+      const next = await api.updatePageCleanup(pageId, cleanupStrokes)
+      acceptDetail(next)
+      pushLog(t('log.cleanupSaved'), 'success', { toast: false })
+    } catch (error) {
+      pushLog(describeError(error), 'error')
+    }
+  }
+
+  async function handleSaveLettering(defaults: LetteringDefaults, applyToExisting: boolean) {
+    if (!detail) return
+    await runTask(applyToExisting ? t('log.letteringApplied') : t('log.letteringSaved'), async () => {
+      const next = await api.updateProjectSettings(detail.project.id, {
+        letteringDefaults: defaults,
+        applyLetteringToExisting: applyToExisting,
+      })
+      acceptDetail(next)
+      pushLog(applyToExisting ? t('log.letteringApplied') : t('log.letteringSaved'), 'success', { toast: false })
+    })
+  }
+
+  async function handleColorDialoguesByCharacter() {
+    if (!detail) return
+    await runTask(t('log.characterColorsApplied'), async () => {
+      const next = await api.updateProjectSettings(detail.project.id, { colorDialoguesByCharacter: true })
+      acceptDetail(next)
+      pushLog(t('log.characterColorsApplied'), 'success', { toast: false })
+    })
+  }
+
   async function handleSetReadingDirection(readingDirection: ReadingDirection) {
     if (!detail || detail.project.readingDirection === readingDirection) return
     await runTask(t('log.savingDirection'), async () => {
@@ -674,13 +776,17 @@ export function useStudio() {
     })
   }
 
-  async function handleSaveSettings(event: FormEvent) {
+  async function handleSaveSettings(event: FormEvent, mode: ConnectionMode) {
     event.preventDefault()
     await runTask(t('log.savingSettings'), async () => {
       const status = await api.saveSecrets({
-        apiBaseUrl: settingsForm.apiBaseUrl,
-        modelName: settingsForm.modelName,
-        apiKey: settingsForm.apiKey,
+        ...(mode === 'external'
+          ? {
+              apiBaseUrl: settingsForm.apiBaseUrl,
+              modelName: settingsForm.modelName,
+              apiKey: settingsForm.apiKey,
+            }
+          : {}),
         pixivCookie: settingsForm.pixivCookie,
       })
       setSecretStatus(status)
@@ -697,7 +803,7 @@ export function useStudio() {
     projects,
     detail,
     selectedProjectId,
-    setSelectedProjectId,
+    setSelectedProjectId: selectProject,
     setSelectedPageId,
     selectedDialogueId,
     setSelectedDialogueId,
@@ -733,6 +839,7 @@ export function useStudio() {
     providers,
     setProviders,
     customFonts,
+    letteringDefaults,
     hasExported: exports.hasExported,
     batchProgress,
     settingsForm,
@@ -760,6 +867,8 @@ export function useStudio() {
     importLocalFiles,
     handleBackupFile,
     handlePixivImport,
+    handlePixivBatchImported,
+    handlePixivBatchError,
     handleAnalyzeStory,
     handleGenerateActivePage,
     handleGenerateAll,
@@ -776,6 +885,9 @@ export function useStudio() {
     handleExportActivePage: exports.handleExportActivePage,
     handleExportBackup: exports.handleExportBackup,
     handleSetPanels,
+    handleSetCleanup,
+    handleSaveLettering,
+    handleColorDialoguesByCharacter,
     handleSetReadingDirection,
     handleSaveSettings,
     handleUploadFont,
@@ -809,4 +921,51 @@ function rawOutputFromError(error: unknown, t: Translator): RawOutputState | nul
     sections.push(`${t('raw.schema')}\n${record.schemaHint}`)
   }
   return sections.length ? { title: t('raw.aiTitle'), text: sections.join('\n\n') } : null
+}
+
+const aiRouteErrorKeys: Record<string, MessageKey> = {
+  illegal_content: 'routeError.illegalContent',
+  r18_disabled: 'routeError.r18Disabled',
+  vision_required: 'routeError.visionRequired',
+  vision_capability_unknown: 'routeError.visionRequired',
+  adult_input_not_allowed: 'routeError.adultInputRequired',
+  adult_input_capability_unknown: 'routeError.adultInputRequired',
+  explicit_image_not_allowed: 'routeError.adultInputRequired',
+  adult_generation_not_allowed: 'routeError.adultGenerationRequired',
+  adult_generation_capability_unknown: 'routeError.adultGenerationRequired',
+  image_generation_required: 'routeError.imageGenerationRequired',
+  image_generation_capability_unknown: 'routeError.imageGenerationRequired',
+  safety_unknown: 'routeError.safetyUnknown',
+  safety_classification_failed: 'routeError.safetyUnknown',
+  no_compatible_provider: 'routeError.noCompatibleProvider',
+}
+
+function localizedAiRouteError(message: string, t: Translator): string | null {
+  const prefix = 'AI route blocked by provider safety policy: '
+  if (!message.startsWith(prefix)) return null
+  const key = aiRouteErrorKeys[message.slice(prefix.length)]
+  return key ? t(key) : null
+}
+
+function localizedAiProviderError(message: string, t: Translator): string | null {
+  return message === 'AI provider refused the request: content_policy' ? t('routeError.providerContentPolicy') : null
+}
+
+function localizedProviderHttpError(error: Error, t: Translator): string | null {
+  if (!(error instanceof api.JobFailedError) || !error.payload || typeof error.payload !== 'object') return null
+  const value = (error.payload as { providerHttpError?: unknown }).providerHttpError
+  if (!value || typeof value !== 'object') return null
+  const record = value as Record<string, unknown>
+  if (
+    typeof record.status !== 'number'
+    || typeof record.endpoint !== 'string'
+    || typeof record.model !== 'string'
+    || typeof record.responseBody !== 'string'
+  ) return null
+  return t('routeError.providerHttp', {
+    status: record.status,
+    endpoint: record.endpoint,
+    model: record.model,
+    response: record.responseBody,
+  })
 }

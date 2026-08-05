@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { DragEvent as ReactDragEvent } from 'react'
+import { AnimatePresence, motion } from 'motion/react'
 import type Konva from 'konva'
 import { Circle, Ellipse, Group, Image as KonvaImage, Layer, Line, Rect, Stage, Text } from 'react-konva'
-import { Frame, ImagePlus, LayoutGrid, Loader2, Minus, Plus, Scan, Trash2, Upload } from 'lucide-react'
-import type { Asset, Character, Dialogue, Page, PanelBox } from './shared/types'
+import { Brush, Eraser, Frame, Grid3X3, ImagePlus, LayoutGrid, Loader2, Minus, Plus, Scan, Trash2, Upload, X } from 'lucide-react'
+import type { Asset, Character, CleanupStroke, Dialogue, LetteringDefaults, Page, PanelBox } from './shared/types'
 import type { BatchProgress } from './useStudio'
 import { computeShoutPoints, WHISPER_DASH } from './shared/bubbleShapes'
 import { computeTailTriangle, computeThoughtTrail, dialogueTailLocal, tailLocalToPage } from './shared/bubbleTail'
@@ -12,6 +13,9 @@ import { DEFAULT_DIALOGUE_FONT } from './fonts'
 import { clamp, clamp01, dialogueFontScale, estimateVerticalTextBox } from './shared/layout'
 import { toVerticalColumns, toVerticalGlyphs } from './shared/text'
 import { useI18n } from './i18n/context'
+import { ActiveIndicator, MotionIcon } from './MotionUI'
+import { softSpring } from './motionTokens'
+import { eraseCleanupStrokes } from './shared/cleanup'
 
 export const WHITEBOARD_MIN_ZOOM = 0.1
 export const WHITEBOARD_MAX_ZOOM = 4
@@ -30,6 +34,7 @@ interface WhiteboardCanvasProps {
   asset?: Asset
   dialogues: Dialogue[]
   characters: Character[]
+  letteringDefaults?: LetteringDefaults
   zoom: number
   onZoomChange: (zoom: number) => void
   selectedDialogueId: string
@@ -41,6 +46,7 @@ interface WhiteboardCanvasProps {
   onImportPixiv?: () => void
   onDropFiles?: (files: File[]) => void
   onPatchPanels?: (panels: PanelBox[]) => void
+  onPatchCleanup?: (cleanupStrokes: CleanupStroke[]) => void
 }
 
 /**
@@ -59,8 +65,14 @@ export function WhiteboardCanvas(props: WhiteboardCanvasProps) {
   // Panel-frame editing: drag draws a frame, badges delete; panning is paused meanwhile.
   const [panelMode, setPanelMode] = useState(false)
   const [panelDraft, setPanelDraft] = useState<{ x0: number; y0: number; x1: number; y1: number } | null>(null)
+  const [cleanupTool, setCleanupTool] = useState<'mosaic' | 'paint' | 'erase' | null>(null)
+  const [cleanupDraft, setCleanupDraft] = useState<CleanupStroke | null>(null)
+  const [cleanupSize, setCleanupSize] = useState(48)
+  const [cleanupIntensity, setCleanupIntensity] = useState(0.85)
+  const [cleanupColor, setCleanupColor] = useState('#ffffff')
   const prevZoomRef = useRef(props.zoom)
   const fittedPageRef = useRef('')
+  const fittedViewportRef = useRef({ width: 0, height: 0 })
   const image = useLoadedImage(props.asset?.url)
 
   // Shared drop-target behavior for both the empty state and the live whiteboard.
@@ -120,8 +132,11 @@ export function WhiteboardCanvas(props: WhiteboardCanvasProps) {
   // Auto-fit whenever a different page becomes active and the viewport is measured.
   useEffect(() => {
     if (!props.page || !viewport.width || !viewport.height) return
-    if (fittedPageRef.current === props.page.id) return
+    const samePage = fittedPageRef.current === props.page.id
+    const viewportChanged = fittedViewportRef.current.width !== viewport.width || fittedViewportRef.current.height !== viewport.height
+    if (samePage && !viewportChanged) return
     fittedPageRef.current = props.page.id
+    fittedViewportRef.current = viewport
     fitPage(props.page, viewport.width, viewport.height)
   }, [props.page, viewport, fitPage])
 
@@ -175,6 +190,63 @@ export function WhiteboardCanvas(props: WhiteboardCanvasProps) {
     return { x: clamp01(worldX / page.width), y: clamp01(worldY / page.height) }
   }
 
+  function handleCleanupMouseDown(event: Konva.KonvaEventObject<MouseEvent | TouchEvent>): void {
+    if (!cleanupTool) return
+    event.evt.preventDefault()
+    const point = pagePointFromEvent(event)
+    if (!point) return
+    setCleanupDraft({
+      mode: cleanupTool === 'erase' ? 'paint' : cleanupTool,
+      points: [point],
+      size: cleanupSize,
+      intensity: cleanupIntensity,
+      color: cleanupColor,
+    })
+  }
+
+  function handleCleanupMouseMove(event: Konva.KonvaEventObject<MouseEvent | TouchEvent>): void {
+    if (!cleanupTool || !cleanupDraft) return
+    const point = pagePointFromEvent(event)
+    if (!point) return
+    setCleanupDraft((current) => (current ? { ...current, points: [...current.points, point] } : current))
+  }
+
+  function handleCleanupMouseUp(): void {
+    if (!cleanupTool || !cleanupDraft || !props.page || !props.onPatchCleanup) return
+    const points = cleanupDraft.points
+    setCleanupDraft(null)
+    if (points.length < 1) return
+    const current = props.page.cleanupStrokes || []
+    const next = cleanupTool === 'erase'
+      ? eraseCleanupStrokes(current, points, cleanupSize / Math.max(props.page.width, props.page.height))
+      : [...current, cleanupDraft]
+    props.onPatchCleanup(next)
+  }
+
+  function handleCanvasMouseDown(event: Konva.KonvaEventObject<MouseEvent | TouchEvent>): void {
+    if (cleanupTool) {
+      handleCleanupMouseDown(event)
+      return
+    }
+    handlePanelMouseDown(event)
+  }
+
+  function handleCanvasMouseMove(event: Konva.KonvaEventObject<MouseEvent | TouchEvent>): void {
+    if (cleanupTool) {
+      handleCleanupMouseMove(event)
+      return
+    }
+    handlePanelMouseMove(event)
+  }
+
+  function handleCanvasMouseUp(): void {
+    if (cleanupTool) {
+      handleCleanupMouseUp()
+      return
+    }
+    handlePanelMouseUp()
+  }
+
   function handlePanelMouseDown(event: Konva.KonvaEventObject<MouseEvent | TouchEvent>) {
     if (!panelMode) return
     const point = pagePointFromEvent(event)
@@ -206,7 +278,7 @@ export function WhiteboardCanvas(props: WhiteboardCanvasProps) {
 
   // Double-clicking (or double-tapping) the page/background — not a bubble — drops a new dialogue there.
   function handleStageDblClick(event: Konva.KonvaEventObject<MouseEvent | TouchEvent>) {
-    if (panelMode) return
+    if (panelMode || cleanupTool) return
     const stage = event.target.getStage()
     const page = props.page
     if (!stage || !page) return
@@ -241,7 +313,21 @@ export function WhiteboardCanvas(props: WhiteboardCanvasProps) {
       WHITEBOARD_MIN_ZOOM,
       WHITEBOARD_MAX_ZOOM,
     )
+    if (next === oldScale) return
+    const ratio = next / oldScale
+    const centerX = viewport.width / 2
+    const centerY = viewport.height / 2
+    prevZoomRef.current = next
+    setView((current) => ({
+      x: centerX - (centerX - current.x) * ratio,
+      y: centerY - (centerY - current.y) * ratio,
+    }))
     props.onZoomChange(next)
+  }
+
+  function toggleCleanupTool(tool: 'mosaic' | 'paint' | 'erase'): void {
+    setPanelMode(false)
+    setCleanupTool((current) => (current === tool ? null : tool))
   }
 
   if (!props.page || !props.asset) {
@@ -292,15 +378,15 @@ export function WhiteboardCanvas(props: WhiteboardCanvasProps) {
           y={view.y}
           scaleX={props.zoom}
           scaleY={props.zoom}
-          draggable={!panelMode}
+          draggable={!panelMode && !cleanupTool}
           onWheel={handleWheel}
           onDblClick={handleStageDblClick}
           onDblTap={handleStageDblClick}
           onDragMove={handleStageDragMove}
           onDragEnd={handleStageDragEnd}
-          onMouseDown={handlePanelMouseDown}
-          onMouseMove={handlePanelMouseMove}
-          onMouseUp={handlePanelMouseUp}
+          onMouseDown={handleCanvasMouseDown}
+          onMouseMove={handleCanvasMouseMove}
+          onMouseUp={handleCanvasMouseUp}
         >
           <Layer>
             <Rect
@@ -312,6 +398,18 @@ export function WhiteboardCanvas(props: WhiteboardCanvasProps) {
               shadowOffsetY={10 / props.zoom}
             />
             {image ? <KonvaImage image={image} width={page.width} height={page.height} /> : null}
+            {(page.cleanupStrokes || []).map((stroke, index) => (
+              <CleanupLine key={`cleanup-${index}`} stroke={stroke} pageWidth={page.width} pageHeight={page.height} zoom={props.zoom} />
+            ))}
+            {cleanupDraft ? (
+              <CleanupLine
+                stroke={cleanupDraft}
+                pageWidth={page.width}
+                pageHeight={page.height}
+                zoom={props.zoom}
+                preview={cleanupTool === 'erase'}
+              />
+            ) : null}
             {props.dialogues.map((dialogue, index) => (
               <BubbleNode
                 key={dialogue.id}
@@ -321,6 +419,7 @@ export function WhiteboardCanvas(props: WhiteboardCanvasProps) {
                 pageHeight={page.height}
                 zoom={props.zoom}
                 character={findDialogueCharacter(props.characters, dialogue)}
+                letteringDefaults={props.letteringDefaults}
                 selected={dialogue.id === props.selectedDialogueId}
                 onSelect={() => props.onSelectDialogue(dialogue.id)}
                 onDragEnd={(x, y) => props.onPatchDialogue(dialogue.id, { x, y })}
@@ -385,66 +484,203 @@ export function WhiteboardCanvas(props: WhiteboardCanvasProps) {
         <span className="canvas-hint">{t('whiteboard.hint')}</span>
       </div>
 
-      <div className="whiteboard-controls">
-        <button type="button" title={t('whiteboard.zoomOut')} aria-label={t('whiteboard.zoomOut')} onClick={() => zoomBy(-1)}>
+      <motion.div className="whiteboard-controls" layout transition={softSpring}>
+        <motion.button type="button" title={t('whiteboard.zoomOut')} aria-label={t('whiteboard.zoomOut')} whileHover={{ scale: 1.06 }} whileTap={{ scale: 0.82 }} onClick={() => zoomBy(-1)}>
           <Minus size={15} />
-        </button>
+        </motion.button>
         <span className="whiteboard-zoom-readout" data-testid="whiteboard-zoom">
           {Math.round(props.zoom * 100)}%
         </span>
-        <button type="button" title={t('whiteboard.zoomIn')} aria-label={t('whiteboard.zoomIn')} onClick={() => zoomBy(1)}>
+        <motion.button type="button" title={t('whiteboard.zoomIn')} aria-label={t('whiteboard.zoomIn')} whileHover={{ scale: 1.06 }} whileTap={{ scale: 0.82 }} onClick={() => zoomBy(1)}>
           <Plus size={15} />
-        </button>
-        <button
+        </motion.button>
+        <motion.button
           type="button"
           title={t('whiteboard.fitPage')}
           aria-label={t('whiteboard.fitPage')}
           data-testid="whiteboard-fit"
-          onClick={() => fitPage(page, viewport.width, viewport.height)}
+          whileHover={{ scale: 1.06 }}
+          whileTap={{ scale: 0.82 }}
+          onClick={() => {
+            fitPage(page, viewport.width, viewport.height)
+          }}
         >
           <Scan size={15} />
-        </button>
-        <button
+        </motion.button>
+        <motion.button
           type="button"
           title={t('whiteboard.actualSize')}
           aria-label={t('whiteboard.actualSize')}
-          onClick={() => props.onZoomChange(clamp(1, WHITEBOARD_MIN_ZOOM, WHITEBOARD_MAX_ZOOM))}
+          whileHover={{ scale: 1.06 }}
+          whileTap={{ scale: 0.82 }}
+          onClick={() => {
+            props.onZoomChange(clamp(1, WHITEBOARD_MIN_ZOOM, WHITEBOARD_MAX_ZOOM))
+          }}
         >
           <Frame size={15} />
-        </button>
+        </motion.button>
         {props.onPatchPanels ? (
-          <button
+          <motion.button
             type="button"
             className={panelMode ? 'active' : ''}
             title={t('whiteboard.panelMode')}
             aria-label={t('whiteboard.panelMode')}
             aria-pressed={panelMode}
             data-testid="panel-mode-toggle"
-            onClick={() => setPanelMode((current) => !current)}
+            whileHover={{ scale: 1.06 }}
+            whileTap={{ scale: 0.82 }}
+            onClick={() => {
+              setCleanupTool(null)
+              setPanelMode((current) => !current)
+            }}
           >
-            <LayoutGrid size={15} />
-          </button>
+            {panelMode ? <ActiveIndicator layoutId="canvas-tool-active" className="canvas-tool-indicator" /> : null}
+            <MotionIcon icon={panelMode ? X : LayoutGrid} state={panelMode ? 'close' : 'panels'} size={15} spin={false} />
+          </motion.button>
         ) : null}
         {panelMode && (page.panels?.length || 0) > 0 ? (
-          <button
+          <motion.button
             type="button"
             title={t('whiteboard.clearPanels')}
             aria-label={t('whiteboard.clearPanels')}
             data-testid="panel-clear"
+            initial={{ opacity: 0, scale: 0.7 }}
+            animate={{ opacity: 1, scale: 1 }}
+            whileHover={{ scale: 1.06 }}
+            whileTap={{ scale: 0.82 }}
             onClick={() => props.onPatchPanels?.([])}
           >
             <Trash2 size={15} />
-          </button>
+          </motion.button>
         ) : null}
-      </div>
+        {props.onPatchCleanup ? (
+          <>
+            <motion.button
+              type="button"
+              className={cleanupTool === 'mosaic' ? 'active' : ''}
+              title={t('whiteboard.cleanupMosaic')}
+              aria-label={t('whiteboard.cleanupMosaic')}
+              aria-pressed={cleanupTool === 'mosaic'}
+              data-testid="cleanup-mosaic"
+              whileHover={{ scale: 1.06 }}
+              whileTap={{ scale: 0.82 }}
+              onClick={() => toggleCleanupTool('mosaic')}
+            >
+              {cleanupTool === 'mosaic' ? <ActiveIndicator layoutId="canvas-tool-active" className="canvas-tool-indicator" /> : null}
+              <Grid3X3 size={15} />
+            </motion.button>
+            <motion.button
+              type="button"
+              className={cleanupTool === 'paint' ? 'active' : ''}
+              title={t('whiteboard.cleanupPaint')}
+              aria-label={t('whiteboard.cleanupPaint')}
+              aria-pressed={cleanupTool === 'paint'}
+              data-testid="cleanup-paint"
+              whileHover={{ scale: 1.06 }}
+              whileTap={{ scale: 0.82 }}
+              onClick={() => toggleCleanupTool('paint')}
+            >
+              {cleanupTool === 'paint' ? <ActiveIndicator layoutId="canvas-tool-active" className="canvas-tool-indicator" /> : null}
+              <Brush size={15} />
+            </motion.button>
+            <motion.button
+              type="button"
+              className={cleanupTool === 'erase' ? 'active' : ''}
+              title={t('whiteboard.cleanupErase')}
+              aria-label={t('whiteboard.cleanupErase')}
+              aria-pressed={cleanupTool === 'erase'}
+              data-testid="cleanup-erase"
+              whileHover={{ scale: 1.06 }}
+              whileTap={{ scale: 0.82 }}
+              onClick={() => toggleCleanupTool('erase')}
+            >
+              {cleanupTool === 'erase' ? <ActiveIndicator layoutId="canvas-tool-active" className="canvas-tool-indicator" /> : null}
+              <Eraser size={15} />
+            </motion.button>
+            {(page.cleanupStrokes?.length || 0) > 0 ? (
+              <motion.button
+                type="button"
+                title={t('whiteboard.cleanupClear')}
+                aria-label={t('whiteboard.cleanupClear')}
+                data-testid="cleanup-clear"
+                whileHover={{ scale: 1.06 }}
+                whileTap={{ scale: 0.82 }}
+                onClick={() => props.onPatchCleanup?.([])}
+              >
+                <Trash2 size={15} />
+              </motion.button>
+            ) : null}
+          </>
+        ) : null}
+      </motion.div>
 
-      {props.batchProgress ? (
-        <div className="canvas-progress" role="status" aria-live="polite">
-          <Loader2 size={15} />
-          <span>{t('canvas.generating', { current: props.batchProgress.current + 1, total: props.batchProgress.total })}</span>
+      {cleanupTool ? (
+        <div className="cleanup-params" data-testid="cleanup-params">
+          <label>
+            <span>{t('whiteboard.cleanupSize')}</span>
+            <input
+              type="range"
+              min="4"
+              max="240"
+              step="2"
+              value={cleanupSize}
+              aria-label={t('whiteboard.cleanupSize')}
+              onChange={(event) => setCleanupSize(Number(event.target.value))}
+            />
+            <strong>{cleanupSize}px</strong>
+          </label>
+          <label>
+            <span>{t('whiteboard.cleanupIntensity')}</span>
+            <input
+              type="range"
+              min="0.1"
+              max="1"
+              step="0.05"
+              value={cleanupIntensity}
+              aria-label={t('whiteboard.cleanupIntensity')}
+              onChange={(event) => setCleanupIntensity(Number(event.target.value))}
+            />
+            <strong>{Math.round(cleanupIntensity * 100)}%</strong>
+          </label>
+          <label className="cleanup-color-control">
+            <span>{t('whiteboard.cleanupColor')}</span>
+            <input type="color" value={cleanupColor} aria-label={t('whiteboard.cleanupColor')} onChange={(event) => setCleanupColor(event.target.value)} />
+          </label>
         </div>
       ) : null}
+
+      <AnimatePresence>
+      {props.batchProgress ? (
+        <motion.div className="canvas-progress" role="status" aria-live="polite" initial={{ opacity: 0, y: -10, scale: 0.88 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: -8, scale: 0.9 }} transition={softSpring}>
+          <MotionIcon icon={Loader2} state="generating" size={15} spin />
+          <span>{t('canvas.generating', { current: props.batchProgress.current + 1, total: props.batchProgress.total })}</span>
+        </motion.div>
+      ) : null}
+      </AnimatePresence>
     </div>
+  )
+}
+
+function CleanupLine(props: {
+  stroke: CleanupStroke
+  pageWidth: number
+  pageHeight: number
+  zoom: number
+  preview?: boolean
+}) {
+  const points = props.stroke.points.flatMap((point) => [point.x * props.pageWidth, point.y * props.pageHeight])
+  const mosaic = props.stroke.mode === 'mosaic'
+  return (
+    <Line
+      points={points}
+      stroke={props.preview ? '#c9282d' : props.stroke.color}
+      strokeWidth={props.stroke.size}
+      opacity={props.preview ? 0.65 : props.stroke.intensity}
+      lineCap="round"
+      lineJoin="round"
+      dash={mosaic ? [Math.max(6, props.stroke.size * 0.55), Math.max(4, props.stroke.size * 0.3)] : props.preview ? [12 / props.zoom, 8 / props.zoom] : undefined}
+      listening={false}
+    />
   )
 }
 
@@ -453,6 +689,7 @@ function BubbleNode(props: {
   /** Position within the page's dialogue list; shown as a reading-order badge (editor only). */
   orderIndex: number
   character?: Character
+  letteringDefaults?: LetteringDefaults
   pageWidth: number
   pageHeight: number
   zoom: number
@@ -648,8 +885,8 @@ function BubbleNode(props: {
           lineHeight={1.35}
           align="center"
           fill={props.dialogue.color || props.character?.color || '#111111'}
-          stroke={isSfx ? '#ffffff' : undefined}
-          strokeWidth={isSfx ? Math.max(5, Math.round(fontSize * 0.18)) : undefined}
+          stroke={isSfx ? props.letteringDefaults?.sfxStrokeColor || '#ffffff' : undefined}
+          strokeWidth={isSfx ? Math.max(5, Math.round(fontSize * (props.letteringDefaults?.sfxStrokeWidth || 0.18))) : undefined}
           fillAfterStrokeEnabled={isSfx}
           lineJoin="round"
           listening={false}
@@ -670,8 +907,8 @@ function BubbleNode(props: {
               lineHeight={1.08}
               align="center"
               fill={props.dialogue.color || props.character?.color || '#111111'}
-              stroke={isSfx ? '#ffffff' : undefined}
-              strokeWidth={isSfx ? Math.max(5, Math.round(fontSize * 0.18)) : undefined}
+              stroke={isSfx ? props.letteringDefaults?.sfxStrokeColor || '#ffffff' : undefined}
+              strokeWidth={isSfx ? Math.max(5, Math.round(fontSize * (props.letteringDefaults?.sfxStrokeWidth || 0.18))) : undefined}
               fillAfterStrokeEnabled={isSfx}
               lineJoin="round"
               listening={false}

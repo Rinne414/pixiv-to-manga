@@ -162,6 +162,53 @@ describe('page reorder and delete', () => {
   })
 })
 
+describe('lettering defaults and cleanup layers', () => {
+  it('persists normalized cleanup strokes and applies lettering defaults explicitly', async () => {
+    const db = createDb()
+    const { project, pages } = createProjectWithPages(db, 1)
+    const character = db.createCharacter(project.id, { name: '夏海', color: '#c9282d' })
+    db.createDialogue(pages[0].id, {
+      id: 'dialogue-1',
+      pageId: pages[0].id,
+      characterId: character.id,
+      characterName: character.name,
+      text: '原始对白',
+      x: 0.5,
+      y: 0.5,
+      scale: 1,
+      rotation: 0,
+      bubbleStyle: 'speech',
+      color: '#141414',
+      locked: false,
+    })
+    const server = createServer(db)
+
+    const cleanup = await server.inject({
+      method: 'PUT',
+      url: `/api/pages/${pages[0].id}/cleanup`,
+      payload: {
+        cleanupStrokes: [{ mode: 'paint', points: [{ x: 0.1, y: 0.2 }, { x: 0.2, y: 0.2 }], size: 48, intensity: 0.8, color: '#ffffff' }],
+      },
+    })
+    expect(cleanup.statusCode).toBe(200)
+    expect((cleanup.json() as { pages: Array<{ cleanupStrokes?: unknown[] }> }).pages[0].cleanupStrokes).toHaveLength(1)
+
+    db.updateProjectSettings(project.id, {
+      letteringDefaults: { scale: 1.35, color: '#1464c0', sfxStrokeColor: '#ffffff', sfxStrokeWidth: 0.2 },
+    })
+    expect(db.getProjectDetail(project.id).dialogues[0]).toMatchObject({ scale: 1, color: '#141414' })
+
+    db.updateProjectSettings(project.id, {
+      letteringDefaults: { scale: 1.35, color: '#1464c0', sfxStrokeColor: '#ffffff', sfxStrokeWidth: 0.2 },
+      applyLetteringToExisting: true,
+    })
+    expect(db.getProjectDetail(project.id).dialogues[0]).toMatchObject({ scale: 1.35, color: '#1464c0' })
+
+    db.updateProjectSettings(project.id, { colorDialoguesByCharacter: true })
+    expect(db.getProjectDetail(project.id).dialogues[0].color).toBe('#c9282d')
+  })
+})
+
 describe('dialogue restore route', () => {
   it('replaces the page dialogue list with preserved ids and restores the status', async () => {
     const db = createDb()

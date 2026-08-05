@@ -17,9 +17,12 @@ export type RouteSafetyResult =
         | 'illegal_content'
         | 'r18_disabled'
         | 'vision_required'
+        | 'vision_capability_unknown'
         | 'adult_input_not_allowed'
+        | 'adult_input_capability_unknown'
         | 'explicit_image_not_allowed'
         | 'adult_generation_not_allowed'
+        | 'adult_generation_capability_unknown'
         | 'safety_unknown'
         | 'safety_classification_failed'
     }

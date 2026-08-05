@@ -24,6 +24,14 @@ const capability: ModelCapability = {
   supportsJsonSchema: true,
   allowsAdultInput: false,
   allowsAdultGeneration: false,
+  capabilitySources: {
+    supportsVision: 'provider',
+    supportsImageGeneration: 'unknown',
+    supportsStreaming: 'tested',
+    supportsJsonSchema: 'provider',
+    allowsAdultInput: 'unknown',
+    allowsAdultGeneration: 'unknown',
+  },
   source: 'discovered',
   updatedAt: '2026-06-20T00:00:00.000Z',
 }
@@ -86,8 +94,8 @@ describe('Provider Lab API client adapters', () => {
       modelId: 'gpt-4o',
       ok: true,
       results: [
-        { kind: 'text', ok: true, status: 200, latencyMs: 10 },
-        { kind: 'vision', ok: true, status: 200, latencyMs: 20 },
+        { kind: 'text', ok: true, outcome: 'supported', status: 200, latencyMs: 10 },
+        { kind: 'vision', ok: true, outcome: 'supported', status: 200, latencyMs: 20 },
       ],
       trace: [{ request: { headers: { Authorization: '[redacted]' } } }],
       inferredCapabilities: { supportsVision: true },
@@ -103,7 +111,14 @@ describe('Provider Lab API client adapters', () => {
     expect(requestBody.tests).toEqual(['text', 'vision'])
     expect(result.passed).toBe(true)
     expect(result.latencyMs).toBe(30)
-    expect(result.results[0]).toEqual({ kind: 'text', passed: true, message: 'HTTP 200 / 10 ms' })
+    expect(result.results[0]).toEqual({
+      kind: 'text',
+      passed: true,
+      outcome: 'supported',
+      status: 200,
+      latencyMs: 10,
+      message: 'HTTP 200 / 10 ms',
+    })
     expect(result.redactedTrace[0]).toContain('[redacted]')
   })
 
@@ -122,6 +137,38 @@ describe('Provider Lab API client adapters', () => {
     expect(updated.id).toBe('cap-1')
     expect(updated.allowsAdultInput).toBe(true)
     expect(updated.source).toBe('user')
+  })
+
+  it('preserves an indeterminate capability check instead of reporting unsupported', async () => {
+    stubFetch({
+      providerId: 'provider-1',
+      modelId: 'gpt-4o',
+      ok: false,
+      results: [
+        {
+          kind: 'vision',
+          ok: false,
+          outcome: 'indeterminate',
+          status: 400,
+          error: 'Capability check was inconclusive: HTTP 400.',
+          latencyMs: 25,
+        },
+      ],
+      trace: [],
+    })
+
+    const result = await testProvider('provider-1', {
+      modelId: 'gpt-4o',
+      tests: { text: false, vision: true, json: false, streaming: false },
+    })
+
+    expect(result.passed).toBe(false)
+    expect(result.results[0]).toMatchObject({
+      kind: 'vision',
+      outcome: 'indeterminate',
+      status: 400,
+      passed: false,
+    })
   })
 
   it('rejects provider tests with no selected probes before making a request', async () => {

@@ -48,13 +48,16 @@ test('whiteboard canvas zooms with controls, wheel, and fit', async ({ page }) =
   const readout = page.getByTestId('whiteboard-zoom')
   await expect(readout).toBeVisible()
   // Auto-fit runs async after ResizeObserver measures; a fitted 800x1000 page is always <100%.
-  await expect(readout).not.toHaveText('100%')
+  await expect
+    .poll(async () => parseInt(await readout.innerText(), 10))
+    .toBeLessThan(100)
   const fitValue = await readout.innerText()
 
   await page.getByRole('button', { name: 'Zoom in' }).click()
   await page.getByRole('button', { name: 'Zoom in' }).click()
-  const zoomedValue = await readout.innerText()
-  expect(parseInt(zoomedValue, 10)).toBeGreaterThan(parseInt(fitValue, 10))
+  await expect
+    .poll(async () => parseInt(await readout.innerText(), 10))
+    .toBeGreaterThan(parseInt(fitValue, 10))
 
   await page.getByTestId('whiteboard-fit').click()
   await expect(readout).toHaveText(fitValue)
@@ -239,10 +242,10 @@ test('page-range generation only generates pages inside the range', async ({ pag
   await page.getByTestId('generate-range-to').fill('2')
   await page.getByTestId('generate-range-run').click()
 
+  await expect(page.getByTestId('page-thumb').nth(1)).toContainText('complete', { timeout: 15_000 })
   await expect(page.locator('.log-list').getByText('Pages 2-2 generated.')).toBeVisible()
   // Page 1 sits outside the range and must remain untouched.
   await expect(page.getByTestId('page-thumb').nth(0)).toContainText('0 lines / ready')
-  await expect(page.getByTestId('page-thumb').nth(1)).toContainText('complete')
 
   // Re-running the same range only reports already-complete pages.
   await page.getByTestId('generate-range-run').click()

@@ -1,5 +1,44 @@
 # Provider Lab Team Progress
 
+## 2026-07-30 Bounded Pixiv batch import
+
+- Added explicit artwork URL/ID preview for up to 50 artworks and 200 selected pages, with duplicate artwork removal and per-artwork failures.
+- Added persisted sequential tasks with pause, resume, cancel, failed-item retry, restart recovery, stable item file paths, project-level de-duplication, and atomic page/import-record commits.
+- Added a shared serial Pixiv request throttle, bounded network/5xx retries, automatic 401/403/429 pause, and backend-enforced 429 cooldown.
+- Public imports omit Cookie by default. Private non-R-18 imports can explicitly use the saved session, R-18 requires it, and the session test returns capability state without returning the Cookie.
+- Added streamed 30 MB image enforcement, MIME/dimension validation, active-request cancellation, responsive task controls, and user-facing account-risk guidance.
+- Unified project-detail refreshes behind request version, selected-project, and mount-state checks so delayed imports or failed project loads cannot restore stale editable state; empty-workspace imports select their new project and failed loads can be retried in place.
+- GPL reference material was used only for design and behavior study; no source, names, or copy were ported.
+- Final verification passed: lint, 26 Vitest files / 197 tests, production build, four targeted Pixiv E2E scenarios, targeted 390 px overflow E2E, and the complete 31-test Chromium E2E suite. Final reviewer verdict: `[OK]`.
+
+## 2026-07-30 Lettering defaults and non-destructive cleanup
+
+- Added project-scoped lettering defaults for font, scale, text color, and SFX outline settings, with explicit save-defaults versus apply-to-existing actions.
+- Added explicit character-color application and made generated/manual dialogue inherit project defaults while preserving intentional per-line overrides.
+- Added normalized per-page cleanup strokes with mosaic, paint, erase, size, intensity, color, clear, backup restore, and shared PNG/ZIP/CBZ/PDF/reader rendering.
+- Updated API/architecture docs, README, SQLite migrations, and regression tests. Verification: lint passed, build passed, 25 Vitest files / 177 tests passed; isolated lettering/cleanup browser smoke passed. Full Chromium suite passed 25/26; the custom-font case passed in isolation and timed out only when run after the complete serial suite.
+
+## 2026-07-27 AIHubMix route and usability hardening
+
+- AIHubMix website roots normalize to the OpenAI-compatible `/v1` API prefix, and authentication failures stop the remaining capability probes instead of emitting four misleading failures.
+- Safe image requests can test unknown Vision support at the Provider; successful real image calls persist tested Vision evidence. Adult-content, illegal-content, image-generation, and explicit negative Vision gates remain fail closed.
+- External model names no longer create capability evidence. Historical `model-id` evidence is reset to unknown and replaced only by provider metadata, active probes, successful real image requests, or user confirmation.
+- The legacy global API fallback is hidden when a keyed external Provider connection is available.
+- Real AIHubMix browser flow passed: local image import, Story Bible generation, and page dialogue generation with three saved lines.
+- Final verification passed: lint, 24 Vitest files / 175 tests, and production build. The full Chromium run passed 25/26; its sole unrelated 390px overflow check passed immediately on isolated rerun, so all 26 scenarios have passing evidence without a narrow-screen product change.
+
+## 2026-07-26 Capability detection hardening
+
+- Replaced model-wide capability provenance with per-flag evidence while preserving the existing boolean routing fields.
+- Added additive SQLite migration for `capabilitySourcesJson` and automatic reconciliation of stored default models.
+- Discovery now parses common provider capability metadata without guessing capabilities from model names.
+- Local providers automatically receive adult input/generation routing evidence; external providers can derive it from explicit capability fields, unmoderated provider metadata, active safe probes, successful real requests, or model-scoped overrides.
+- Local trust now requires both `isLocal` and a loopback/private URL across save validation, capability inference, chat routing, and image routing; legacy public rows marked local fail closed.
+- Provider checks now default to text, vision, JSON, and streaming; use a valid PNG; validate chat/JSON/SSE responses; and keep 401/429/5xx/network/malformed results indeterminate.
+- Provider Lab now displays supported, unsupported, and unknown separately instead of rendering every false value as unsupported.
+- Provider Lab exposes model-scoped overrides for every capability gate and submits only changed fields, preserving unrelated automatic evidence.
+- Final verification passed: lint, build, 24 unit-test files / 162 tests, and 26 Chromium E2E tests.
+
 ## 2026-06-20
 
 - Team setup started.

@@ -33,6 +33,6 @@ Complete on 2026-06-20.
 ## Risks / Follow-ups
 
 - Capability inference from model IDs is intentionally conservative and should be supplemented by researcher/provider-specific metadata.
-- Adult capability flags remain manual/user-confirmed only.
+- Superseded 2026-07-26: adult capability now comes from local routing policy, explicit provider metadata, or a model-scoped user override.
 - Route safety helper is tested but not yet wired into story/page generation.
 - Provider test uses OpenAI-compatible `/chat/completions`; non-compatible providers need adapters before they can be tested reliably.

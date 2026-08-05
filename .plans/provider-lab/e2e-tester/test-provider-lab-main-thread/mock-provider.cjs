@@ -49,6 +49,21 @@ const server = http.createServer((req, res) => {
       return
     }
 
+    if (url.pathname === '/ajax/illust/987654321/pages' && req.method === 'GET') {
+      res.setHeader('Content-Type', 'application/json')
+      res.end(
+        JSON.stringify({
+          error: false,
+          body: Array.from({ length: 200 }, (_, pageIndex) => ({
+            urls: {
+              original: `http://127.0.0.1:5199/pixiv-assets/987654321_p${pageIndex}.png`,
+            },
+          })),
+        }),
+      )
+      return
+    }
+
     if (url.pathname === '/pixiv-assets/123456789_p0.png' && req.method === 'GET') {
       res.setHeader('Content-Type', 'image/png')
       res.end(pixivPng)
@@ -82,8 +97,11 @@ const server = http.createServer((req, res) => {
         parsedBody && parsedBody.model === 'invalid-json-smoke'
           ? 'invalid-json-smoke output that is not valid JSON'
           : '{"ok":true}'
-      if (parsedBody && parsedBody.model === 'slow-json-smoke') {
-        setTimeout(() => {
+      const sendChatResponse = () => {
+        if (parsedBody && parsedBody.stream) {
+          res.setHeader('Content-Type', 'text/event-stream')
+          res.end(`data: ${JSON.stringify({ choices: [{ delta: { content } }] })}\n\ndata: [DONE]\n\n`)
+        } else {
           res.end(
             JSON.stringify({
               id: 'mock-chatcmpl',
@@ -93,18 +111,13 @@ const server = http.createServer((req, res) => {
               requestEcho: body,
             }),
           )
-        }, 3000)
+      }
+      }
+      if (parsedBody && parsedBody.model === 'slow-json-smoke') {
+        setTimeout(sendChatResponse, 3000)
         return
       }
-      res.end(
-        JSON.stringify({
-          id: 'mock-chatcmpl',
-          object: 'chat.completion',
-          choices: [{ message: { role: 'assistant', content } }],
-          receivedAuthorization: req.headers.authorization || null,
-          requestEcho: body,
-        }),
-      )
+      sendChatResponse()
       return
     }
 

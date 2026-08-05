@@ -24,7 +24,7 @@ import {
   downloadPixivArtworkImages,
 } from './importers'
 import { extractImageMetadata } from './imageMetadata'
-import { findMatchingCapability, findMatchingProvider } from './providerResolution'
+import { findMatchingCapability, findMatchingProvider, isTrustedLocalProvider } from './providerResolution'
 
 export interface ContinuationContext {
   db: StudioDatabase
@@ -146,38 +146,47 @@ export class StoryContinuationService {
   private async resolveImageGenerationTarget(): Promise<ImageGenerationTarget | null> {
     const [status, globalApiKey] = await Promise.all([this.secrets.status(), this.secrets.getApiKey()])
     const providers = this.db.listProviders()
+    let hasUsableProvider = false
+    let hasUnknownCapability = false
 
+    // Provider profiles are the primary path; incompatible profiles do not block a later compatible one.
+    for (const provider of providers) {
+      if (!provider.baseUrl || !provider.defaultModel) continue
+      const apiKey = await this.secrets.getProviderApiKey(provider.id)
+      if (!apiKey && !isTrustedLocalProvider(provider)) continue
+      hasUsableProvider = true
+      const capability = findMatchingCapability(this.db, provider.id, provider.defaultModel)
+      if (!capability || capability.capabilitySources.supportsImageGeneration === 'unknown') {
+        hasUnknownCapability = true
+        continue
+      }
+      if (!capability?.supportsImageGeneration) continue
+      return { provider, capability, apiKey: apiKey || '' }
+    }
+
+    // The legacy global connection is a fallback and participates only when it maps to a Provider record.
     if (status.apiBaseUrl && status.modelName) {
       const provider = findMatchingProvider(providers, status.apiBaseUrl, status.modelName)
       if (provider) {
-        const capability = findMatchingCapability(this.db, provider.id, status.modelName)
-        if (capability?.supportsImageGeneration) {
-          const apiKey = globalApiKey || (await this.secrets.getProviderApiKey(provider.id))
-          // Local providers (Ollama, LM Studio, ...) may run keyless; external ones still need a key.
-          if (apiKey || provider.isLocal) {
+        const apiKey = globalApiKey || (await this.secrets.getProviderApiKey(provider.id))
+        if (apiKey || isTrustedLocalProvider(provider)) {
+          hasUsableProvider = true
+          const capability = findMatchingCapability(this.db, provider.id, status.modelName)
+          if (!capability || capability.capabilitySources.supportsImageGeneration === 'unknown') {
+            hasUnknownCapability = true
+          } else if (capability.supportsImageGeneration) {
             return { provider, capability, apiKey: apiKey || '' }
           }
         }
       }
     }
 
-    // Global settings that don't resolve to an image-capable profile fall through here: pick the
-    // first usable provider (keyed, or keyless local) whose default model supports image generation.
-    let hasUsableProvider = false
-    for (const provider of providers) {
-      if (!provider.baseUrl || !provider.defaultModel) continue
-      const apiKey = await this.secrets.getProviderApiKey(provider.id)
-      if (!apiKey && !provider.isLocal) continue
-      hasUsableProvider = true
-      const capability = findMatchingCapability(this.db, provider.id, provider.defaultModel)
-      if (!capability?.supportsImageGeneration) continue
-      return { provider, capability, apiKey: apiKey || '' }
-    }
-
     // Fail closed only when real providers are configured but none may generate images;
     // with no usable provider at all, callers fall back to the local mock engine.
     if (hasUsableProvider) {
-      throw new Error('AI route blocked by provider safety policy: image_generation_required')
+      throw new Error(
+        `AI route blocked by provider safety policy: ${hasUnknownCapability ? 'image_generation_capability_unknown' : 'image_generation_required'}`,
+      )
     }
     return null
   }
@@ -188,6 +197,10 @@ export class StoryContinuationService {
   ): void {
     if (!target.capability?.supportsImageGeneration) {
       throw new Error('AI route blocked by provider safety policy: image_generation_required')
+    }
+
+    if (input.r18Enabled && target.capability.capabilitySources.allowsAdultGeneration === 'unknown') {
+      throw new Error('AI route blocked by provider safety policy: adult_generation_capability_unknown')
     }
 
     const route = evaluateRouteSafety({

@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import type { ComponentType } from 'react'
+import { AnimatePresence, LayoutGroup, motion, useReducedMotion } from 'motion/react'
 import {
   Archive,
   BookOpen,
@@ -10,6 +11,7 @@ import {
   Eye,
   FileText,
   ArchiveRestore,
+  CircleHelp,
   ImageDown,
   ImagePlus,
   Images,
@@ -31,6 +33,7 @@ import {
   WandSparkles,
 } from 'lucide-react'
 import { OnboardingChecklist } from './OnboardingChecklist'
+import { GuideModal } from './GuideModal'
 import { ProviderLabPanel } from './ProviderLabPanel'
 import { ReaderOverlay } from './ReaderOverlay'
 import { StoryContinuePanel } from './StoryContinuePanel'
@@ -38,6 +41,7 @@ import { WhiteboardCanvas } from './WhiteboardCanvas'
 import { CharactersPanel } from './panels/CharactersPanel'
 import { DialoguePanel } from './panels/DialoguePanel'
 import { LayoutPanel } from './panels/LayoutPanel'
+import { LetteringDefaultsPanel } from './panels/LetteringDefaultsPanel'
 import { PageThumb } from './panels/PageThumb'
 import { SettingsPanel } from './panels/SettingsPanel'
 import { StoryPanel } from './panels/StoryPanel'
@@ -46,7 +50,10 @@ import { useI18n } from './i18n/context'
 import type { MessageKey } from './i18n/messages'
 import { useTheme } from './theme'
 import type { IconProps } from './uiUtils'
+import type { ConnectionMode } from './shared/types'
 import { useStudio, type InspectorTab } from './useStudio'
+import { ActiveIndicator, MotionIcon } from './MotionUI'
+import { quickTransition, softSpring } from './motionTokens'
 
 const tabItems: Array<{ id: InspectorTab; labelKey: MessageKey; icon: ComponentType<IconProps> }> = [
   { id: 'story', labelKey: 'tab.story', icon: BookOpen },
@@ -62,6 +69,8 @@ function App() {
   const studio = useStudio()
   const [logCollapsed, setLogCollapsed] = useState(false)
   const [readerOpen, setReaderOpen] = useState(false)
+  const [guideOpen, setGuideOpen] = useState(false)
+  const [connectionMode, setConnectionMode] = useState<ConnectionMode>('external')
   const {
     fileInputRef,
     backupInputRef,
@@ -117,14 +126,18 @@ function App() {
           </div>
         </div>
         <div className="toolbar">
-          <div className="entry-switch" role="tablist" aria-label={t('header.workspaceEntries')}>
-            <button type="button" className={entryMode === 'studio' ? 'active' : ''} onClick={() => setEntryMode('studio')}>
-              {t('header.entryStudio')}
-            </button>
-            <button type="button" className={entryMode === 'continue' ? 'active' : ''} data-testid="entry-story-continue" onClick={() => setEntryMode('continue')}>
-              {t('header.entryContinue')}
-            </button>
-          </div>
+          <LayoutGroup id="entry-mode">
+            <div className="entry-switch" role="tablist" aria-label={t('header.workspaceEntries')}>
+              <motion.button type="button" className={entryMode === 'studio' ? 'active' : ''} whileTap={{ scale: 0.96 }} onClick={() => setEntryMode('studio')}>
+                {entryMode === 'studio' ? <ActiveIndicator layoutId="entry-mode-active" className="switch-indicator" /> : null}
+                <span className="switch-label">{t('header.entryStudio')}</span>
+              </motion.button>
+              <motion.button type="button" className={entryMode === 'continue' ? 'active' : ''} whileTap={{ scale: 0.96 }} data-testid="entry-story-continue" onClick={() => setEntryMode('continue')}>
+                {entryMode === 'continue' ? <ActiveIndicator layoutId="entry-mode-active" className="switch-indicator" /> : null}
+                <span className="switch-label">{t('header.entryContinue')}</span>
+              </motion.button>
+            </div>
+          </LayoutGroup>
           {entryMode === 'studio' ? (
             <>
               <ToolbarButton icon={ImagePlus} label={t('toolbar.importPixiv')} testId="toolbar-import-pixiv" disabled={!canRun} onClick={() => setActiveTab('story')} />
@@ -134,17 +147,17 @@ function App() {
               <ToolbarButton icon={Play} label={t('toolbar.generatePage')} testId="toolbar-generate-page" priority="primary" disabled={!canRun || !activePage} onClick={studio.handleGenerateActivePage} />
               <ToolbarButton icon={Sparkles} label={t('toolbar.generateAll')} testId="toolbar-generate-all" priority="primary" disabled={!canRun} onClick={studio.handleGenerateAll} />
               <span className="toolbar-divider" />
-              <ToolbarButton icon={Undo2} label={t('toolbar.undo')} testId="toolbar-undo" variant="ghost" disabled={!canUndo || Boolean(busy)} onClick={studio.handleUndo} />
-              <ToolbarButton icon={Redo2} label={t('toolbar.redo')} testId="toolbar-redo" variant="ghost" disabled={!canRedo || Boolean(busy)} onClick={studio.handleRedo} />
-              <ToolbarButton icon={CircleStop} label={t('toolbar.cancel')} testId="toolbar-cancel-job" variant="ghost" disabled={!currentJobId} onClick={studio.handleCancelCurrentJob} />
+              <ToolbarButton icon={Undo2} label={t('toolbar.undo')} testId="toolbar-undo" variant="ghost" iconOnly disabled={!canUndo || Boolean(busy)} onClick={studio.handleUndo} />
+              <ToolbarButton icon={Redo2} label={t('toolbar.redo')} testId="toolbar-redo" variant="ghost" iconOnly disabled={!canRedo || Boolean(busy)} onClick={studio.handleRedo} />
+              <ToolbarButton icon={CircleStop} label={t('toolbar.cancel')} testId="toolbar-cancel-job" variant="ghost" iconOnly disabled={!currentJobId} onClick={studio.handleCancelCurrentJob} />
               <span className="toolbar-divider" />
-              <ToolbarButton icon={Eye} label={t('toolbar.reader')} testId="toolbar-reader" disabled={!detail?.pages.length} onClick={() => setReaderOpen(true)} />
-              <ToolbarButton icon={Download} label={t('toolbar.exportZip')} testId="toolbar-export-zip" disabled={!canRun || !detail?.pages.length} onClick={studio.handleExportZip} />
-              <ToolbarButton icon={Archive} label={t('toolbar.exportCbz')} testId="toolbar-export-cbz" disabled={!canRun || !detail?.pages.length} onClick={studio.handleExportCbz} />
-              <ToolbarButton icon={FileText} label={t('toolbar.exportPdf')} testId="toolbar-export-pdf" disabled={!canRun || !detail?.pages.length} onClick={studio.handleExportPdf} />
-              <ToolbarButton icon={ImageDown} label={t('toolbar.exportPage')} testId="toolbar-export-page" disabled={!canRun || !activePage} onClick={studio.handleExportActivePage} />
-              <ToolbarButton icon={Save} label={t('toolbar.exportBackup')} testId="toolbar-export-backup" variant="ghost" disabled={!canRun} onClick={studio.handleExportBackup} />
-              <ToolbarButton icon={ArchiveRestore} label={t('toolbar.restoreBackup')} testId="toolbar-restore-backup" variant="ghost" disabled={Boolean(busy)} onClick={() => backupInputRef.current?.click()} />
+              <ToolbarButton icon={Eye} label={t('toolbar.reader')} testId="toolbar-reader" iconOnly disabled={!detail?.pages.length} onClick={() => setReaderOpen(true)} />
+              <ToolbarButton icon={Download} label={t('toolbar.exportZip')} testId="toolbar-export-zip" iconOnly disabled={!canRun || !detail?.pages.length} onClick={studio.handleExportZip} />
+              <ToolbarButton icon={Archive} label={t('toolbar.exportCbz')} testId="toolbar-export-cbz" iconOnly disabled={!canRun || !detail?.pages.length} onClick={studio.handleExportCbz} />
+              <ToolbarButton icon={FileText} label={t('toolbar.exportPdf')} testId="toolbar-export-pdf" iconOnly disabled={!canRun || !detail?.pages.length} onClick={studio.handleExportPdf} />
+              <ToolbarButton icon={ImageDown} label={t('toolbar.exportPage')} testId="toolbar-export-page" iconOnly disabled={!canRun || !activePage} onClick={studio.handleExportActivePage} />
+              <ToolbarButton icon={Save} label={t('toolbar.exportBackup')} testId="toolbar-export-backup" variant="ghost" iconOnly disabled={!canRun} onClick={studio.handleExportBackup} />
+              <ToolbarButton icon={ArchiveRestore} label={t('toolbar.restoreBackup')} testId="toolbar-restore-backup" variant="ghost" iconOnly disabled={Boolean(busy)} onClick={() => backupInputRef.current?.click()} />
             </>
           ) : null}
         </div>
@@ -157,20 +170,20 @@ function App() {
               中文
             </button>
           </div>
-          <button
+          <ToolbarButton icon={CircleHelp} label={t('header.openGuide')} testId="open-guide" variant="ghost" iconOnly onClick={() => setGuideOpen(true)} />
+          <motion.button
             type="button"
             className="icon-button"
             data-testid="theme-toggle"
             title={theme === 'dark' ? t('header.themeToLight') : t('header.themeToDark')}
             aria-label={theme === 'dark' ? t('header.themeToLight') : t('header.themeToDark')}
+            whileHover={{ rotate: 8, scale: 1.05 }}
+            whileTap={{ rotate: -8, scale: 0.9 }}
             onClick={toggleTheme}
           >
-            {theme === 'dark' ? <Sun size={16} /> : <Moon size={16} />}
-          </button>
-          <div className="status-pill" data-busy={Boolean(busy)} data-testid="studio-status" role="status" aria-live="polite">
-            {busy ? <Loader2 size={15} /> : <span />}
-            {busy || t('status.ready')}
-          </div>
+            <MotionIcon icon={theme === 'dark' ? Sun : Moon} state={theme} size={16} spin={false} />
+          </motion.button>
+          <StudioStatus busy={busy} ready={t('status.ready')} />
         </div>
         <input
           ref={fileInputRef}
@@ -236,17 +249,23 @@ function App() {
               <span>{t('studio.projects')}</span>
             </div>
             {projects.map((project) => (
-              <button
+              <motion.button
+                layout
                 key={project.id}
                 type="button"
                 className={`project-row ${project.id === selectedProjectId ? 'active' : ''}`}
+                data-testid="project-row"
+                data-project-id={project.id}
+                whileHover={{ x: 2 }}
+                whileTap={{ scale: 0.985 }}
+                transition={quickTransition}
                 onClick={() => setSelectedProjectId(project.id)}
               >
                 <strong>{project.title}</strong>
                 <span>
                   {t('studio.projectRowSummary', { source: t(sourceKeys[project.source]), mode: t(modeKeys[project.mode]) })}
                 </span>
-              </button>
+              </motion.button>
             ))}
           </section>
 
@@ -279,6 +298,7 @@ function App() {
             asset={activeAsset}
             dialogues={activeDialogues}
             characters={detail?.characters || []}
+            letteringDefaults={studio.letteringDefaults}
             zoom={zoom}
             onZoomChange={setZoom}
             selectedDialogueId={selectedDialogueId}
@@ -295,32 +315,56 @@ function App() {
             onPatchPanels={(panels) => {
               if (activePage) void studio.handleSetPanels(activePage.id, panels)
             }}
+            onPatchCleanup={(cleanupStrokes) => {
+              if (activePage) void studio.handleSetCleanup(activePage.id, cleanupStrokes)
+            }}
           />
         </section>
 
         <aside className="right-rail panel">
+          <LayoutGroup id="inspector-tabs">
           <div className="inspector-tabs" role="tablist" aria-label={t('tab.inspectorPanels')}>
             {tabItems.map((item) => {
               const Icon = item.icon
               const label = t(item.labelKey)
               return (
-                <button
+                <motion.button
                   key={item.id}
                   type="button"
                   role="tab"
                   aria-selected={activeTab === item.id}
                   data-testid={`tab-${item.id}`}
                   className={activeTab === item.id ? 'active' : ''}
+                  whileHover={{ y: -1 }}
+                  whileTap={{ scale: 0.94 }}
+                  transition={quickTransition}
                   onClick={() => setActiveTab(item.id)}
                   title={label}
                 >
-                  <Icon size={16} />
-                  <span>{label}</span>
-                </button>
+                  {activeTab === item.id ? <ActiveIndicator layoutId="inspector-tab-active" className="inspector-tab-indicator" /> : null}
+                  <motion.span
+                    className="inspector-tab-icon"
+                    animate={activeTab === item.id ? { scale: 1.08, y: -1 } : { scale: 1, y: 0 }}
+                    transition={softSpring}
+                  >
+                    <Icon size={17} strokeWidth={1.9} />
+                  </motion.span>
+                  <span className="inspector-tab-label">{label}</span>
+                </motion.button>
               )
             })}
           </div>
+          </LayoutGroup>
 
+          <AnimatePresence initial={false} mode="wait">
+          <motion.div
+            key={activeTab}
+            className="inspector-panel-transition"
+            initial={{ opacity: 0, y: 6 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -4 }}
+            transition={quickTransition}
+          >
           {activeTab === 'story' && (
             <StoryPanel
               detail={detail}
@@ -331,6 +375,8 @@ function App() {
               pixivUrl={studio.pixivUrl}
               setPixivUrl={studio.setPixivUrl}
               onPixivImport={studio.handlePixivImport}
+              onPixivBatchImported={studio.handlePixivBatchImported}
+              onPixivBatchError={studio.handlePixivBatchError}
               onStoryBibleChange={studio.updateStoryBibleLocal}
               onStoryBibleCommit={studio.commitStoryBible}
               disabled={Boolean(busy)}
@@ -385,17 +431,43 @@ function App() {
             />
           )}
           {activeTab === 'settings' && (
-            <>
+            <div className="connection-workspace">
+              <LayoutGroup id="connection-mode">
+              <div className="connection-mode-switch" role="tablist" aria-label={t('settings.connectionMode')}>
+                <motion.button type="button" role="tab" aria-selected={connectionMode === 'local'} className={connectionMode === 'local' ? 'active' : ''} whileTap={{ scale: 0.97 }} onClick={() => setConnectionMode('local')} data-testid="connection-mode-local">
+                  {connectionMode === 'local' ? <ActiveIndicator layoutId="connection-mode-active" className="switch-indicator" /> : null}
+                  <span className="switch-label">{t('settings.modeLocal')}</span>
+                </motion.button>
+                <motion.button type="button" role="tab" aria-selected={connectionMode === 'external'} className={connectionMode === 'external' ? 'active' : ''} whileTap={{ scale: 0.97 }} onClick={() => setConnectionMode('external')} data-testid="connection-mode-external">
+                  {connectionMode === 'external' ? <ActiveIndicator layoutId="connection-mode-active" className="switch-indicator" /> : null}
+                  <span className="switch-label">{t('settings.modeExternal')}</span>
+                </motion.button>
+              </div>
+              </LayoutGroup>
+              <ProviderLabPanel key={connectionMode} secretStatus={secretStatus} providers={providers} onProvidersChanged={studio.setProviders} mode={connectionMode} />
               <SettingsPanel
                 status={secretStatus}
                 form={studio.settingsForm}
                 setForm={studio.setSettingsForm}
                 onSubmit={studio.handleSaveSettings}
                 disabled={Boolean(busy)}
+                mode={connectionMode}
+                hasProviderConnection={providers.some((provider) => !provider.isLocal && provider.hasApiKey)}
               />
-              <ProviderLabPanel secretStatus={secretStatus} providers={providers} onProvidersChanged={studio.setProviders} />
-            </>
+              {detail ? (
+                <LetteringDefaultsPanel
+                  key={detail.project.id}
+                  defaults={studio.letteringDefaults}
+                  customFonts={customFonts}
+                  disabled={Boolean(busy)}
+                  onSave={studio.handleSaveLettering}
+                  onColorByCharacter={studio.handleColorDialoguesByCharacter}
+                />
+              ) : null}
+            </div>
           )}
+          </motion.div>
+          </AnimatePresence>
         </aside>
       </main>
       )}
@@ -436,9 +508,13 @@ function App() {
         ) : null}
       </footer>
 
-      {readerOpen && detail?.pages.length ? (
-        <ReaderOverlay detail={detail} initialPageIndex={activePage?.index ?? 0} onClose={() => setReaderOpen(false)} />
-      ) : null}
+      {guideOpen ? <GuideModal onClose={() => setGuideOpen(false)} /> : null}
+
+      <AnimatePresence>
+        {readerOpen && detail?.pages.length ? (
+          <ReaderOverlay detail={detail} initialPageIndex={activePage?.index ?? 0} onClose={() => setReaderOpen(false)} />
+        ) : null}
+      </AnimatePresence>
     </div>
   )
 }
@@ -449,25 +525,73 @@ function ToolbarButton(props: {
   testId: string
   priority?: 'primary'
   variant?: 'ghost'
+  iconOnly?: boolean
   disabled?: boolean
   onClick: () => void
 }) {
+  const reducedMotion = useReducedMotion()
   const Icon = props.icon
   return (
-    <button
+    <motion.button
       type="button"
       className="toolbar-button"
       data-priority={props.priority || undefined}
       data-variant={props.variant || undefined}
+      data-icon-only={props.iconOnly || undefined}
       disabled={props.disabled}
+      whileHover={props.disabled || reducedMotion ? undefined : { y: -1 }}
+      whileTap={props.disabled || reducedMotion ? undefined : { scale: 0.94, y: 0 }}
+      transition={quickTransition}
       onClick={props.onClick}
       title={props.label}
       aria-label={props.label}
       data-testid={props.testId}
     >
-      <Icon size={16} />
-      <span>{props.label}</span>
-    </button>
+      <motion.span className="toolbar-icon-slot" whileHover={reducedMotion ? undefined : { rotate: -4, scale: 1.08 }}>
+        <Icon size={16} strokeWidth={1.9} />
+      </motion.span>
+      {props.iconOnly ? <span className="toolbar-label sr-only">{props.label}</span> : <span className="toolbar-label">{props.label}</span>}
+    </motion.button>
+  )
+}
+
+function StudioStatus(props: { busy: string; ready: string }) {
+  const reducedMotion = useReducedMotion()
+  const isBusy = Boolean(props.busy)
+  const label = props.busy || props.ready
+
+  return (
+    <motion.div
+      layout
+      className="status-pill"
+      data-busy={isBusy}
+      data-testid="studio-status"
+      role="status"
+      aria-live="polite"
+      transition={reducedMotion ? { duration: 0 } : softSpring}
+    >
+      <AnimatePresence initial={false} mode="popLayout">
+        {isBusy ? (
+          <motion.span key="busy" className="status-glyph" initial={{ scale: 0.5, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.5, opacity: 0 }}>
+            <MotionIcon icon={Loader2} state="busy" size={15} spin />
+          </motion.span>
+        ) : (
+          <motion.span key="ready" className="status-dot" initial={{ scale: 0.5, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.5, opacity: 0 }} />
+        )}
+      </AnimatePresence>
+      <AnimatePresence initial={false} mode="popLayout">
+        <motion.span
+          key={label}
+          className="status-label"
+          initial={reducedMotion ? false : { opacity: 0, y: 5 }}
+          animate={{ opacity: 1, y: 0 }}
+          exit={reducedMotion ? { opacity: 0 } : { opacity: 0, y: -5 }}
+          transition={quickTransition}
+        >
+          {label}
+        </motion.span>
+      </AnimatePresence>
+    </motion.div>
   )
 }
 

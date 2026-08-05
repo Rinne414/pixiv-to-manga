@@ -234,9 +234,9 @@ Everything below is verified green: `npx tsc -b`, `npm test` (94 tests), `npm ru
   `clampMetadataToSchemaLimits` keeps inspect responses self-consistent.
 - **Image-generation target selection fails closed on purpose** (see item 1 above for
   the keyless-local extension of this rule).
-- **Capability upserts must not clobber user data.** Only test kinds that ran update
-  flags; `supportsImageGeneration` + adult flags are name-inference/user-only;
-  `source: 'user'` is sticky; `db.upsertModelCapability` filters `undefined`.
+- **Capability upserts must not clobber stronger evidence.** Per-flag `capabilitySources`
+  distinguish unknown/provider/tested/local-policy/user; invalid legacy evidence is normalized to unknown. Only conclusive test
+  kinds update their flags; user evidence is sticky and undefined fields remain unchanged.
 - **Safety classification excludes negative prompts** (`buildSafetyClassificationText`).
 - **Pixiv import streams** (`forEachPixivArtworkImage`); `downloadPixivArtworkImages`
   buffers and is only safe for callers that cap `maxPages`.

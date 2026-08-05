@@ -4,9 +4,12 @@ import { databasePath, ensureAppDirs } from './paths'
 import type {
   Asset,
   Character,
+  CleanupStroke,
   Dialogue,
   FontAsset,
+  LetteringDefaults,
   ModelCapability,
+  ModelCapabilitySources,
   Page,
   PanelBox,
   Project,
@@ -14,9 +17,15 @@ import type {
   ProjectMode,
   ProjectSource,
   ProviderProfile,
+  PixivBatchTask,
+  PixivBatchTaskItem,
+  PixivBatchTaskStatus,
+  PixivBatchItemStatus,
   ReadingDirection,
   StoryBible,
 } from '../src/shared/types'
+import { letteringDefaultsSchema } from '../src/shared/schemas'
+import { findDialogueCharacter } from '../src/shared/characters'
 import {
   assetFromRow,
   characterFromRow,
@@ -26,10 +35,23 @@ import {
   pageFromRow,
   projectFromRow,
   providerFromRow,
+  pixivBatchTaskFromRow,
+  pixivBatchTaskItemFromRow,
   type Row,
 } from './databaseRows'
 import { runMigrations } from './databaseSchema'
 import { ensureSampleProject } from './sampleProject'
+
+const modelCapabilityFlags = [
+  'supportsVision',
+  'supportsImageGeneration',
+  'supportsStreaming',
+  'supportsJsonSchema',
+  'allowsAdultInput',
+  'allowsAdultGeneration',
+] as const
+
+const PIXIV_REQUEST_COOLDOWN_KEY = 'pixiv-request-cooldown'
 
 export class StudioDatabase {
   private db: DatabaseSync
@@ -40,6 +62,7 @@ export class StudioDatabase {
     this.db.exec('PRAGMA journal_mode = WAL;')
     this.db.exec('PRAGMA foreign_keys = ON;')
     runMigrations(this.db)
+    this.markPixivTasksPausedOnStartup()
     if (seedSampleProject) {
       ensureSampleProject(this)
     }
@@ -72,17 +95,70 @@ export class StudioDatabase {
     const id = randomUUID()
     this.db
       .prepare(
-        'INSERT INTO projects (id, title, mode, source, createdAt, updatedAt, storyBibleJson) VALUES (?, ?, ?, ?, ?, ?, ?)',
+        'INSERT INTO projects (id, title, mode, source, createdAt, updatedAt, storyBibleJson, letteringJson) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
       )
-      .run(id, input.title, input.mode, input.source, now, now, null)
+      .run(id, input.title, input.mode, input.source, now, now, null, JSON.stringify(letteringDefaultsSchema.parse({})))
     return this.getProject(id)
   }
 
   updateProjectReadingDirection(projectId: string, readingDirection: ReadingDirection): Project {
-    this.getProject(projectId)
-    this.db.prepare('UPDATE projects SET readingDirection = ? WHERE id = ?').run(readingDirection, projectId)
+    return this.updateProjectSettings(projectId, { readingDirection })
+  }
+
+  updateProjectSettings(
+    projectId: string,
+    input: {
+      readingDirection?: ReadingDirection
+      letteringDefaults?: LetteringDefaults
+      applyLetteringToExisting?: boolean
+      colorDialoguesByCharacter?: boolean
+    },
+  ): Project {
+    const current = this.getProject(projectId)
+    const nextDefaults = input.letteringDefaults ? letteringDefaultsSchema.parse(input.letteringDefaults) : current.letteringDefaults || letteringDefaultsSchema.parse({})
+    if (input.readingDirection !== undefined) {
+      this.db.prepare('UPDATE projects SET readingDirection = ? WHERE id = ?').run(input.readingDirection, projectId)
+    }
+    if (input.letteringDefaults !== undefined) {
+      this.db.prepare('UPDATE projects SET letteringJson = ? WHERE id = ?').run(JSON.stringify(nextDefaults), projectId)
+      if (input.applyLetteringToExisting) {
+        this.applyLetteringDefaults(projectId, nextDefaults)
+      }
+    }
+    if (input.colorDialoguesByCharacter) {
+      this.applyCharacterColors(projectId)
+    }
     this.touchProject(projectId)
     return this.getProject(projectId)
+  }
+
+  private applyLetteringDefaults(projectId: string, defaults: LetteringDefaults): void {
+    this.db
+      .prepare(
+        'UPDATE dialogues SET scale = ?, color = ?, fontFamily = ? WHERE pageId IN (SELECT id FROM pages WHERE projectId = ?)',
+      )
+      .run(defaults.scale, defaults.color, defaults.fontFamily || null, projectId)
+  }
+
+  private applyCharacterColors(projectId: string): void {
+    const characters = this.listCharacters(projectId)
+    const dialogues = this.listDialoguesByProject(projectId)
+    const update = this.db.prepare('UPDATE dialogues SET color = ? WHERE id = ?')
+    for (const dialogue of dialogues) {
+      const character = findDialogueCharacter(characters, dialogue)
+      if (character) {
+        update.run(character.color, dialogue.id)
+      }
+    }
+  }
+
+  private listDialoguesByProject(projectId: string): Dialogue[] {
+    return this.db
+      .prepare(
+        'SELECT d.* FROM dialogues d JOIN pages p ON p.id = d.pageId WHERE p.projectId = ? ORDER BY p.pageIndex ASC, d.rowid ASC',
+      )
+      .all(projectId)
+      .map((row) => dialogueFromRow(row as Row))
   }
 
   upsertSetting(key: string, value: string): void {
@@ -94,6 +170,22 @@ export class StudioDatabase {
   getSetting(key: string, fallback = ''): string {
     const row = this.db.prepare('SELECT value FROM settings WHERE key = ?').get(key) as Row | undefined
     return typeof row?.value === 'string' ? row.value : fallback
+  }
+
+  getPixivRequestCooldown(): string | null {
+    const retryAt = this.getSetting(PIXIV_REQUEST_COOLDOWN_KEY, '')
+    const timestamp = Date.parse(retryAt)
+    return Number.isFinite(timestamp) && timestamp > Date.now() ? new Date(timestamp).toISOString() : null
+  }
+
+  setPixivRequestCooldown(retryAt: string): string {
+    const timestamp = Date.parse(retryAt)
+    if (!Number.isFinite(timestamp)) throw new RangeError(`Invalid Pixiv cooldown timestamp: ${retryAt}`)
+    const current = this.getPixivRequestCooldown()
+    const effectiveTimestamp = Math.max(timestamp, current ? Date.parse(current) : 0)
+    const effectiveRetryAt = new Date(effectiveTimestamp).toISOString()
+    this.upsertSetting(PIXIV_REQUEST_COOLDOWN_KEY, effectiveRetryAt)
+    return effectiveRetryAt
   }
 
   saveStoryBible(projectId: string, storyBible: StoryBible): void {
@@ -215,6 +307,7 @@ export class StudioDatabase {
   deletePage(pageId: string): void {
     const page = this.getPage(pageId)
     this.db.prepare('DELETE FROM dialogues WHERE pageId = ?').run(pageId)
+    this.db.prepare('DELETE FROM pixiv_import_records WHERE pageId = ?').run(pageId)
     this.db.prepare('DELETE FROM pages WHERE id = ?').run(pageId)
     this.db
       .prepare('UPDATE pages SET pageIndex = pageIndex - 1 WHERE projectId = ? AND pageIndex > ?')
@@ -325,6 +418,32 @@ export class StudioDatabase {
     return this.getPage(pageId)
   }
 
+  updatePageCleanup(pageId: string, cleanupStrokes: CleanupStroke[]): Page {
+    const page = this.getPage(pageId)
+    this.db.prepare('UPDATE pages SET cleanupJson = ? WHERE id = ?').run(cleanupStrokes.length ? JSON.stringify(cleanupStrokes) : null, pageId)
+    this.touchProject(page.projectId)
+    return this.getPage(pageId)
+  }
+
+  replaceGeneratedDialogues(pageId: string, dialogues: Dialogue[]): Dialogue[] {
+    const page = this.getPage(pageId)
+    const project = this.getProject(page.projectId)
+    const characters = this.listCharacters(page.projectId)
+    const defaults = project.letteringDefaults || letteringDefaultsSchema.parse({})
+    this.db.prepare('DELETE FROM dialogues WHERE pageId = ?').run(pageId)
+    for (const dialogue of dialogues) {
+      const character = findDialogueCharacter(characters, dialogue)
+      this.createDialogue(pageId, {
+        ...dialogue,
+        scale: dialogue.scale === 1 ? defaults.scale : dialogue.scale,
+        color: dialogue.color === '#141414' ? character?.color || defaults.color : dialogue.color,
+        fontFamily: dialogue.fontFamily || defaults.fontFamily,
+      })
+    }
+    this.updatePageStatus(pageId, 'complete')
+    return this.listDialogues(pageId)
+  }
+
   getDialogue(id: string): Dialogue {
     const row = this.db.prepare('SELECT * FROM dialogues WHERE id = ?').get(id) as Row | undefined
     if (!row) throw new Error('Dialogue not found')
@@ -362,6 +481,185 @@ export class StudioDatabase {
       .prepare('SELECT * FROM dialogues WHERE pageId = ? ORDER BY rowid ASC')
       .all(pageId)
       .map((row) => dialogueFromRow(row as Row))
+  }
+
+  createPixivBatchTask(input: {
+    projectId: string
+    title: string
+    r18Enabled: boolean
+    usePixivSession: boolean
+    requestDelayMs: number
+    pages: Array<{ artworkId: string; pageIndex: number; sourceUrl: string; fileName: string }>
+  }): PixivBatchTask {
+    this.getProject(input.projectId)
+    if (input.pages.length < 1 || input.pages.length > 200) {
+      throw new Error('Pixiv batch tasks must contain between 1 and 200 pages')
+    }
+    const taskId = randomUUID()
+    const now = new Date().toISOString()
+    this.db
+      .prepare(
+        'INSERT INTO pixiv_tasks (id, projectId, title, r18Enabled, usePixivSession, status, totalItems, completedItems, failedItems, requestDelayMs, createdAt, updatedAt) VALUES (?, ?, ?, ?, ?, ?, ?, 0, 0, ?, ?, ?)',
+      )
+      .run(taskId, input.projectId, input.title, input.r18Enabled ? 1 : 0, input.usePixivSession ? 1 : 0, 'queued', input.pages.length, input.requestDelayMs, now, now)
+    const insert = this.db.prepare(
+      'INSERT INTO pixiv_task_items (id, taskId, artworkId, pageIndex, sourceUrl, fileName, status, attempts, createdAt, updatedAt) VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?)',
+    )
+    for (const page of input.pages) {
+      insert.run(randomUUID(), taskId, page.artworkId, page.pageIndex, page.sourceUrl, page.fileName, 'queued', now, now)
+    }
+    return this.getPixivBatchTask(taskId)
+  }
+
+  getPixivBatchTask(taskId: string): PixivBatchTask {
+    const row = this.db.prepare('SELECT * FROM pixiv_tasks WHERE id = ?').get(taskId) as Row | undefined
+    if (!row) throw new Error('Pixiv batch task not found')
+    const items = this.db
+      .prepare('SELECT * FROM pixiv_task_items WHERE taskId = ? ORDER BY rowid ASC')
+      .all(taskId)
+      .map((item) => pixivBatchTaskItemFromRow(item as Row))
+    return pixivBatchTaskFromRow(row, items)
+  }
+
+  listRecoverablePixivBatchTasks(projectId: string): PixivBatchTask[] {
+    return this.db
+      .prepare("SELECT id FROM pixiv_tasks WHERE projectId = ? AND status IN ('queued', 'running', 'paused', 'failed') ORDER BY updatedAt DESC LIMIT 10")
+      .all(projectId)
+      .map((row) => this.getPixivBatchTask(String((row as Row).id)))
+  }
+
+  updatePixivBatchTask(
+    taskId: string,
+    patch: Partial<{
+      status: PixivBatchTaskStatus
+      completedItems: number
+      failedItems: number
+      retryAt: string | null
+      pauseReason: string | null
+      error: string | null
+    }>,
+  ): PixivBatchTask {
+    const current = this.getPixivBatchTask(taskId)
+    const next = {
+      status: patch.status ?? current.status,
+      completedItems: patch.completedItems ?? current.completedItems,
+      failedItems: patch.failedItems ?? current.failedItems,
+      retryAt: patch.retryAt === undefined ? current.retryAt ?? null : patch.retryAt,
+      pauseReason: patch.pauseReason === undefined ? current.pauseReason ?? null : patch.pauseReason,
+      error: patch.error === undefined ? current.error ?? null : patch.error,
+    }
+    this.db
+      .prepare('UPDATE pixiv_tasks SET status = ?, completedItems = ?, failedItems = ?, retryAt = ?, pauseReason = ?, error = ?, updatedAt = ? WHERE id = ?')
+      .run(next.status, next.completedItems, next.failedItems, next.retryAt, next.pauseReason, next.error, new Date().toISOString(), taskId)
+    return this.getPixivBatchTask(taskId)
+  }
+
+  updatePixivBatchTaskItem(
+    itemId: string,
+    patch: Partial<{ status: PixivBatchItemStatus; attempts: number; error: string | null; assetId: string | null; pageId: string | null }>,
+  ): PixivBatchTaskItem {
+    const row = this.db.prepare('SELECT * FROM pixiv_task_items WHERE id = ?').get(itemId) as Row | undefined
+    if (!row) throw new Error('Pixiv batch task item not found')
+    const current = pixivBatchTaskItemFromRow(row)
+    const next = {
+      status: patch.status ?? current.status,
+      attempts: patch.attempts ?? current.attempts,
+      error: patch.error === undefined ? current.error ?? null : patch.error,
+      assetId: patch.assetId === undefined ? current.assetId ?? null : patch.assetId,
+      pageId: patch.pageId === undefined ? current.pageId ?? null : patch.pageId,
+    }
+    this.db
+      .prepare('UPDATE pixiv_task_items SET status = ?, attempts = ?, error = ?, assetId = ?, pageId = ?, updatedAt = ? WHERE id = ?')
+      .run(next.status, next.attempts, next.error, next.assetId, next.pageId, new Date().toISOString(), itemId)
+    return this.getPixivBatchTaskItem(itemId)
+  }
+
+  getPixivBatchTaskItem(itemId: string): PixivBatchTaskItem {
+    const row = this.db.prepare('SELECT * FROM pixiv_task_items WHERE id = ?').get(itemId) as Row | undefined
+    if (!row) throw new Error('Pixiv batch task item not found')
+    return pixivBatchTaskItemFromRow(row)
+  }
+
+  findPixivImportRecord(input: { projectId: string; artworkId: string; pageIndex: number; sourceRevision: string }): { assetId: string; pageId: string } | null {
+    const row = this.db
+      .prepare('SELECT assetId, pageId FROM pixiv_import_records WHERE projectId = ? AND artworkId = ? AND pageIndex = ? AND sourceRevision = ?')
+      .get(input.projectId, input.artworkId, input.pageIndex, input.sourceRevision) as Row | undefined
+    return row ? { assetId: String(row.assetId), pageId: String(row.pageId) } : null
+  }
+
+  createPixivImportedPage(input: {
+    projectId: string
+    artworkId: string
+    pageIndex: number
+    sourceUrl: string
+    sourceRevision: string
+    fileName: string
+    relativePath: string
+    mimeType: string
+    width: number
+    height: number
+  }): { created: boolean; assetId: string; pageId: string } {
+    this.db.exec('BEGIN IMMEDIATE')
+    try {
+      const duplicate = this.findPixivImportRecord(input)
+      if (duplicate) {
+        this.db.exec('COMMIT')
+        return { created: false, ...duplicate }
+      }
+      const asset = this.createAsset({
+        projectId: input.projectId,
+        kind: 'original',
+        relativePath: input.relativePath,
+        mimeType: input.mimeType,
+        sourceUrl: input.sourceUrl,
+        width: input.width,
+        height: input.height,
+      })
+      const page = this.createPage({
+        projectId: input.projectId,
+        index: this.listPages(input.projectId).length,
+        originalAssetId: asset.id,
+        width: asset.width,
+        height: asset.height,
+      })
+      this.db
+        .prepare('INSERT INTO pixiv_import_records (id, projectId, artworkId, pageIndex, sourceUrl, sourceRevision, fileName, assetId, pageId, createdAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+        .run(randomUUID(), input.projectId, input.artworkId, input.pageIndex, input.sourceUrl, input.sourceRevision, input.fileName, asset.id, page.id, new Date().toISOString())
+      this.touchProject(input.projectId)
+      this.db.exec('COMMIT')
+      return { created: true, assetId: asset.id, pageId: page.id }
+    } catch (error) {
+      try {
+        this.db.exec('ROLLBACK')
+      } catch (rollbackError) {
+        throw new AggregateError([error, rollbackError], 'Pixiv page transaction and rollback both failed', { cause: rollbackError })
+      }
+      throw error
+    }
+  }
+
+  savePixivImportRecord(input: {
+    projectId: string
+    artworkId: string
+    pageIndex: number
+    sourceUrl: string
+    sourceRevision: string
+    fileName: string
+    assetId: string
+    pageId: string
+  }): void {
+    this.db
+      .prepare('INSERT INTO pixiv_import_records (id, projectId, artworkId, pageIndex, sourceUrl, sourceRevision, fileName, assetId, pageId, createdAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(projectId, artworkId, pageIndex, sourceRevision) DO NOTHING')
+      .run(randomUUID(), input.projectId, input.artworkId, input.pageIndex, input.sourceUrl, input.sourceRevision, input.fileName, input.assetId, input.pageId, new Date().toISOString())
+  }
+
+  markPixivTasksPausedOnStartup(): void {
+    this.db
+      .prepare("UPDATE pixiv_task_items SET status = 'queued', updatedAt = ? WHERE status = 'downloading'")
+      .run(new Date().toISOString())
+    this.db
+      .prepare("UPDATE pixiv_tasks SET status = 'paused', pauseReason = 'Task paused after application restart', updatedAt = ? WHERE status IN ('queued', 'running')")
+      .run(new Date().toISOString())
   }
 
   createJob(type: string, message: string): string {
@@ -450,9 +748,17 @@ export class StudioDatabase {
       contextWindow?: number | null
       notes?: string
       source?: ModelCapability['source']
+      capabilitySources?: Partial<ModelCapabilitySources>
     },
   ): ModelCapability {
     const now = new Date().toISOString()
+    const declaredEvidence = input.source === 'user' ? 'user' : input.source === 'tested' ? 'tested' : undefined
+    const inferredSources = declaredEvidence
+      ? Object.fromEntries(
+          modelCapabilityFlags.flatMap((flag) => (input[flag] === undefined ? [] : [[flag, declaredEvidence]])),
+        )
+      : {}
+    const capabilitySources = { ...inferredSources, ...input.capabilitySources }
     const existing = this.db
       .prepare('SELECT * FROM model_capabilities WHERE providerId = ? AND modelId = ?')
       .get(input.providerId, input.modelId) as Row | undefined
@@ -470,12 +776,14 @@ export class StudioDatabase {
         contextWindow: input.contextWindow === undefined ? current.contextWindow : input.contextWindow || undefined,
         notes: input.notes ?? current.notes,
         source: input.source ?? current.source,
+        capabilitySources: { ...current.capabilitySources, ...capabilitySources },
       }
       this.db
         .prepare(
           `UPDATE model_capabilities
            SET supportsVision = ?, supportsStreaming = ?, supportsJsonSchema = ?, allowsAdultInput = ?,
-               allowsAdultGeneration = ?, supportsImageGeneration = ?, contextWindow = ?, notes = ?, source = ?, updatedAt = ?
+               allowsAdultGeneration = ?, supportsImageGeneration = ?, contextWindow = ?, notes = ?, source = ?,
+               capabilitySourcesJson = ?, updatedAt = ?
            WHERE id = ?`,
         )
         .run(
@@ -488,6 +796,7 @@ export class StudioDatabase {
           merged.contextWindow ?? null,
           merged.notes,
           merged.source,
+          JSON.stringify(merged.capabilitySources),
           now,
           current.id,
         )
@@ -499,8 +808,8 @@ export class StudioDatabase {
       .prepare(
         `INSERT INTO model_capabilities
           (id, providerId, modelId, supportsVision, supportsStreaming, supportsJsonSchema, allowsAdultInput,
-           allowsAdultGeneration, supportsImageGeneration, contextWindow, notes, source, createdAt, updatedAt)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+           allowsAdultGeneration, supportsImageGeneration, contextWindow, notes, source, capabilitySourcesJson, createdAt, updatedAt)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         id,
@@ -515,20 +824,31 @@ export class StudioDatabase {
         input.contextWindow ?? null,
         input.notes || '',
         input.source || 'discovered',
+        JSON.stringify(capabilitySources),
         now,
         now,
       )
     return this.getModelCapability(id)
   }
 
-  updateModelCapability(id: string, patch: Partial<Omit<ModelCapability, 'id' | 'providerId' | 'modelId' | 'createdAt' | 'updatedAt'>>): ModelCapability {
+  updateModelCapability(
+    id: string,
+    patch: Partial<
+      Omit<ModelCapability, 'id' | 'providerId' | 'modelId' | 'createdAt' | 'updatedAt' | 'capabilitySources'>
+    > & { capabilitySources?: Partial<ModelCapabilitySources> },
+  ): ModelCapability {
     const current = this.getModelCapability(id)
-    const merged = { ...current, ...patch }
+    const merged = {
+      ...current,
+      ...patch,
+      capabilitySources: { ...current.capabilitySources, ...patch.capabilitySources },
+    }
     this.db
       .prepare(
         `UPDATE model_capabilities
          SET supportsVision = ?, supportsStreaming = ?, supportsJsonSchema = ?, allowsAdultInput = ?,
-             allowsAdultGeneration = ?, supportsImageGeneration = ?, contextWindow = ?, notes = ?, source = ?, updatedAt = ?
+             allowsAdultGeneration = ?, supportsImageGeneration = ?, contextWindow = ?, notes = ?, source = ?,
+             capabilitySourcesJson = ?, updatedAt = ?
          WHERE id = ?`,
       )
       .run(
@@ -541,6 +861,7 @@ export class StudioDatabase {
         merged.contextWindow ?? null,
         merged.notes,
         merged.source,
+        JSON.stringify(merged.capabilitySources),
         new Date().toISOString(),
         id,
       )

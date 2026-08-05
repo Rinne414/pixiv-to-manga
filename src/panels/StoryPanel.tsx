@@ -1,7 +1,8 @@
 import type { FormEvent } from 'react'
-import { ImagePlus } from 'lucide-react'
+import { AlertTriangle, ImagePlus } from 'lucide-react'
 import type { ProjectDetail, StoryBible } from '../shared/types'
 import { useI18n } from '../i18n/context'
+import { PixivBatchImportPanel } from './PixivBatchImportPanel'
 
 export function StoryPanel(props: {
   detail: ProjectDetail | null
@@ -12,6 +13,8 @@ export function StoryPanel(props: {
   pixivUrl: string
   setPixivUrl: (value: string) => void
   onPixivImport: (event: FormEvent) => void
+  onPixivBatchImported: (projectId: string) => Promise<void>
+  onPixivBatchError: (message: string) => void
   onStoryBibleChange: (storyBible: StoryBible) => void
   onStoryBibleCommit: (storyBible: StoryBible) => void
   disabled: boolean
@@ -43,6 +46,15 @@ export function StoryPanel(props: {
 
   return (
     <div className="inspector-body">
+      <section className="pixiv-safety-notice" data-testid="pixiv-safety-notice">
+        <div className="pixiv-safety-heading">
+          <AlertTriangle size={16} />
+          <strong>{t('story.pixivSafetyTitle')}</strong>
+        </div>
+        <p>{t('story.pixivSafetyPublic')}</p>
+        <p>{t('story.pixivSafetyCookie')}</p>
+        <p>{t('story.pixivSafetyRisk')}</p>
+      </section>
       <form className="pixiv-form" onSubmit={props.onPixivImport}>
         <label>
           {t('story.pixivUrlLabel')}
@@ -54,6 +66,14 @@ export function StoryPanel(props: {
         </button>
       </form>
 
+      <PixivBatchImportPanel
+        projectId={props.detail?.project.id}
+        r18Enabled={props.r18Enabled}
+        disabled={props.disabled}
+        onImported={props.onPixivBatchImported}
+        onError={props.onPixivBatchError}
+      />
+
       <label className="field-block">
         {t('story.userBrief')}
         <textarea value={props.userBrief} onChange={(event) => props.setUserBrief(event.target.value)} rows={5} placeholder={t('story.userBriefPlaceholder')} />
@@ -63,6 +83,7 @@ export function StoryPanel(props: {
         <input type="checkbox" checked={props.r18Enabled} onChange={(event) => props.setR18Enabled(event.target.checked)} />
         <span>{t('story.r18Local')}</span>
       </label>
+      <p className="field-hint">{t('story.pixivR18Hint')}</p>
 
       {story ? (
         <div className="edit-form story-editor">

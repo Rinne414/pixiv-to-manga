@@ -1,7 +1,9 @@
 import type { FastifyInstance } from 'fastify'
-import type { ModelCapability, ProviderProfile } from '../src/shared/types'
+import type { ModelCapability, ModelCapabilityFlag, ProviderProfile } from '../src/shared/types'
 import {
   discoverModelsSchema,
+  legacyModelDiscoverySchema,
+  legacyProviderTestSchema,
   modelCapabilityIdParamSchema,
   modelCapabilityPatchSchema,
   providerIdParamSchema,
@@ -11,6 +13,15 @@ import {
 } from '../src/shared/schemas'
 import type { StudioDatabase } from './database'
 import type { SecretStore } from './secrets'
+import { isPrivateProviderUrl, isTrustedLocalProvider, normalizeBaseUrl } from './providerResolution'
+import {
+  capabilitySeedPatch,
+  deriveModelCapabilities,
+  parseProviderModels,
+  type ProviderModelCandidate,
+} from './modelCapabilities'
+
+export { parseProviderModels } from './modelCapabilities'
 
 export interface ProviderLabContext {
   db: StudioDatabase
@@ -18,15 +29,33 @@ export interface ProviderLabContext {
   fetchImpl?: typeof fetch
 }
 
-interface ProviderModelCandidate {
-  id: string
-  ownedBy?: string
-  rawType?: string
-}
-
 interface SensitiveValue {
   value: string
   replacement: string
+}
+
+type ProviderTestKind = 'text' | 'vision' | 'json' | 'streaming'
+type CapabilityProbeOutcome = 'supported' | 'unsupported' | 'indeterminate'
+type ProviderConnectionErrorCode =
+  | 'authentication_or_base_url'
+  | 'endpoint_not_found'
+  | 'rate_limited'
+  | 'provider_unavailable'
+  | 'network_error'
+
+interface CapabilityProbeResult {
+  kind: ProviderTestKind
+  ok: boolean
+  outcome: CapabilityProbeOutcome
+  status?: number
+  error?: string
+  latencyMs: number
+}
+
+interface ProviderConnectionError {
+  code: ProviderConnectionErrorCode
+  message: string
+  status?: number
 }
 
 const LOCAL_ENGINE_CANDIDATES = ['http://127.0.0.1:11434/v1', 'http://127.0.0.1:1234/v1']
@@ -45,8 +74,8 @@ async function detectLocalEngine(fetchImpl: typeof fetch): Promise<{ found: bool
         signal: AbortSignal.timeout(LOCAL_DETECT_TIMEOUT_MS),
       })
       if (!response.ok) continue
-      const payload = (await response.json()) as { data?: Array<{ id?: unknown }> }
-      const models = (payload.data || []).map((item) => (typeof item.id === 'string' ? item.id : '')).filter(Boolean)
+      const rawText = await response.text()
+      const models = parseProviderModels(rawText).map((model) => model.id)
       if (models.length) {
         return { found: true, baseUrl, models }
       }
@@ -59,6 +88,8 @@ async function detectLocalEngine(fetchImpl: typeof fetch): Promise<{ found: bool
 
 export function registerProviderLabRoutes(server: FastifyInstance, context: ProviderLabContext): void {
   const service = new ProviderLabService(context)
+  service.reconcileStoredProviderUrls()
+  service.reconcileStoredProviderCapabilities()
 
   server.get('/api/providers', async () => ({ providers: await service.listProviders() }))
 
@@ -93,6 +124,38 @@ export function registerProviderLabRoutes(server: FastifyInstance, context: Prov
     return service.testProvider(params.id, input)
   })
 
+  server.post('/api/settings/models', async (request) => {
+    const input = legacyModelDiscoverySchema.parse(request.body)
+    const discovered = await discoverProviderModelsFromConfig({
+      baseUrl: input.apiBaseUrl,
+      apiKey: input.apiKey?.trim() || await context.secrets.getApiKey(),
+      fetchImpl: context.fetchImpl || fetch,
+    })
+    return {
+      models: discovered.models.map((model) => ({ id: model.id, name: model.id, ownedBy: model.ownedBy })),
+      trace: discovered.trace,
+    }
+  })
+
+  server.post('/api/settings/test', async (request) => {
+    const input = legacyProviderTestSchema.parse(request.body)
+    const result = await testProviderConfig({
+      baseUrl: input.apiBaseUrl,
+      apiKey: input.apiKey?.trim() || await context.secrets.getApiKey(),
+      modelId: input.modelName,
+      tests: ['text'],
+      fetchImpl: context.fetchImpl || fetch,
+    })
+    return {
+      providerId: 'legacy-settings',
+      modelId: input.modelName,
+      ok: result.results.every((item) => item.ok),
+      results: result.results,
+      trace: result.trace,
+      ...(result.connectionError ? { connectionError: result.connectionError } : {}),
+    }
+  })
+
   server.get('/api/model-capabilities', async (request) => {
     const providerId =
       typeof (request.query as { providerId?: unknown }).providerId === 'string'
@@ -104,15 +167,28 @@ export function registerProviderLabRoutes(server: FastifyInstance, context: Prov
   server.patch('/api/model-capabilities/:id', async (request) => {
     const params = modelCapabilityIdParamSchema.parse(request.params)
     const input = modelCapabilityPatchSchema.parse(request.body)
+    const capabilitySources = Object.fromEntries(
+      capabilityFlagNames.flatMap((flag) => (input[flag] === undefined ? [] : [[flag, 'user' as const]])),
+    )
     return {
       capability: context.db.updateModelCapability(params.id, {
         ...input,
         contextWindow: input.contextWindow === null ? undefined : input.contextWindow,
-        source: input.source || 'user',
+        source: 'user',
+        capabilitySources,
       }),
     }
   })
 }
+
+const capabilityFlagNames = [
+  'supportsVision',
+  'supportsImageGeneration',
+  'supportsStreaming',
+  'supportsJsonSchema',
+  'allowsAdultInput',
+  'allowsAdultGeneration',
+] as const
 
 export class ProviderLabService {
   private db: StudioDatabase
@@ -130,6 +206,40 @@ export class ProviderLabService {
     return Promise.all(providers.map((provider) => this.withSecretStatus(provider)))
   }
 
+  reconcileStoredProviderUrls(): void {
+    for (const provider of this.db.listProviders()) {
+      const normalizedBaseUrl = normalizeBaseUrl(provider.baseUrl)
+      if (normalizedBaseUrl !== provider.baseUrl) {
+        this.db.updateProvider(provider.id, { baseUrl: normalizedBaseUrl })
+      }
+    }
+  }
+
+  reconcileStoredProviderCapabilities(): void {
+    for (const provider of this.db.listProviders()) {
+      for (const capability of this.db.listModelCapabilities(provider.id)) {
+        const staleFlags = capabilityFlagNames.filter(
+          (flag) => capability.capabilitySources[flag] === 'unknown' && capability[flag],
+        )
+        if (staleFlags.length > 0) {
+          const resetValues = Object.fromEntries(staleFlags.map((flag) => [flag, false])) as Partial<
+            Record<ModelCapabilityFlag, boolean>
+          >
+          const resetSources = Object.fromEntries(staleFlags.map((flag) => [flag, 'unknown' as const]))
+          this.db.upsertModelCapability({
+            providerId: provider.id,
+            modelId: capability.modelId,
+            ...resetValues,
+            capabilitySources: resetSources,
+          })
+        }
+      }
+      if (provider.defaultModel) {
+        this.seedModelCapability(provider, { id: provider.defaultModel, declaredCapabilities: {} })
+      }
+    }
+  }
+
   async createProvider(input: {
     name: string
     baseUrl: string
@@ -143,6 +253,9 @@ export class ProviderLabService {
       defaultModel: input.defaultModel.trim(),
       isLocal: input.isLocal,
     })
+    if (provider.defaultModel) {
+      this.seedModelCapability(provider, { id: provider.defaultModel, declaredCapabilities: {} })
+    }
     if (input.apiKey) {
       try {
         await this.secrets.setProviderApiKey(provider.id, input.apiKey)
@@ -177,7 +290,11 @@ export class ProviderLabService {
     } else {
       this.db.getProvider(providerId)
     }
-    return this.withSecretStatus(this.db.getProvider(providerId))
+    const updated = this.db.getProvider(providerId)
+    if (updated.defaultModel) {
+      this.seedModelCapability(updated, { id: updated.defaultModel, declaredCapabilities: {} })
+    }
+    return this.withSecretStatus(updated)
   }
 
   async deleteProvider(providerId: string): Promise<void> {
@@ -192,65 +309,31 @@ export class ProviderLabService {
   }> {
     const provider = this.db.getProvider(providerId, await this.secrets.hasProviderApiKey(providerId))
     const apiKey = await this.secrets.getProviderApiKey(providerId)
-    const url = joinProviderUrl(provider.baseUrl, normalizeDiscoverPath(discoverPath))
-    const headers = providerHeaders(apiKey)
-    const startedAt = Date.now()
-    const response = await this.fetchImpl(url, { method: 'GET', headers })
-    const rawText = await response.text()
-    const trace = redactedTrace({
-      url,
-      method: 'GET',
-      headers,
-      body: undefined,
-      status: response.status,
-      responseBody: rawText,
-      latencyMs: Date.now() - startedAt,
+    const discovered = await discoverProviderModelsFromConfig({
+      baseUrl: provider.baseUrl,
+      apiKey,
+      discoverPath,
+      fetchImpl: this.fetchImpl,
     })
-
-    if (!response.ok) {
-      throw new Error(`Provider model discovery failed: HTTP ${response.status}`)
-    }
-
-    const candidates = parseProviderModels(rawText)
     const existingByModelId = new Map(
       this.db.listModelCapabilities(provider.id).map((capability) => [capability.modelId, capability]),
     )
-    // Discovery only seeds capability rows for models we have not seen before; name-based
-    // inference must never downgrade flags a user set or a test verified.
-    const models = candidates.map((candidate) => {
-      const existing = existingByModelId.get(candidate.id)
-      if (existing) {
-        return existing
-      }
-      const inferred = inferCapabilities(candidate.id)
-      return this.db.upsertModelCapability({
-        providerId: provider.id,
-        modelId: candidate.id,
-        supportsVision: inferred.supportsVision,
-        supportsImageGeneration: inferred.supportsImageGeneration,
-        supportsStreaming: inferred.supportsStreaming,
-        supportsJsonSchema: inferred.supportsJsonSchema,
-        allowsAdultInput: false,
-        allowsAdultGeneration: false,
-        contextWindow: inferred.contextWindow,
-        notes: candidate.ownedBy ? `owned_by=${candidate.ownedBy}` : '',
-        source: 'discovered',
-      })
-    })
+    const models = discovered.models.map((candidate) => this.seedModelCapability(provider, candidate, existingByModelId.get(candidate.id)))
 
-    return { models, trace }
+    return { models, trace: discovered.trace }
   }
 
   async testProvider(
     providerId: string,
-    input: { modelId?: string; tests: Array<'text' | 'vision' | 'json' | 'streaming'>; imageDataUrl?: string },
+    input: { modelId?: string; tests: ProviderTestKind[]; imageDataUrl?: string },
   ): Promise<{
     providerId: string
     modelId: string
     ok: boolean
-    results: Array<{ kind: string; ok: boolean; status?: number; error?: string; latencyMs: number }>
+    results: CapabilityProbeResult[]
     inferredCapabilities: Omit<ModelCapability, 'id' | 'providerId' | 'createdAt' | 'updatedAt'>
     trace: RedactedTrace[]
+    connectionError?: ProviderConnectionError
   }> {
     const provider = this.db.getProvider(providerId, await this.secrets.hasProviderApiKey(providerId))
     const apiKey = await this.secrets.getProviderApiKey(providerId)
@@ -259,84 +342,28 @@ export class ProviderLabService {
       throw new Error('Provider test requires a modelId or provider defaultModel')
     }
 
-    const results = []
-    const traces: RedactedTrace[] = []
-
-    for (const kind of input.tests) {
-      const requestBody = buildChatTestBody(modelId, kind, input.imageDataUrl)
-      const url = joinProviderUrl(provider.baseUrl, '/chat/completions')
-      const headers = providerHeaders(apiKey)
-      const startedAt = Date.now()
-      try {
-        const response = await this.fetchImpl(url, {
-          method: 'POST',
-          headers,
-          body: JSON.stringify(requestBody),
-        })
-        const rawText = await response.text()
-        const latencyMs = Date.now() - startedAt
-        traces.push(
-          redactedTrace({
-            url,
-            method: 'POST',
-            headers,
-            body: requestBody,
-            status: response.status,
-            responseBody: rawText,
-            latencyMs,
-          }),
-        )
-        results.push({ kind, ok: response.ok, status: response.status, latencyMs })
-      } catch (error) {
-        const latencyMs = Date.now() - startedAt
-        traces.push(
-          redactedTrace({
-            url,
-            method: 'POST',
-            headers,
-            body: requestBody,
-            status: 0,
-            responseBody: '',
-            latencyMs,
-          }),
-        )
-        results.push({
-          kind,
-          ok: false,
-          error: error instanceof Error ? error.message : 'Provider test failed',
-          latencyMs,
-        })
-      }
-    }
+    const probe = await testProviderConfig({
+      baseUrl: provider.baseUrl,
+      apiKey,
+      modelId,
+      tests: input.tests,
+      imageDataUrl: input.imageDataUrl,
+      fetchImpl: this.fetchImpl,
+    })
+    const { results, trace: traces, connectionError } = probe
 
     const existing = this.db
       .listModelCapabilities(provider.id)
       .find((capability) => capability.modelId === modelId)
-    const inferred = inferCapabilities(modelId)
-    // Only kinds that actually ran may update their flags; supportsImageGeneration and the
-    // adult flags are never exercised by these tests, so existing values are preserved.
+    const baseline =
+      existing || this.seedModelCapability(provider, { id: modelId, declaredCapabilities: {} })
+    const probePatch = capabilityProbePatch(baseline, results)
     const capability = this.db.upsertModelCapability({
       providerId: provider.id,
       modelId,
-      ...(input.tests.includes('vision')
-        ? { supportsVision: results.some((result) => result.kind === 'vision' && result.ok) }
-        : {}),
-      ...(input.tests.includes('streaming')
-        ? { supportsStreaming: results.some((result) => result.kind === 'streaming' && result.ok) }
-        : {}),
-      ...(input.tests.includes('json')
-        ? { supportsJsonSchema: results.some((result) => result.kind === 'json' && result.ok) }
-        : {}),
-      ...(existing
-        ? {}
-        : {
-            supportsImageGeneration: inferred.supportsImageGeneration,
-            allowsAdultInput: false,
-            allowsAdultGeneration: false,
-            contextWindow: inferred.contextWindow,
-          }),
-      notes: 'Updated from provider test endpoint. Adult capability remains user-confirmed only.',
-      source: existing?.source === 'user' ? 'user' : ('tested' as const),
+      ...probePatch,
+      notes: probePatch.capabilitySources ? 'Updated from provider capability checks.' : baseline.notes,
+      source: baseline.source === 'user' ? 'user' : probePatch.capabilitySources ? 'tested' : baseline.source,
     })
 
     return {
@@ -355,13 +382,39 @@ export class ProviderLabService {
         contextWindow: capability.contextWindow,
         notes: capability.notes,
         source: capability.source,
+        capabilitySources: capability.capabilitySources,
       },
       trace: traces,
+      ...(connectionError ? { connectionError } : {}),
     }
   }
 
   private async withSecretStatus(provider: ProviderProfile): Promise<ProviderProfile> {
     return { ...provider, hasApiKey: await this.secrets.hasProviderApiKey(provider.id) }
+  }
+
+  private seedModelCapability(
+    provider: ProviderProfile,
+    candidate: ProviderModelCandidate,
+    knownCapability?: ModelCapability,
+  ): ModelCapability {
+    const seed = deriveModelCapabilities(candidate, isTrustedLocalProvider(provider))
+    const existing = knownCapability || this.db.listModelCapabilities(provider.id).find((item) => item.modelId === candidate.id)
+    const notes = candidate.ownedBy ? `owned_by=${candidate.ownedBy}` : ''
+    if (existing) {
+      return this.db.upsertModelCapability({
+        providerId: provider.id,
+        modelId: candidate.id,
+        ...capabilitySeedPatch(existing, seed),
+      })
+    }
+    return this.db.upsertModelCapability({
+      providerId: provider.id,
+      modelId: candidate.id,
+      ...seed,
+      notes,
+      source: 'discovered',
+    })
   }
 }
 
@@ -379,41 +432,130 @@ export interface RedactedTrace {
   latencyMs: number
 }
 
-export function parseProviderModels(rawText: string): ProviderModelCandidate[] {
-  const payload = JSON.parse(rawText) as unknown
-  let items: unknown[] = []
-  if (Array.isArray(payload)) {
-    items = payload
-  } else if (payload && typeof payload === 'object') {
-    const record = payload as Record<string, unknown>
-    if (Array.isArray(record.data)) {
-      items = record.data
-    } else if (Array.isArray(record.models)) {
-      items = record.models
+export interface ProviderProbeConfig {
+  baseUrl: string
+  apiKey: string | null
+  modelId: string
+  tests: ProviderTestKind[]
+  imageDataUrl?: string
+  fetchImpl: typeof fetch
+}
+
+export interface ProviderProbeResponse {
+  results: CapabilityProbeResult[]
+  trace: RedactedTrace[]
+  connectionError?: ProviderConnectionError
+}
+
+export async function discoverProviderModelsFromConfig(input: {
+  baseUrl: string
+  apiKey: string | null
+  discoverPath?: string
+  fetchImpl: typeof fetch
+}): Promise<{ models: ProviderModelCandidate[]; trace: RedactedTrace }> {
+  const normalizedBaseUrl = normalizeBaseUrl(input.baseUrl)
+  if (!normalizedBaseUrl) {
+    throw new Error('Provider model discovery requires a Base URL.')
+  }
+  const url = joinProviderUrl(normalizedBaseUrl, normalizeDiscoverPath(input.discoverPath || '/models'))
+  const headers = providerHeaders(input.apiKey)
+  const startedAt = Date.now()
+  const response = await input.fetchImpl(url, { method: 'GET', headers })
+  const rawText = await response.text()
+  const trace = redactedTrace({
+    url,
+    method: 'GET',
+    headers,
+    body: undefined,
+    status: response.status,
+    responseBody: rawText,
+    latencyMs: Date.now() - startedAt,
+  })
+
+  if (!response.ok) {
+    throw new Error(`Provider model discovery failed: HTTP ${response.status}`)
+  }
+
+  return { models: parseProviderModels(rawText), trace }
+}
+
+export async function testProviderConfig(input: ProviderProbeConfig): Promise<ProviderProbeResponse> {
+  const normalizedBaseUrl = normalizeBaseUrl(input.baseUrl)
+  if (!normalizedBaseUrl) {
+    throw new Error('Provider test requires a Base URL.')
+  }
+  const results: CapabilityProbeResult[] = []
+  const traces: RedactedTrace[] = []
+  let connectionError: ProviderConnectionError | undefined
+
+  for (const kind of input.tests) {
+    const requestBody = buildChatTestBody(input.modelId, kind, input.imageDataUrl)
+    const url = joinProviderUrl(normalizedBaseUrl, '/chat/completions')
+    const headers = providerHeaders(input.apiKey)
+    const startedAt = Date.now()
+    try {
+      const response = await input.fetchImpl(url, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(requestBody),
+      })
+      const rawText = await response.text()
+      const latencyMs = Date.now() - startedAt
+      traces.push(
+        redactedTrace({
+          url,
+          method: 'POST',
+          headers,
+          body: requestBody,
+          status: response.status,
+          responseBody: rawText,
+          latencyMs,
+        }),
+      )
+      results.push(assessCapabilityProbe(kind, response.status, rawText, latencyMs))
+      connectionError = providerConnectionError(response.status)
+      if (connectionError) {
+        break
+      }
+    } catch (error) {
+      const latencyMs = Date.now() - startedAt
+      traces.push(
+        redactedTrace({
+          url,
+          method: 'POST',
+          headers,
+          body: requestBody,
+          status: 0,
+          responseBody: '',
+          latencyMs,
+        }),
+      )
+      results.push({
+        kind,
+        ok: false,
+        outcome: 'indeterminate',
+        error: error instanceof Error ? error.message : 'Provider test failed',
+        latencyMs,
+      })
+      connectionError = {
+        code: 'network_error',
+        message: 'The provider could not be reached. Check the Base URL and network connection.',
+      }
+      break
     }
   }
 
-  return items
-    .map((item): ProviderModelCandidate | null => {
-      if (typeof item === 'string') return { id: item }
-      if (!item || typeof item !== 'object') return null
-      const record = item as Record<string, unknown>
-      const id = typeof record.id === 'string' ? record.id : typeof record.name === 'string' ? record.name : ''
-      if (!id) return null
-      return {
-        id,
-        ownedBy: typeof record.owned_by === 'string' ? record.owned_by : undefined,
-        rawType: typeof record.object === 'string' ? record.object : undefined,
-      }
-    })
-    .filter((candidate): candidate is ProviderModelCandidate => Boolean(candidate))
+  return {
+    results,
+    trace: traces,
+    ...(connectionError ? { connectionError } : {}),
+  }
 }
 
 function normalizeProviderBaseUrl(value: string, isLocal: boolean): string {
-  const trimmed = value.trim().replace(/\/+$/, '')
-  if (!trimmed) return ''
-  const withScheme = trimmed.startsWith('http://') || trimmed.startsWith('https://') ? trimmed : `https://${trimmed}`
-  const parsed = new URL(withScheme)
+  const normalized = normalizeBaseUrl(value)
+  if (!normalized) return ''
+  const parsed = new URL(normalized)
   if (!['http:', 'https:'].includes(parsed.protocol)) {
     throw new Error('Provider base URL must use http or https.')
   }
@@ -423,7 +565,42 @@ function normalizeProviderBaseUrl(value: string, isLocal: boolean): string {
   if (!isLocal && isLocalHostname(parsed.hostname)) {
     throw new Error('External provider base URL must not target localhost or private network hosts.')
   }
+  if (isLocal && !isPrivateProviderUrl(parsed.toString())) {
+    throw new Error('Local provider base URL must target localhost or a private network host.')
+  }
   return parsed.toString().replace(/\/+$/, '')
+}
+
+function providerConnectionError(status: number): ProviderConnectionError | undefined {
+  if (status === 401 || status === 403) {
+    return {
+      code: 'authentication_or_base_url',
+      message: 'Authentication failed. Check the API key and confirm the Base URL points to the provider API.',
+      status,
+    }
+  }
+  if (status === 404) {
+    return {
+      code: 'endpoint_not_found',
+      message: 'The chat endpoint was not found. Check that the Base URL includes the provider API prefix, such as /v1.',
+      status,
+    }
+  }
+  if (status === 429) {
+    return {
+      code: 'rate_limited',
+      message: 'The provider rate limit was reached. Wait and run the test again.',
+      status,
+    }
+  }
+  if (status >= 500) {
+    return {
+      code: 'provider_unavailable',
+      message: 'The provider is temporarily unavailable. Run the test again after the service recovers.',
+      status,
+    }
+  }
+  return undefined
 }
 
 function joinProviderUrl(baseUrl: string, routePath: string): string {
@@ -443,15 +620,7 @@ function normalizeDiscoverPath(value: string): string {
 }
 
 function isLocalHostname(hostname: string): boolean {
-  const normalized = hostname.toLowerCase()
-  return (
-    normalized === 'localhost' ||
-    normalized === '127.0.0.1' ||
-    normalized === '::1' ||
-    normalized.startsWith('10.') ||
-    normalized.startsWith('192.168.') ||
-    /^172\.(1[6-9]|2\d|3[0-1])\./.test(normalized)
-  )
+  return isPrivateProviderUrl(`http://${hostname}`)
 }
 
 function providerHeaders(apiKey: string | null): Record<string, string> {
@@ -461,29 +630,16 @@ function providerHeaders(apiKey: string | null): Record<string, string> {
   }
 }
 
-function inferCapabilities(modelId: string): {
-  supportsVision: boolean
-  supportsImageGeneration: boolean
-  supportsStreaming: boolean
-  supportsJsonSchema: boolean
-  contextWindow?: number
-} {
-  const normalized = modelId.toLowerCase()
-  return {
-    supportsVision: /\b(vision|vlm|gpt-4o|gpt-5|gemini|qwen-vl|llava|pixtral)\b/.test(normalized),
-    supportsImageGeneration: /\b(gpt-image|imagen?|dall-?e|stable-diffusion|sd3|sdxl|flux|hidream|kolors)\b/.test(normalized),
-    supportsStreaming: true,
-    supportsJsonSchema: /(gpt-4o|gpt-5|json|structured|gemini|qwen)/.test(normalized),
-    contextWindow: normalized.includes('32k') ? 32768 : normalized.includes('128k') ? 128000 : undefined,
-  }
-}
+const VISION_PROBE_DATA_URL =
+  'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII='
 
-function buildChatTestBody(modelId: string, kind: string, imageDataUrl?: string): Record<string, unknown> {
-  const content: unknown[] = [{ type: 'text', text: `Provider Lab ${kind} capability test. Reply with OK.` }]
+function buildChatTestBody(modelId: string, kind: ProviderTestKind, imageDataUrl?: string): Record<string, unknown> {
+  const prompt = kind === 'json' ? 'Return exactly {"ok":true}.' : `Provider Lab ${kind} capability test. Reply with OK.`
+  const content: unknown[] = [{ type: 'text', text: prompt }]
   if (kind === 'vision') {
     content.push({
       type: 'image_url',
-      image_url: { url: imageDataUrl || 'data:image/png;base64,iVBORw0KGgo=' },
+      image_url: { url: imageDataUrl || VISION_PROBE_DATA_URL },
     })
   }
   return {
@@ -502,6 +658,112 @@ function buildChatTestBody(modelId: string, kind: string, imageDataUrl?: string)
         }
       : {}),
   }
+}
+
+export function assessCapabilityProbe(
+  kind: ProviderTestKind,
+  status: number,
+  rawText: string,
+  latencyMs: number,
+): CapabilityProbeResult {
+  if (status < 200 || status >= 300) {
+    const explicitlyUnsupported = [400, 404, 415, 422].includes(status) && unsupportedCapabilityError(kind, rawText)
+    return {
+      kind,
+      ok: false,
+      outcome: explicitlyUnsupported ? 'unsupported' : 'indeterminate',
+      status,
+      error: explicitlyUnsupported
+        ? `Provider explicitly rejected the ${kind} capability.`
+        : `Capability check was inconclusive: HTTP ${status}.`,
+      latencyMs,
+    }
+  }
+
+  const valid = kind === 'streaming' ? isValidStreamingResponse(rawText) : isValidChatResponse(kind, rawText)
+  return {
+    kind,
+    ok: valid,
+    outcome: valid ? 'supported' : 'indeterminate',
+    status,
+    ...(valid ? {} : { error: `Provider returned HTTP ${status}, but the ${kind} response format was invalid.` }),
+    latencyMs,
+  }
+}
+
+function capabilityProbePatch(
+  current: ModelCapability,
+  results: CapabilityProbeResult[],
+): Partial<Record<(typeof capabilityFlagNames)[number], boolean>> & {
+  capabilitySources?: Partial<ModelCapability['capabilitySources']>
+} {
+  const values: Partial<Record<(typeof capabilityFlagNames)[number], boolean>> = {}
+  const sources: Partial<ModelCapability['capabilitySources']> = {}
+  const flagByTest: Partial<Record<ProviderTestKind, (typeof capabilityFlagNames)[number]>> = {
+    vision: 'supportsVision',
+    json: 'supportsJsonSchema',
+    streaming: 'supportsStreaming',
+  }
+  for (const result of results) {
+    const flag = flagByTest[result.kind]
+    if (!flag || result.outcome === 'indeterminate' || current.capabilitySources[flag] === 'user') continue
+    values[flag] = result.outcome === 'supported'
+    sources[flag] = 'tested'
+  }
+  return Object.keys(sources).length ? { ...values, capabilitySources: sources } : values
+}
+
+function unsupportedCapabilityError(kind: ProviderTestKind, rawText: string): boolean {
+  const normalized = rawText.toLowerCase()
+  const capabilityTerms: Record<ProviderTestKind, string[]> = {
+    text: ['text', 'chat', 'completion'],
+    vision: ['vision', 'image', 'multimodal', 'image_url'],
+    json: ['json', 'schema', 'response_format', 'structured'],
+    streaming: ['stream', 'sse'],
+  }
+  return (
+    capabilityTerms[kind].some((term) => normalized.includes(term)) &&
+    /(not supported|unsupported|does not support|unknown (?:field|parameter|type)|invalid (?:content|parameter|type))/.test(
+      normalized,
+    )
+  )
+}
+
+function isValidChatResponse(kind: ProviderTestKind, rawText: string): boolean {
+  try {
+    const payload = JSON.parse(rawText) as unknown
+    if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return false
+    const choices = (payload as { choices?: unknown }).choices
+    if (!Array.isArray(choices) || !choices.length) return false
+    const first = choices[0]
+    if (!first || typeof first !== 'object') return false
+    const message = (first as { message?: unknown }).message
+    if (!message || typeof message !== 'object') return false
+    const content = (message as { content?: unknown }).content
+    if (typeof content !== 'string' || !content.trim()) return false
+    if (kind !== 'json') return true
+    const json = JSON.parse(content) as unknown
+    return Boolean(json && typeof json === 'object' && !Array.isArray(json) && (json as { ok?: unknown }).ok === true)
+  } catch {
+    return false
+  }
+}
+
+function isValidStreamingResponse(rawText: string): boolean {
+  const events = rawText
+    .split(/\r?\n/)
+    .filter((line) => line.startsWith('data:'))
+    .map((line) => line.slice(5).trim())
+  if (!events.length) return false
+  return events.some((event) => {
+    if (event === '[DONE]') return true
+    try {
+      const payload = JSON.parse(event) as { choices?: unknown[] }
+      return Array.isArray(payload.choices)
+    } catch {
+      return false
+    }
+  })
 }
 
 function redactedTrace(input: {

@@ -1,7 +1,10 @@
 import { useState } from 'react'
 import { Circle, CircleCheck, Compass, X } from 'lucide-react'
+import { AnimatePresence, motion } from 'motion/react'
 import { useI18n } from './i18n/context'
 import type { MessageKey } from './i18n/messages'
+import { MotionIcon } from './MotionUI'
+import { quickTransition } from './motionTokens'
 
 const ONBOARDING_DISMISSED_KEY = 'ptm-onboarding-dismissed'
 
@@ -25,10 +28,6 @@ export function OnboardingChecklist(props: OnboardingChecklistProps) {
   const { t } = useI18n()
   const [dismissed, setDismissed] = useState(readDismissed)
 
-  if (dismissed) {
-    return null
-  }
-
   const steps: Array<{ key: MessageKey; done: boolean }> = [
     { key: 'onboarding.stepImport', done: props.hasPages },
     { key: 'onboarding.stepProvider', done: props.hasProvider },
@@ -47,29 +46,42 @@ export function OnboardingChecklist(props: OnboardingChecklistProps) {
   }
 
   return (
-    <section className="onboarding-card" data-testid="onboarding-card">
+    <AnimatePresence initial={false}>
+    {!dismissed ? (
+    <motion.section
+      className="onboarding-card"
+      data-testid="onboarding-card"
+      initial={{ opacity: 0, height: 0 }}
+      animate={{ opacity: 1, height: 'auto' }}
+      exit={{ opacity: 0, height: 0 }}
+      transition={quickTransition}
+    >
       <div className="panel-heading onboarding-heading">
         <Compass size={16} />
         <span>{t('onboarding.title')}</span>
-        <button
+        <motion.button
           type="button"
           className="icon-button onboarding-dismiss"
           data-testid="onboarding-dismiss"
           title={t('onboarding.dismiss')}
           aria-label={t('onboarding.dismiss')}
+          whileHover={{ rotate: 8 }}
+          whileTap={{ scale: 0.86, rotate: -8 }}
           onClick={dismiss}
         >
           <X size={14} />
-        </button>
+        </motion.button>
       </div>
       <ol className="onboarding-steps">
         {steps.map((step) => (
-          <li key={step.key} data-testid="onboarding-step" data-done={step.done}>
-            {step.done ? <CircleCheck size={15} /> : <Circle size={15} />}
+          <motion.li key={step.key} layout data-testid="onboarding-step" data-done={step.done} transition={quickTransition}>
+            <MotionIcon icon={step.done ? CircleCheck : Circle} state={step.done ? 'done' : 'pending'} size={15} spin={false} />
             <span>{t(step.key)}</span>
-          </li>
+          </motion.li>
         ))}
       </ol>
-    </section>
+    </motion.section>
+    ) : null}
+    </AnimatePresence>
   )
 }

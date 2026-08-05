@@ -46,7 +46,7 @@ Do not store API keys, Pixiv cookies, Authorization headers, raw request bodies 
 
 OpenAI's canonical list response is intentionally minimal: `{ object: "list", data: [{ id, created, object: "model", owned_by }] }`. It does not expose vision, JSON, streaming, or safety/adult-input capability flags.
 
-OpenRouter extends model objects with useful fields: `architecture.input_modalities`, `architecture.output_modalities`, `context_length`, `pricing`, `supported_parameters`, and `top_provider.is_moderated`. These fields can seed capability records, but `top_provider.is_moderated` is not the same as "adult image input allowed".
+OpenRouter extends model objects with useful fields: `architecture.input_modalities`, `architecture.output_modalities`, `context_length`, `pricing`, `supported_parameters`, and `top_provider.is_moderated`. These fields can seed capability records. An unmoderated route is positive provider-policy evidence for adult routing but does not guarantee the base model's output behavior; a moderated route remains indeterminate unless more specific capability fields are present.
 
 LiteLLM has two relevant surfaces. `/v1/models` can discover configured or wildcard models, while `/model/info` returns richer configured metadata and model cost-map fields. LiteLLM SDK helpers include `supports_vision`, `supports_response_schema`, and `get_supported_openai_params`; for a local app calling a proxy, the backend should prefer `/model/info` when available and fall back to active tests.
 
@@ -151,7 +151,7 @@ interface CapabilityTestResult {
 ## Risks
 
 - Do not infer capability solely from model names like `vision`, `vl`, `gpt`, or `llava`; names are inconsistent and gateways can alias models.
-- Do not treat OpenRouter `top_provider.is_moderated` as adult-content permission. It only indicates provider-side moderation metadata.
+- Treat OpenRouter `top_provider.is_moderated=false` only as positive provider-policy evidence, not as a guarantee of model behavior. Do not turn `true` into a blanket adult-content denial.
 - Do not treat LiteLLM cost-map metadata as authoritative forever; docs note model metadata is pulled from config and model maps, and active routing can bridge endpoints.
 - Do not let unknown equal supported. Unknown must fail closed for image and R-18 routes.
 - Local endpoints can still leak content if `baseUrl` points to a remote host. Classify `isLocalProvider` by user setting plus URL checks, not by provider kind alone.

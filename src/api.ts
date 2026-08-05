@@ -6,8 +6,13 @@ import type {
   Dialogue,
   FontAsset,
   JobEvent,
+  ModelCapabilitySources,
   PageStatus,
   PanelBox,
+  CleanupStroke,
+  LetteringDefaults,
+  PixivBatchPreviewResponse,
+  PixivBatchTask,
   Project,
   ProjectDetail,
   ReadingDirection,
@@ -57,6 +62,7 @@ export interface ModelCapability extends ModelCapabilityFlags {
   providerId: string
   modelId: string
   source?: 'discovered' | 'tested' | 'user'
+  capabilitySources: ModelCapabilitySources
   updatedAt?: string
 }
 
@@ -73,7 +79,23 @@ export interface ProviderTestInput {
 export interface ProviderTestResult {
   kind: keyof ProviderTestInput['tests']
   passed: boolean
+  outcome: 'supported' | 'unsupported' | 'indeterminate'
+  status?: number
+  latencyMs: number
   message?: string
+}
+
+export type ProviderConnectionErrorCode =
+  | 'authentication_or_base_url'
+  | 'endpoint_not_found'
+  | 'rate_limited'
+  | 'provider_unavailable'
+  | 'network_error'
+
+export interface ProviderConnectionError {
+  code: ProviderConnectionErrorCode
+  message: string
+  status?: number
 }
 
 export interface ProviderTestResponse {
@@ -84,6 +106,7 @@ export interface ProviderTestResponse {
   results: ProviderTestResult[]
   redactedTrace: string[]
   inferredCapabilities?: Partial<ModelCapabilityFlags>
+  connectionError?: ProviderConnectionError
 }
 
 interface ProviderMutationResponse {
@@ -103,9 +126,17 @@ interface BackendProviderTestResponse {
   providerId: string
   modelId: string
   ok: boolean
-  results: Array<{ kind: ProviderTestResult['kind']; ok: boolean; status?: number; error?: string; latencyMs: number }>
+  results: Array<{
+    kind: ProviderTestResult['kind']
+    ok: boolean
+    outcome: ProviderTestResult['outcome']
+    status?: number
+    error?: string
+    latencyMs: number
+  }>
   inferredCapabilities?: Partial<ModelCapabilityFlags>
   trace?: unknown[]
+  connectionError?: ProviderConnectionError
 }
 
 export interface AnalyzeStoryInput {
@@ -131,6 +162,37 @@ export interface SecretUpdateInput {
   modelName?: string
   apiKey?: string
   pixivCookie?: string
+}
+
+export interface PixivBatchPageInput {
+  artworkId: string
+  pageIndex: number
+  sourceUrl: string
+  fileName: string
+}
+
+export interface PixivBatchPreviewInput {
+  urls: string[]
+  r18Enabled: boolean
+  usePixivSession: boolean
+  maxImages: number
+}
+
+export interface PixivBatchTaskInput {
+  projectId?: string
+  title?: string
+  r18Enabled: boolean
+  usePixivSession: boolean
+  pages: PixivBatchPageInput[]
+  requestDelayMs?: number
+}
+
+export interface PixivSessionTestResult {
+  status: 'not_configured' | 'authenticated' | 'unauthenticated' | 'rate_limited' | 'error'
+  message: string
+  httpStatus?: number
+  canImportPublic: boolean
+  canImportPrivate: boolean
 }
 
 export type ProjectResponse = ProjectDetail & {
@@ -187,6 +249,49 @@ export function importPixiv(input: PixivImportInput): Promise<ProjectDetail> {
     method: 'POST',
     body: JSON.stringify(input),
   })
+}
+
+export function previewPixivBatch(input: PixivBatchPreviewInput): Promise<PixivBatchPreviewResponse> {
+  return request<PixivBatchPreviewResponse>('/api/import/pixiv/preview', {
+    method: 'POST',
+    body: JSON.stringify(input),
+  })
+}
+
+export function createPixivBatchTask(input: PixivBatchTaskInput): Promise<PixivBatchTask> {
+  return request<PixivBatchTask>('/api/import/pixiv/tasks', {
+    method: 'POST',
+    body: JSON.stringify(input),
+  })
+}
+
+export function getPixivBatchTask(taskId: string): Promise<PixivBatchTask> {
+  return request<PixivBatchTask>(`/api/import/pixiv/tasks/${encodeURIComponent(taskId)}`)
+}
+
+export async function listRecoverablePixivBatchTasks(projectId: string): Promise<PixivBatchTask[]> {
+  const payload = await request<{ tasks: PixivBatchTask[] }>(`/api/import/pixiv/tasks?projectId=${encodeURIComponent(projectId)}`)
+  return payload.tasks
+}
+
+export function pausePixivBatchTask(taskId: string): Promise<PixivBatchTask> {
+  return request<PixivBatchTask>(`/api/import/pixiv/tasks/${encodeURIComponent(taskId)}/pause`, { method: 'POST' })
+}
+
+export function resumePixivBatchTask(taskId: string): Promise<PixivBatchTask> {
+  return request<PixivBatchTask>(`/api/import/pixiv/tasks/${encodeURIComponent(taskId)}/resume`, { method: 'POST' })
+}
+
+export function cancelPixivBatchTask(taskId: string): Promise<PixivBatchTask> {
+  return request<PixivBatchTask>(`/api/import/pixiv/tasks/${encodeURIComponent(taskId)}/cancel`, { method: 'POST' })
+}
+
+export function retryPixivBatchTask(taskId: string): Promise<PixivBatchTask> {
+  return request<PixivBatchTask>(`/api/import/pixiv/tasks/${encodeURIComponent(taskId)}/retry`, { method: 'POST' })
+}
+
+export function testPixivSession(): Promise<PixivSessionTestResult> {
+  return request<PixivSessionTestResult>('/api/pixiv/session/test')
 }
 
 export function importLocal(files: File[], projectId?: string): Promise<ProjectDetail> {
@@ -374,7 +479,12 @@ export function exportZip(input: {
 
 export function updateProjectSettings(
   projectId: string,
-  input: { readingDirection: ReadingDirection },
+  input: {
+    readingDirection?: ReadingDirection
+    letteringDefaults?: LetteringDefaults
+    applyLetteringToExisting?: boolean
+    colorDialoguesByCharacter?: boolean
+  },
 ): Promise<ProjectDetail> {
   return request<ProjectDetail>(`/api/projects/${projectId}`, {
     method: 'PATCH',
@@ -386,6 +496,13 @@ export function updatePagePanels(pageId: string, panels: PanelBox[]): Promise<Pr
   return request<ProjectDetail>(`/api/pages/${pageId}/panels`, {
     method: 'PUT',
     body: JSON.stringify({ panels }),
+  })
+}
+
+export function updatePageCleanup(pageId: string, cleanupStrokes: CleanupStroke[]): Promise<ProjectDetail> {
+  return request<ProjectDetail>(`/api/pages/${pageId}/cleanup`, {
+    method: 'PUT',
+    body: JSON.stringify({ cleanupStrokes }),
   })
 }
 
@@ -469,6 +586,31 @@ export async function discoverProviderModels(providerId: string): Promise<Discov
   return payload.models.map(capabilityToDiscoveredModel)
 }
 
+export async function discoverLegacyModels(input: { apiBaseUrl: string; apiKey: string }): Promise<DiscoveredModel[]> {
+  const payload = await request<{ models: Array<{ id: string; name?: string; ownedBy?: string }> }>('/api/settings/models', {
+    method: 'POST',
+    body: JSON.stringify(input),
+  })
+  return payload.models.map((model) => ({
+    id: model.id,
+    name: model.name || model.id,
+    ownedBy: model.ownedBy,
+    capabilityStatus: 'unknown',
+  }))
+}
+
+export async function testLegacyConnection(input: {
+  apiBaseUrl: string
+  modelName: string
+  apiKey: string
+}): Promise<ProviderTestResponse> {
+  const payload = await request<BackendProviderTestResponse>('/api/settings/test', {
+    method: 'POST',
+    body: JSON.stringify(input),
+  })
+  return normalizeProviderTestResponse(payload)
+}
+
 export async function testProvider(providerId: string, input: ProviderTestInput): Promise<ProviderTestResponse> {
   const enabledTests = Object.entries(input.tests)
     .filter(([, enabled]) => enabled)
@@ -490,7 +632,7 @@ export async function listModelCapabilities(): Promise<ModelCapability[]> {
   return payload.capabilities
 }
 
-export async function updateModelCapability(id: string, input: ModelCapabilityFlags): Promise<ModelCapability> {
+export async function updateModelCapability(id: string, input: Partial<ModelCapabilityFlags>): Promise<ModelCapability> {
   const payload = await request<ModelCapabilityResponse>(`/api/model-capabilities/${id}`, {
     method: 'PATCH',
     body: JSON.stringify(input),
@@ -579,15 +721,25 @@ function capabilityToDiscoveredModel(capability: ModelCapability): DiscoveredMod
   return {
     id: capability.modelId,
     name: capability.modelId,
-    capabilityStatus: capability.source === 'user' ? 'user-confirmed' : capability.source ? 'detected' : 'unknown',
+    capabilityStatus: capabilityStatus(capability),
     capabilities: pickCapabilityFlags(capability),
   }
+}
+
+function capabilityStatus(capability: ModelCapability): DiscoveredModel['capabilityStatus'] {
+  const sources = Object.values(capability.capabilitySources)
+  if (sources.every((source) => source === 'unknown')) return 'unknown'
+  if (sources.includes('user')) return 'user-confirmed'
+  return 'detected'
 }
 
 function normalizeProviderTestResponse(payload: BackendProviderTestResponse): ProviderTestResponse {
   const results = payload.results.map((item) => ({
     kind: item.kind,
     passed: item.ok,
+    outcome: item.outcome,
+    status: item.status,
+    latencyMs: item.latencyMs,
     message: item.error || `HTTP ${item.status ?? 0} / ${item.latencyMs} ms`,
   }))
 
@@ -599,6 +751,7 @@ function normalizeProviderTestResponse(payload: BackendProviderTestResponse): Pr
     results,
     redactedTrace: (payload.trace || []).map((item) => (typeof item === 'string' ? item : JSON.stringify(item, null, 2))),
     inferredCapabilities: payload.inferredCapabilities,
+    connectionError: payload.connectionError,
   }
 }
 

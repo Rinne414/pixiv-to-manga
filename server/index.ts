@@ -1,5 +1,4 @@
 import fastify from 'fastify'
-import { ZodError } from 'zod'
 import multipart from '@fastify/multipart'
 import fastifyStatic from '@fastify/static'
 import { existsSync } from 'node:fs'
@@ -13,6 +12,8 @@ import { SecretStore } from './secrets'
 import { JobHub } from './jobs'
 import {
   AiJsonOutputError,
+  AiProviderHttpError,
+  AiProviderRefusalError,
   analyzeStoryWithAi,
   describeAiTarget,
   generateDialoguesWithAi,
@@ -25,6 +26,8 @@ import { registerContinuationRoutes } from './continuation'
 import { registerDialogueRoutes } from './dialogues'
 import { registerFontRoutes } from './fonts'
 import { registerPageRoutes } from './pages'
+import { registerPixivBatchRoutes } from './pixivBatch'
+import { registerStudioErrorHandler } from './errorHandler'
 import {
   analyzeStorySchema,
   createProjectSchema,
@@ -62,19 +65,7 @@ await server.register(fastifyStatic, {
   prefix: '/assets/',
 })
 
-server.setErrorHandler((error, _request, reply) => {
-  const message =
-    error instanceof ZodError
-      ? `Invalid request: ${error.issues
-          .slice(0, 3)
-          .map((issue) => `${issue.path.join('.') || 'body'}: ${issue.message}`)
-          .join('; ')}`
-      : error instanceof Error
-        ? error.message
-        : 'Request failed'
-  server.log.error({ message }, 'Request failed')
-  reply.status(400).send({ error: message })
-})
+registerStudioErrorHandler(server)
 
 server.get('/api/health', async () => ({ ok: true, dataDir: appDataDir }))
 
@@ -83,6 +74,7 @@ registerContinuationRoutes(server, { db, secrets })
 registerDialogueRoutes(server, { db })
 registerPageRoutes(server, { db })
 registerFontRoutes(server, { db })
+registerPixivBatchRoutes(server, { db, secrets })
 
 server.get('/api/settings/secrets', async () => secrets.status())
 
@@ -109,7 +101,7 @@ server.get('/api/projects/:id', async (request) => {
 server.patch('/api/projects/:id', async (request) => {
   const { id } = request.params as { id: string }
   const input = updateProjectSchema.parse(request.body)
-  db.updateProjectReadingDirection(id, input.readingDirection)
+  db.updateProjectSettings(id, input)
   return db.getProjectDetail(id)
 })
 
@@ -189,7 +181,7 @@ server.post('/api/pages/:pageId/generate', async (request) => {
         db.updatePageStatus(page.id, 'ready')
         return
       }
-      db.replaceDialogues(page.id, result.dialogues)
+      db.replaceGeneratedDialogues(page.id, result.dialogues)
       jobs.complete(jobId, result.usedMock ? 'Dialogue generated with mock engine' : 'Dialogue generated', {
         ...db.getProjectDetail(page.projectId),
         raw: result.raw,
@@ -297,12 +289,22 @@ if (process.argv.includes('--open') || process.env.PTM_OPEN_BROWSER === '1') {
 }
 
 function aiErrorPayload(error: unknown): unknown {
-  if (!(error instanceof AiJsonOutputError)) {
+  if (error instanceof AiProviderHttpError) {
+    return {
+      providerHttpError: {
+        status: error.status,
+        endpoint: error.endpoint,
+        model: error.model,
+        responseBody: error.responseBody,
+      },
+    }
+  }
+  if (!(error instanceof AiJsonOutputError) && !(error instanceof AiProviderRefusalError)) {
     return undefined
   }
   return {
     raw: error.raw,
     repairedRaw: error.repairedRaw,
-    schemaHint: error.schemaHint,
+    ...(error instanceof AiJsonOutputError ? { schemaHint: error.schemaHint } : {}),
   }
 }

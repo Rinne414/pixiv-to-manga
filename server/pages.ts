@@ -1,5 +1,5 @@
 import type { FastifyInstance } from 'fastify'
-import { pageMoveSchema, updatePagePanelsSchema } from '../src/shared/schemas'
+import { pageMoveSchema, updatePageCleanupSchema, updatePagePanelsSchema } from '../src/shared/schemas'
 import type { StudioDatabase } from './database'
 
 export interface PageRoutesContext {
@@ -31,6 +31,14 @@ export function registerPageRoutes(server: FastifyInstance, context: PageRoutesC
     const input = updatePagePanelsSchema.parse(request.body)
     const page = db.getPage(pageId)
     db.updatePagePanels(page.id, input.panels)
+    return db.getProjectDetail(page.projectId)
+  })
+
+  server.put('/api/pages/:pageId/cleanup', async (request) => {
+    const { pageId } = request.params as { pageId: string }
+    const input = updatePageCleanupSchema.parse(request.body)
+    const page = db.getPage(pageId)
+    db.updatePageCleanup(page.id, input.cleanupStrokes)
     return db.getProjectDetail(page.projectId)
   })
 }

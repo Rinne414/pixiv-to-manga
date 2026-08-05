@@ -22,6 +22,11 @@ playwright-report
 .plans/**/artifacts/
 .plans/**/browser-smoke-result*.json
 
+# Local scratch / smoke artifacts (never ship)
+tmp/
+release/
+*.portable.zip
+
 # Assistant/tooling scratch directories
 .zcode/
 

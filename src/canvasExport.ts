@@ -4,7 +4,7 @@ import { computeTailTriangle, computeThoughtTrail, dialogueTailLocal } from './s
 import { findDialogueCharacter } from './shared/characters'
 import { dialogueFontScale, estimateVerticalTextBox } from './shared/layout'
 import { toVerticalColumns, toVerticalGlyphs } from './shared/text'
-import type { Asset, Character, Dialogue, Page, ProjectDetail } from './shared/types'
+import type { Asset, Character, CleanupStroke, Dialogue, LetteringDefaults, Page, ProjectDetail } from './shared/types'
 
 export async function renderProjectPages(detail: ProjectDetail): Promise<Array<{ pageId: string; dataUrl: string }>> {
   await waitForCustomFonts()
@@ -20,7 +20,7 @@ export async function renderProjectPages(detail: ProjectDetail): Promise<Array<{
     const dialogues = detail.dialogues.filter((dialogue) => dialogue.pageId === page.id)
     rendered.push({
       pageId: page.id,
-      dataUrl: await renderPage(page, asset, dialogues, detail.characters),
+      dataUrl: await renderPage(page, asset, dialogues, detail.characters, detail.project.letteringDefaults),
     })
   }
 
@@ -39,7 +39,7 @@ export async function renderPageToDataUrl(detail: ProjectDetail, pageId: string)
   }
   await waitForCustomFonts()
   const dialogues = detail.dialogues.filter((dialogue) => dialogue.pageId === page.id)
-  return renderPage(page, asset, dialogues, detail.characters)
+  return renderPage(page, asset, dialogues, detail.characters, detail.project.letteringDefaults)
 }
 
 /** Uploaded fonts register asynchronously; exports must not rasterize before they load. */
@@ -56,6 +56,7 @@ async function renderPage(
   asset: Asset,
   dialogues: Dialogue[],
   characters: Character[],
+  letteringDefaults?: LetteringDefaults,
 ): Promise<string> {
   const width = page.width || asset.width || 1200
   const height = page.height || asset.height || 1600
@@ -72,10 +73,11 @@ async function renderPage(
 
   const image = await loadImage(asset.url)
   context.drawImage(image, 0, 0, width, height)
+  drawCleanupStrokes(context, page.cleanupStrokes || [], width, height)
 
   for (const dialogue of dialogues) {
     const character = findDialogueCharacter(characters, dialogue)
-    drawDialogue(context, dialogue, width, height, character?.fontFamily)
+    drawDialogue(context, dialogue, width, height, character?.fontFamily, letteringDefaults)
   }
 
   return canvas.toDataURL('image/png')
@@ -96,6 +98,7 @@ function drawDialogue(
   pageWidth: number,
   pageHeight: number,
   fontFamily?: string,
+  letteringDefaults?: LetteringDefaults,
 ): void {
   const box = estimateVerticalTextBox(dialogue)
   const isSfx = dialogue.bubbleStyle === 'sfx'
@@ -195,8 +198,8 @@ function drawDialogue(
   context.textBaseline = 'top'
   if (isSfx) {
     // Mirrors the whiteboard's Konva stroke: white contour drawn under the fill.
-    context.strokeStyle = '#ffffff'
-    context.lineWidth = Math.max(5, Math.round(fontSize * 0.18))
+    context.strokeStyle = letteringDefaults?.sfxStrokeColor || '#ffffff'
+    context.lineWidth = Math.max(5, Math.round(fontSize * (letteringDefaults?.sfxStrokeWidth || 0.18)))
     context.lineJoin = 'round'
   }
 
@@ -224,6 +227,35 @@ function drawDialogue(
     })
   }
   context.restore()
+}
+
+function drawCleanupStrokes(context: CanvasRenderingContext2D, strokes: CleanupStroke[], pageWidth: number, pageHeight: number): void {
+  for (const stroke of strokes) {
+    const points = stroke.points.map((point) => ({ x: point.x * pageWidth, y: point.y * pageHeight }))
+    if (!points.length) continue
+    context.save()
+    context.globalAlpha = Math.max(0.1, Math.min(1, stroke.intensity))
+    context.strokeStyle = stroke.color
+    context.fillStyle = stroke.color
+    context.lineWidth = stroke.size
+    context.lineCap = 'round'
+    context.lineJoin = 'round'
+    if (stroke.mode === 'mosaic') {
+      context.setLineDash([Math.max(6, stroke.size * 0.55), Math.max(4, stroke.size * 0.3)])
+    }
+    context.beginPath()
+    context.moveTo(points[0].x, points[0].y)
+    for (let index = 1; index < points.length; index += 1) {
+      context.lineTo(points[index].x, points[index].y)
+    }
+    context.stroke()
+    if (points.length === 1) {
+      context.beginPath()
+      context.arc(points[0].x, points[0].y, stroke.size / 2, 0, Math.PI * 2)
+      context.fill()
+    }
+    context.restore()
+  }
 }
 
 function fillTriangle(context: CanvasRenderingContext2D, points: [number, number, number, number, number, number]): void {

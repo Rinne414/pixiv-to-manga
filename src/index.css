@@ -19,6 +19,8 @@
   --grid-line: rgba(17, 17, 17, 0.045);
   --active-tint: rgba(201, 40, 45, 0.07);
   --active-border: rgba(201, 40, 45, 0.45);
+  --motion-fast: 160ms;
+  --motion-ease: cubic-bezier(0.22, 1, 0.36, 1);
   --font-ui: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   --font-serif: "Noto Serif SC", "Songti SC", SimSun, serif;
   color-scheme: light;
@@ -211,11 +213,38 @@ select:focus {
   white-space: nowrap;
 }
 
-.entry-switch button.active,
+.entry-switch button {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+}
+
+.entry-switch button.active {
+  color: var(--text);
+  background: transparent;
+  border-color: transparent;
+}
+
 .lang-switch button.active {
   color: var(--text);
   background: var(--panel);
   border-color: var(--line);
+}
+
+.switch-label {
+  position: relative;
+  z-index: 1;
+}
+
+.switch-indicator {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  background: var(--panel);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.07);
+  pointer-events: none;
 }
 
 .topbar-controls {
@@ -277,6 +306,48 @@ select:focus {
   white-space: nowrap;
   font-size: 13px;
   font-weight: 700;
+}
+
+.toolbar-button[data-icon-only="true"] {
+  width: 34px;
+  padding: 0;
+  gap: 0;
+}
+
+.toolbar-icon-slot,
+.motion-icon,
+.motion-icon-layer,
+.motion-icon-glyph {
+  display: inline-grid;
+  place-items: center;
+}
+
+.toolbar-icon-slot {
+  flex: 0 0 auto;
+}
+
+.motion-icon {
+  position: relative;
+  width: 1.25em;
+  height: 1.25em;
+  flex: 0 0 auto;
+}
+
+.motion-icon-layer {
+  position: absolute;
+  inset: 0;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
 }
 
 .toolbar-divider {
@@ -349,19 +420,33 @@ select:focus {
   white-space: nowrap;
 }
 
-.status-pill span {
+.status-dot {
+  display: block;
+  flex: 0 0 auto;
   width: 7px;
   height: 7px;
   border-radius: 999px;
   background: var(--green);
 }
 
-.status-pill[data-busy="true"] {
-  color: var(--accent);
+.status-glyph {
+  display: inline-grid;
+  place-items: center;
+  width: 16px;
+  height: 16px;
+  flex: 0 0 auto;
 }
 
-.status-pill svg {
-  animation: spin 1s linear infinite;
+.status-label {
+  display: inline-block;
+  width: auto;
+  height: auto;
+  color: inherit;
+  background: transparent;
+}
+
+.status-pill[data-busy="true"] {
+  color: var(--accent);
 }
 
 .workspace-grid {
@@ -555,10 +640,23 @@ select:focus {
 }
 
 .page-thumb {
+  position: relative;
+  overflow: hidden;
   grid-template-columns: 60px minmax(0, 1fr);
   align-items: center;
   gap: 10px;
   padding: 8px;
+}
+
+.page-active-indicator {
+  position: absolute;
+  top: 7px;
+  bottom: 7px;
+  left: 0;
+  width: 3px;
+  border-radius: 0 3px 3px 0;
+  background: var(--accent);
+  pointer-events: none;
 }
 
 .page-thumb div:last-child {
@@ -733,6 +831,8 @@ select:focus {
 }
 
 .whiteboard-controls button {
+  position: relative;
+  isolation: isolate;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -743,6 +843,21 @@ select:focus {
   background: transparent;
   color: var(--muted);
   transition: background 140ms ease, color 140ms ease, border-color 140ms ease;
+}
+
+.canvas-tool-indicator {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  border: 1px solid var(--accent);
+  border-radius: 6px;
+  background: var(--active-tint);
+  pointer-events: none;
+}
+
+.whiteboard-controls button > :not(.canvas-tool-indicator) {
+  position: relative;
+  z-index: 1;
 }
 
 .whiteboard-controls button:hover {
@@ -758,12 +873,71 @@ select:focus {
 }
 
 .whiteboard-zoom-readout {
+  display: inline-grid;
+  place-items: center;
   min-width: 48px;
   text-align: center;
   color: var(--text);
   font-size: 12px;
   font-weight: 800;
   font-variant-numeric: tabular-nums;
+}
+
+.cleanup-params {
+  position: absolute;
+  right: 14px;
+  bottom: 58px;
+  z-index: 2;
+  display: grid;
+  grid-template-columns: minmax(170px, 1fr) minmax(170px, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  max-width: calc(100% - 28px);
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: var(--panel);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.1);
+}
+
+.cleanup-params label {
+  display: grid;
+  grid-template-columns: auto minmax(70px, 1fr) auto;
+  align-items: center;
+  gap: 7px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.cleanup-params input[type='range'] {
+  min-width: 70px;
+  padding: 0;
+  accent-color: var(--accent);
+}
+
+.cleanup-params strong {
+  color: var(--text);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.cleanup-color-control {
+  grid-template-columns: auto auto !important;
+}
+
+.cleanup-color-control input {
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+
+.whiteboard-zoom-readout > span,
+.whiteboard-zoom-readout > span > span {
+  grid-area: 1 / 1;
 }
 
 /* Floating batch-generation progress pill, centered at the top of the canvas. */
@@ -785,10 +959,6 @@ select:focus {
   font-size: 13px;
   font-weight: 800;
   pointer-events: none;
-}
-
-.canvas-progress svg {
-  animation: spin 1s linear infinite;
 }
 
 .empty-canvas {
@@ -838,6 +1008,9 @@ select:focus {
 }
 
 .inspector-tabs button {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
   display: grid;
   place-items: center;
   gap: 4px;
@@ -849,6 +1022,29 @@ select:focus {
   color: var(--muted);
   font-size: 12px;
   font-weight: 800;
+}
+
+.inspector-tab-icon {
+  position: relative;
+  z-index: 1;
+  display: inline-grid;
+  place-items: center;
+}
+
+.inspector-tab-indicator {
+  position: absolute;
+  bottom: 0;
+  left: 50%;
+  width: 28px;
+  height: 2px;
+  border-radius: 2px 2px 0 0;
+  background: var(--accent);
+  transform: translateX(-50%);
+  pointer-events: none;
+}
+
+.inspector-panel-transition {
+  min-width: 0;
 }
 
 .inspector-tabs button.active {
@@ -867,6 +1063,231 @@ select:focus {
 .provider-form {
   display: grid;
   gap: 10px;
+}
+
+.pixiv-safety-notice {
+  display: grid;
+  gap: 7px;
+  padding: 11px 12px;
+  border: 1px solid color-mix(in srgb, var(--warning) 35%, var(--line));
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--warning) 8%, var(--panel));
+}
+
+.pixiv-safety-heading {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--warning);
+  font-size: 13px;
+}
+
+.pixiv-safety-notice p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.pixiv-batch-panel {
+  display: grid;
+  gap: 10px;
+  padding-top: 13px;
+  border-top: 1px solid var(--line);
+}
+
+.pixiv-batch-heading,
+.pixiv-batch-task-heading,
+.pixiv-batch-summary,
+.pixiv-batch-controls,
+.pixiv-batch-selection-actions,
+.pixiv-batch-task-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+}
+
+.pixiv-batch-heading > div {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.pixiv-batch-heading strong,
+.pixiv-batch-task-heading strong {
+  font-size: 13px;
+}
+
+.pixiv-batch-heading span,
+.pixiv-batch-task-heading span,
+.pixiv-batch-summary,
+.pixiv-batch-task-meta {
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.pixiv-batch-panel textarea {
+  width: 100%;
+  min-width: 0;
+  resize: vertical;
+  color: var(--text);
+  font-size: 13px;
+}
+
+.pixiv-batch-controls {
+  align-items: end;
+}
+
+.pixiv-batch-controls label {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.pixiv-batch-controls input {
+  width: 90px;
+}
+
+.pixiv-session-badge {
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+  padding: 8px 10px;
+  border-left: 3px solid var(--line-strong);
+  background: var(--panel-soft);
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.pixiv-session-badge.authenticated {
+  border-left-color: var(--green);
+  color: var(--green);
+}
+
+.pixiv-session-badge.rate_limited,
+.pixiv-session-badge.unauthenticated {
+  border-left-color: var(--warning);
+  color: var(--warning);
+}
+
+.pixiv-batch-preview,
+.pixiv-batch-task {
+  display: grid;
+  gap: 9px;
+  min-width: 0;
+  padding: 10px 0 0;
+  border-top: 1px solid var(--line);
+}
+
+.pixiv-batch-summary {
+  align-items: flex-start;
+  flex-wrap: wrap;
+}
+
+.pixiv-batch-selection-actions {
+  justify-content: flex-start;
+}
+
+.pixiv-batch-artworks {
+  display: grid;
+  max-height: 300px;
+  overflow: auto;
+  border-block: 1px solid var(--line);
+}
+
+.pixiv-batch-artwork {
+  min-width: 0;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.pixiv-batch-artwork:last-child {
+  border-bottom: 0;
+}
+
+.pixiv-batch-artwork summary {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 0 4px;
+  cursor: pointer;
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.pixiv-batch-pages {
+  display: grid;
+  gap: 2px;
+  margin-top: 7px;
+}
+
+.pixiv-batch-page {
+  display: grid;
+  grid-template-columns: 18px minmax(54px, auto) minmax(0, 1fr);
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  padding: 5px 4px;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.pixiv-batch-page:hover {
+  background: var(--panel-soft);
+}
+
+.pixiv-batch-page code {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.pixiv-batch-artwork .text-button {
+  margin: 6px 4px 0;
+}
+
+.pixiv-batch-progress {
+  height: 5px;
+  overflow: hidden;
+  border-radius: 3px;
+  background: var(--panel-soft);
+}
+
+.pixiv-batch-progress span {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+  transition: width 180ms ease;
+}
+
+.pixiv-batch-task-actions {
+  justify-content: flex-end;
+}
+
+.warning-text,
+.error-text {
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.warning-text {
+  color: var(--warning);
+}
+
+.error-text {
+  color: var(--accent);
 }
 
 .field-block,
@@ -892,6 +1313,148 @@ select:focus {
   color: var(--text);
   font-size: 14px;
   font-weight: 600;
+}
+
+.connection-workspace {
+  display: grid;
+  gap: 0;
+}
+
+.connection-mode-switch {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 4px;
+  margin: 12px 14px 0;
+  padding: 4px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel-soft);
+}
+
+.connection-mode-switch button {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  min-width: 0;
+  min-height: 36px;
+  padding: 7px 8px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.connection-mode-switch button.active {
+  border-color: transparent;
+  background: transparent;
+  color: var(--text);
+}
+
+.connection-secondary-settings {
+  min-width: 0;
+  margin: 0 14px 14px;
+  border-top: 1px solid var(--line);
+}
+
+.connection-secondary-settings summary,
+.connection-secondary-settings summary span {
+  display: flex;
+  align-items: center;
+}
+
+.connection-secondary-settings summary {
+  justify-content: space-between;
+  gap: 10px;
+  min-height: 42px;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 800;
+  list-style: none;
+}
+
+.connection-secondary-settings summary::-webkit-details-marker {
+  display: none;
+}
+
+.connection-secondary-settings summary span {
+  gap: 7px;
+}
+
+.connection-secondary-settings summary > svg {
+  transition: transform 140ms ease;
+}
+
+.connection-secondary-settings[open] summary > svg {
+  transform: rotate(180deg);
+}
+
+.connection-secondary-settings .settings-form {
+  padding: 8px 0 0;
+}
+
+.settings-section {
+  display: grid;
+  gap: 10px;
+}
+
+.settings-section-heading {
+  display: grid;
+  gap: 2px;
+}
+
+.settings-section-heading strong {
+  color: var(--text);
+  font-size: 13px;
+}
+
+.settings-section-heading span {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.settings-section-secondary {
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+}
+
+.settings-action-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.settings-test-readout {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 7px;
+  padding: 9px 10px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.settings-test-readout.passed {
+  border-color: color-mix(in srgb, var(--green) 35%, var(--line));
+  color: var(--green);
+}
+
+.settings-test-readout.failed {
+  border-color: color-mix(in srgb, var(--accent) 35%, var(--line));
+  color: var(--accent);
+}
+
+.spin {
+  animation: spin 800ms linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
 }
 
 .toggle-row {
@@ -1255,7 +1818,6 @@ select:focus {
   font-weight: 600;
   line-height: 1.4;
   pointer-events: auto;
-  animation: toast-in 180ms ease;
 }
 
 .toast-card svg {
@@ -1366,11 +1928,125 @@ select:focus {
   border-color: var(--accent-dark);
 }
 
-@keyframes toast-in {
-  from {
-    opacity: 0;
-    transform: translateY(-6px);
-  }
+.guide-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1050;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background: rgba(15, 20, 30, 0.48);
+  backdrop-filter: blur(3px);
+  animation: toast-in 140ms ease;
+}
+
+.guide-card {
+  display: grid;
+  gap: 16px;
+  width: min(620px, 100%);
+  max-height: min(760px, calc(100vh - 40px));
+  overflow: auto;
+  padding: 22px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--panel);
+  box-shadow: var(--shadow);
+}
+
+.guide-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.guide-title-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--accent);
+}
+
+.guide-title-row h2 {
+  margin: 0;
+  color: var(--text);
+  font-size: 18px;
+}
+
+.guide-header p {
+  margin: 6px 0 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.guide-steps {
+  display: grid;
+  gap: 11px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  counter-reset: guide-step;
+}
+
+.guide-steps li {
+  display: grid;
+  gap: 3px;
+  padding-left: 28px;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.45;
+  counter-increment: guide-step;
+}
+
+.guide-steps li::before {
+  content: counter(guide-step);
+  position: absolute;
+  margin-left: -28px;
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  color: var(--panel);
+  background: var(--accent);
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.guide-steps li strong,
+.guide-callout strong {
+  color: var(--text);
+  font-size: 13px;
+}
+
+.guide-callout {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.guide-callout svg {
+  margin-top: 1px;
+  color: var(--blue);
+}
+
+.guide-callout.warning {
+  border-color: color-mix(in srgb, var(--warning) 40%, var(--line));
+  background: color-mix(in srgb, var(--warning) 8%, var(--panel));
+}
+
+.guide-callout.warning svg {
+  color: var(--warning);
+}
+
+.guide-callout p {
+  margin: 4px 0 0;
 }
 
 /* Fullscreen reading preview: rendered pages with direction-aware page turns. */
@@ -1475,6 +2151,17 @@ select:focus {
   }
 }
 
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
 @media (max-width: 1120px) {
   body {
     overflow: auto;
@@ -1517,8 +2204,8 @@ select:focus {
 }
 
 @media (max-width: 640px) {
-  .toolbar-button span,
-  .inspector-tabs button span {
+  .toolbar-label,
+  .inspector-tab-label {
     display: none;
   }
 
@@ -1546,5 +2233,19 @@ select:focus {
   .two-col,
   .range-row {
     grid-template-columns: 1fr;
+  }
+
+  .cleanup-params {
+    left: 14px;
+    right: 14px;
+    grid-template-columns: 1fr 1fr auto;
+  }
+
+  .cleanup-params label {
+    grid-template-columns: 1fr;
+  }
+
+  .cleanup-params strong {
+    display: none;
   }
 }

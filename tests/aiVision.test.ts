@@ -2,7 +2,13 @@ import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { AiJsonOutputError, analyzeStoryWithAi, generateDialoguesWithAi } from '../server/ai'
+import {
+  AiJsonOutputError,
+  AiProviderHttpError,
+  AiProviderRefusalError,
+  analyzeStoryWithAi,
+  generateDialoguesWithAi,
+} from '../server/ai'
 import { StudioDatabase } from '../server/database'
 import { SecretStore, type KeytarModule } from '../server/secrets'
 
@@ -65,6 +71,7 @@ describe('AI vision generation', () => {
       providerId: provider.id,
       modelId: 'gpt-4o',
       supportsVision: true,
+      supportsJsonSchema: true,
       allowsAdultInput: false,
       allowsAdultGeneration: false,
     })
@@ -77,7 +84,11 @@ describe('AI vision generation', () => {
     const asset = db.createAsset({ projectId: project.id, kind: 'original', relativePath, mimeType: 'image/png' })
     const page = db.createPage({ projectId: project.id, index: 0, originalAssetId: asset.id })
 
-    let requestBody: { messages?: Array<{ content?: unknown[] }>; stream?: boolean } | undefined
+    let requestBody: {
+      messages?: Array<{ content?: unknown[] }>
+      stream?: boolean
+      response_format?: { type?: string; json_schema?: { name?: string; schema?: Record<string, unknown> } }
+    } | undefined
     vi.stubGlobal(
       'fetch',
       vi.fn(async (_url, init) => {
@@ -121,6 +132,123 @@ describe('AI vision generation', () => {
     const content = requestBody?.messages?.[0]?.content || []
     expect(content.some((part) => JSON.stringify(part).includes('data:image/png;base64,'))).toBe(true)
     expect(requestBody?.stream).toBe(false)
+    expect(requestBody?.response_format?.type).toBe('json_schema')
+    expect(requestBody?.response_format?.json_schema?.name).toBe('page_dialogues')
+    expect(requestBody?.response_format?.json_schema?.schema).toMatchObject({ type: 'object' })
+  })
+
+  it('converts SVG pages to PNG before sending them to vision providers', async () => {
+    const { db, dataDir } = createDb()
+    const secrets = new TestSecretStore(db, new MemoryKeytar())
+    const provider = db.createProvider({
+      name: 'Vision Provider',
+      baseUrl: 'https://api.example.test/v1',
+      defaultModel: 'vision-model',
+      isLocal: false,
+    })
+    await secrets.setProviderApiKey(provider.id, 'test-api-key')
+    db.upsertModelCapability({
+      providerId: provider.id,
+      modelId: provider.defaultModel,
+      supportsVision: true,
+      source: 'tested',
+    })
+    const project = db.createProject({ title: 'SVG Vision Project', mode: 'story', source: 'local' })
+    const relativePath = path.join('projects', project.id, 'originals', 'page-001.svg')
+    const absolutePath = path.join(dataDir, relativePath)
+    mkdirSync(path.dirname(absolutePath), { recursive: true })
+    writeFileSync(
+      absolutePath,
+      '<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32"><rect width="32" height="32" fill="#ffffff"/></svg>',
+      'utf8',
+    )
+    const asset = db.createAsset({ projectId: project.id, kind: 'original', relativePath, mimeType: 'image/svg+xml' })
+    const page = db.createPage({ projectId: project.id, index: 0, originalAssetId: asset.id })
+    let imageUrl = ''
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (_url, init) => {
+        const body = JSON.parse(String(init?.body)) as {
+          messages: Array<{ content: Array<{ type: string; image_url?: { url?: string } }> }>
+        }
+        imageUrl = body.messages[0].content.find((part) => part.type === 'image_url')?.image_url?.url || ''
+        return new Response(
+          JSON.stringify({
+            choices: [{ message: { content: JSON.stringify({ dialogues: [{ text: '安全图像。' }] }) } }],
+          }),
+          { status: 200 },
+        )
+      }),
+    )
+
+    await generateDialoguesWithAi({ secrets, db }, db.getProjectDetail(project.id), page, {
+      mode: 'story',
+      textDensity: 0.65,
+    })
+
+    expect(imageUrl).toMatch(/^data:image\/png;base64,/)
+  })
+
+  it('skips an incompatible provider and uses the next vision-capable provider', async () => {
+    const { db, dataDir } = createDb()
+    const secrets = new TestSecretStore(db, new MemoryKeytar())
+    const compatible = db.createProvider({
+      name: 'Compatible Vision',
+      baseUrl: 'https://compatible.example.test/v1',
+      defaultModel: 'vision-model',
+      isLocal: false,
+    })
+    await secrets.setProviderApiKey(compatible.id, 'compatible-key')
+    db.upsertModelCapability({
+      providerId: compatible.id,
+      modelId: compatible.defaultModel,
+      supportsVision: true,
+      source: 'tested',
+    })
+    await new Promise<void>((resolve) => setTimeout(resolve, 2))
+    const incompatible = db.createProvider({
+      name: 'Newer Text Only',
+      baseUrl: 'https://incompatible.example.test/v1',
+      defaultModel: 'text-model',
+      isLocal: false,
+    })
+    await secrets.setProviderApiKey(incompatible.id, 'incompatible-key')
+    db.upsertModelCapability({
+      providerId: incompatible.id,
+      modelId: incompatible.defaultModel,
+      supportsVision: false,
+      source: 'tested',
+    })
+    expect(db.listProviders()[0].id).toBe(incompatible.id)
+
+    const project = db.createProject({ title: 'Provider Escape Project', mode: 'story', source: 'local' })
+    const relativePath = path.join('projects', project.id, 'originals', 'page-001.png')
+    const absolutePath = path.join(dataDir, relativePath)
+    mkdirSync(path.dirname(absolutePath), { recursive: true })
+    writeFileSync(absolutePath, Buffer.from('png-bytes'))
+    const asset = db.createAsset({ projectId: project.id, kind: 'original', relativePath, mimeType: 'image/png' })
+    const page = db.createPage({ projectId: project.id, index: 0, originalAssetId: asset.id })
+    let requestUrl = ''
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url) => {
+        requestUrl = String(url)
+        return new Response(
+          JSON.stringify({
+            choices: [{ message: { content: JSON.stringify({ dialogues: [{ text: 'OK', x: 0.5, y: 0.5 }] }) } }],
+          }),
+          { status: 200 },
+        )
+      }),
+    )
+
+    const result = await generateDialoguesWithAi({ secrets, db }, db.getProjectDetail(project.id), page, {
+      mode: 'story',
+      textDensity: 0.65,
+    })
+
+    expect(result.usedMock).toBe(false)
+    expect(requestUrl).toBe('https://compatible.example.test/v1/chat/completions')
   })
 
   it('streams and aggregates OpenAI-compatible chat completion chunks when the model supports streaming', async () => {
@@ -593,7 +721,7 @@ describe('AI vision generation', () => {
     expect(fetchMock).not.toHaveBeenCalled()
   })
 
-  it('blocks external image generation until the model is confirmed vision-capable', async () => {
+  it('tries a safe image request when an external route has no capability record', async () => {
     const { db, dataDir } = createDb()
     const secrets = new TestSecretStore(db, new MemoryKeytar())
     await secrets.save({
@@ -609,16 +737,43 @@ describe('AI vision generation', () => {
     writeFileSync(absolutePath, Buffer.from('png-bytes'))
     const asset = db.createAsset({ projectId: project.id, kind: 'original', relativePath, mimeType: 'image/png' })
     const page = db.createPage({ projectId: project.id, index: 0, originalAssetId: asset.id })
-    const fetchMock = vi.fn()
+    const fetchMock = vi.fn(async () =>
+      new Response(
+        JSON.stringify({
+          choices: [
+            {
+              message: {
+                content: JSON.stringify({
+                  dialogues: [
+                    {
+                      text: 'Safe image accepted.',
+                      x: 0.5,
+                      y: 0.5,
+                      scale: 1,
+                      rotation: 0,
+                      bubbleStyle: 'speech',
+                      color: '#141414',
+                      locked: false,
+                    },
+                  ],
+                }),
+              },
+            },
+          ],
+        }),
+        { status: 200 },
+      ),
+    )
     vi.stubGlobal('fetch', fetchMock)
 
-    await expect(
-      generateDialoguesWithAi({ secrets, db }, db.getProjectDetail(project.id), page, {
-        mode: 'story',
-        textDensity: 0.65,
-      }),
-    ).rejects.toThrow(/vision_required/)
-    expect(fetchMock).not.toHaveBeenCalled()
+    const result = await generateDialoguesWithAi({ secrets, db }, db.getProjectDetail(project.id), page, {
+      mode: 'story',
+      textDensity: 0.65,
+    })
+
+    expect(result.usedMock).toBe(false)
+    expect(result.dialogues[0].text).toBe('Safe image accepted.')
+    expect(fetchMock).toHaveBeenCalledOnce()
   })
 
   it('passes abort signals to initial and repair AI requests', async () => {
@@ -747,6 +902,82 @@ describe('AI vision generation', () => {
         raw: 'first invalid output',
         repairedRaw: 'second invalid output',
       })
+    }
+  })
+
+  it('reports a provider content-policy refusal without making a repair request', async () => {
+    const { db } = createDb()
+    const secrets = new TestSecretStore(db, new MemoryKeytar())
+    const provider = db.createProvider({
+      name: 'Policy Provider',
+      baseUrl: 'https://api.example.test/v1',
+      defaultModel: 'policy-model',
+      isLocal: false,
+    })
+    await secrets.setProviderApiKey(provider.id, 'test-api-key')
+    const project = db.createProject({ title: 'Policy Project', mode: 'story', source: 'local' })
+    const refusal = 'I cannot assist with this request because the content violates the provider policy.'
+    const fetchMock = vi.fn(async () =>
+      new Response(JSON.stringify({ choices: [{ message: { content: refusal } }] }), { status: 200 }),
+    )
+    vi.stubGlobal('fetch', fetchMock)
+
+    try {
+      await analyzeStoryWithAi({ secrets, db }, db.getProjectDetail(project.id), {
+        userBrief: '',
+        r18Enabled: false,
+      })
+      throw new Error('Expected provider refusal to throw')
+    } catch (error) {
+      expect(error).toBeInstanceOf(AiProviderRefusalError)
+      expect(error).toMatchObject({
+        message: 'AI provider refused the request: content_policy',
+        raw: refusal,
+      })
+    }
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('keeps actionable Provider HTTP details while redacting echoed secrets and images', async () => {
+    const { db } = createDb()
+    const secrets = new TestSecretStore(db, new MemoryKeytar())
+    const provider = db.createProvider({
+      name: 'Error Provider',
+      baseUrl: 'https://api.example.test/v1',
+      defaultModel: 'error-model',
+      isLocal: false,
+    })
+    await secrets.setProviderApiKey(provider.id, 'test-api-key')
+    const project = db.createProject({ title: 'Error Project', mode: 'story', source: 'local' })
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () =>
+        new Response(
+          '{"error":"invalid image data:image/png;base64,c2VjcmV0 and key sk-secret-value"}',
+          { status: 400 },
+        ),
+      ),
+    )
+
+    try {
+      await analyzeStoryWithAi({ secrets, db }, db.getProjectDetail(project.id), {
+        userBrief: '',
+        r18Enabled: false,
+      })
+      throw new Error('Expected Provider HTTP failure to throw')
+    } catch (error) {
+      expect(error).toBeInstanceOf(AiProviderHttpError)
+      expect(error).toMatchObject({
+        status: 400,
+        endpoint: 'https://api.example.test/v1/chat/completions',
+        model: 'error-model',
+      })
+      const responseBody = (error as AiProviderHttpError).responseBody
+      expect(responseBody).toContain('invalid image')
+      expect(responseBody).toContain('[redacted image payload]')
+      expect(responseBody).toContain('[redacted secret]')
+      expect(responseBody).not.toContain('c2VjcmV0')
+      expect(responseBody).not.toContain('sk-secret-value')
     }
   })
 

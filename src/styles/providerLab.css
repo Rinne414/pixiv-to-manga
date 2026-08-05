@@ -30,6 +30,33 @@
   background: rgba(180, 83, 9, 0.09);
 }
 
+.mode-route-notice {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  padding: 11px 13px;
+  border: 1px solid color-mix(in srgb, var(--warning) 40%, var(--line));
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--warning) 8%, var(--panel));
+  color: var(--warning);
+}
+
+.mode-route-notice > div {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.mode-route-notice strong {
+  color: var(--text);
+  font-size: 13px;
+}
+
+.mode-route-notice span {
+  color: var(--muted);
+  font-size: 12px;
+}
+
 .active-engine-card.none > svg {
   flex: 0 0 auto;
   color: var(--warning);
@@ -126,14 +153,20 @@
   color: var(--faint);
 }
 
-/* NSFW confirmation block — the only user-editable capabilities. */
-.nsfw-controls {
+.cap-badge.unknown {
+  color: var(--warning);
+  border-color: color-mix(in srgb, var(--warning) 35%, transparent);
+  background: color-mix(in srgb, var(--warning) 9%, transparent);
+}
+
+/* Capability overrides stay model-scoped and submit only changed flags. */
+.capability-overrides {
   display: grid;
   gap: 8px;
   padding-top: 4px;
 }
 
-.nsfw-controls .panel-heading {
+.capability-overrides .panel-heading {
   color: var(--warning);
 }
 
@@ -151,14 +184,92 @@
   min-width: 0;
 }
 
+.provider-list-heading,
+.provider-list-actions,
+.provider-advanced summary,
+.provider-advanced summary span {
+  display: flex;
+  align-items: center;
+}
+
+.provider-list-heading {
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.provider-list-actions {
+  gap: 6px;
+}
+
+.provider-list-actions .icon-button {
+  width: 30px;
+  height: 30px;
+}
+
+.provider-advanced {
+  min-width: 0;
+  padding-top: 2px;
+  border-top: 1px solid var(--line);
+}
+
+.provider-advanced-toggle,
+.provider-advanced-toggle span {
+  display: flex;
+  align-items: center;
+}
+
+.provider-advanced-toggle {
+  justify-content: space-between;
+  gap: 10px;
+  width: 100%;
+  min-height: 42px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.provider-advanced-toggle span {
+  gap: 7px;
+}
+
+.provider-advanced-chevron {
+  display: inline-grid;
+  place-items: center;
+  flex: 0 0 auto;
+}
+
+.provider-advanced-body {
+  display: grid;
+  gap: 14px;
+  padding-top: 8px;
+  overflow: hidden;
+}
+
 .provider-row,
 .model-row,
 .reference-row {
+  position: relative;
+  overflow: hidden;
   display: grid;
   width: 100%;
   gap: 2px;
   padding: 9px;
   text-align: left;
+}
+
+.provider-active-indicator {
+  position: absolute;
+  top: 7px;
+  bottom: 7px;
+  left: 0;
+  width: 3px;
+  border-radius: 0 3px 3px 0;
+  background: var(--accent);
+  pointer-events: none;
 }
 
 .provider-row strong,
@@ -207,7 +318,7 @@
 
 .provider-actions {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(84px, 1fr));
   gap: 7px;
   min-width: 0;
 }
@@ -300,8 +411,13 @@
 }
 
 .test-summary.failed strong,
-.test-result-grid .failed strong {
+.test-result-grid .unsupported strong {
   color: var(--accent);
+}
+
+.test-summary.partial strong,
+.test-result-grid .indeterminate strong {
+  color: var(--warning);
 }
 
 .test-summary span {
@@ -327,10 +443,84 @@
   background: var(--panel);
 }
 
+.test-result-heading {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.test-result-grid .supported .test-result-heading svg {
+  color: var(--green);
+}
+
+.test-result-grid .unsupported .test-result-heading svg {
+  color: var(--accent);
+}
+
+.test-result-grid .indeterminate .test-result-heading svg {
+  color: var(--warning);
+}
+
 .test-result-grid span {
   color: var(--muted);
   font-size: 13px;
   overflow-wrap: anywhere;
+}
+
+.connection-test-error {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid color-mix(in srgb, var(--accent) 45%, var(--line));
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--accent) 8%, var(--panel));
+  color: var(--text);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.connection-test-error svg {
+  flex: 0 0 auto;
+  margin-top: 1px;
+  color: var(--accent);
+}
+
+.trace-disclosure {
+  min-width: 0;
+}
+
+.trace-disclosure summary,
+.trace-disclosure summary span {
+  display: flex;
+  align-items: center;
+}
+
+.trace-disclosure summary {
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 34px;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 800;
+  list-style: none;
+}
+
+.trace-disclosure summary::-webkit-details-marker {
+  display: none;
+}
+
+.trace-disclosure summary span {
+  gap: 6px;
+}
+
+.trace-disclosure summary > svg {
+  transition: transform 140ms ease;
+}
+
+.trace-disclosure[open] summary > svg {
+  transform: rotate(180deg);
 }
 
 /* The trace panel intentionally stays dark in both themes. */

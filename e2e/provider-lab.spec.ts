@@ -5,7 +5,7 @@ import JSZip from 'jszip'
 
 const dummySecret = 'provider-e2e-secret-123456'
 
-test('Provider Lab creates a keyed provider, discovers models, tests capabilities, and keeps secrets local', async ({
+test('Provider Lab keeps local and external connection modes mutually exclusive', async ({
   page,
 }) => {
   const directProviderRequests: string[] = []
@@ -27,26 +27,61 @@ test('Provider Lab creates a keyed provider, discovers models, tests capabilitie
   )
   await page.getByTestId('tab-settings').click()
   await Promise.all([providersLoad, capabilitiesLoad])
-  await expect(page.getByText('Provider Lab')).toBeVisible()
+  await expect(page.getByText('External model services')).toBeVisible()
   await expect(page.getByRole('button', { name: /Refresh/ })).toBeEnabled()
+  await expect(page.getByTestId('connection-secondary-settings')).not.toHaveAttribute('open', '')
+  await expect(page.getByLabel('Pixiv Cookie')).toBeHidden()
+
+  await expect(page.getByTestId('connection-mode-external')).toHaveAttribute('aria-selected', 'true')
+  await page.getByTestId('connection-mode-local').click()
+  await expect(page.getByText('Local models')).toBeVisible()
+  await expect(page.getByTestId('connection-mode-local')).toHaveAttribute('aria-selected', 'true')
+  await expect(page.getByLabel('OpenAI-compatible Base URL', { exact: true })).toHaveCount(0)
+  await expect(page.getByLabel('Model', { exact: true })).toHaveCount(0)
+  await expect(page.getByLabel('API Key', { exact: true })).toHaveCount(0)
 
   const providerForm = page.locator('.provider-form')
   await expect(providerForm).toBeVisible()
-  await providerForm.getByRole('button', { name: /^New$/ }).click()
   await providerForm.getByLabel('Name').fill(`E2E Mock ${Date.now()}`)
   await providerForm.getByLabel('Base URL').fill('http://127.0.0.1:5199')
   await providerForm.getByLabel('Default model').fill('gpt-4o-smoke')
-  await providerForm.getByLabel('API key').fill(dummySecret)
-  await providerForm.getByLabel('Local provider').check()
+  await expect(providerForm.getByLabel('API key')).toHaveCount(0)
   await providerForm.getByRole('button', { name: /Save/ }).click()
 
-  await expect(page.getByText(/key saved/).first()).toBeVisible()
-  await expect(page.getByText(dummySecret)).toHaveCount(0)
+  await expect(page.getByText(/local endpoint/).first()).toBeVisible()
+  await expect(providerForm).toBeHidden()
+
+  await page.getByTestId('connection-mode-external').click()
+  await expect(page.getByText('External model services')).toBeVisible()
+  await expect(page.locator('.provider-list').getByText(/E2E Mock/)).toHaveCount(0)
+  await expect(page.locator('.provider-form').getByLabel('API key')).toBeVisible()
+
+  await page.getByTestId('connection-mode-local').click()
+  await expect(page.getByText('Local models')).toBeVisible()
+  await expect(page.locator('.provider-list').getByText(/E2E Mock/)).toBeVisible()
+  await expect(page.getByText('Model Discovery')).toBeHidden()
+  await page.getByTestId('provider-advanced-toggle').click()
+  await expect(page.getByText('Model Discovery')).toBeVisible()
 
   await page.getByRole('button', { name: /Discover/ }).click()
   const modelList = page.locator('.model-list')
   await expect(modelList.getByRole('button', { name: /gpt-4o-smoke/ })).toBeVisible()
   await expect(modelList.getByRole('button', { name: /text-only-smoke/ })).toBeVisible()
+
+  const imageGenerationOverride = page.getByTestId('capability-override-supportsImageGeneration')
+  await expect(imageGenerationOverride).not.toBeChecked()
+  const overrideSaved = page.waitForResponse(
+    (response) => response.url().includes('/api/model-capabilities/') && response.request().method() === 'PATCH',
+  )
+  await imageGenerationOverride.check()
+  await page.getByTestId('save-capability-overrides').click()
+  const overrideBody = (await (await overrideSaved).json()) as {
+    capability: { capabilitySources: Record<string, string>; supportsImageGeneration: boolean }
+  }
+  expect(overrideBody.capability.supportsImageGeneration).toBe(true)
+  expect(overrideBody.capability.capabilitySources.supportsImageGeneration).toBe('user')
+  expect(overrideBody.capability.capabilitySources.supportsVision).not.toBe('user')
+  await expect(page.getByTestId('save-capability-overrides')).toBeDisabled()
 
   const testControls = page.locator('.provider-section').filter({ hasText: 'Test Controls' })
   await testControls.getByLabel('vision').check()
@@ -54,8 +89,10 @@ test('Provider Lab creates a keyed provider, discovers models, tests capabilitie
   await testControls.getByLabel('streaming').check()
   await page.getByRole('button', { name: /Run test/ }).click()
   await expect(page.getByText('Redacted trace')).toBeVisible()
-  await expect(page.getByText('Pass')).toBeVisible()
+  await expect(page.getByTestId('provider-test-summary')).toHaveAttribute('data-state', 'passed')
   await expect(page.getByText(dummySecret)).toHaveCount(0)
+  await page.getByTestId('provider-test-diagnostics').locator('summary').click()
+  await expect(page.locator('.trace-box')).toBeVisible()
   const traceText = await page.locator('.trace-box').innerText()
   expect(traceText).toContain('[redacted]')
   expect(traceText).toContain('[redacted image payload]')
@@ -95,12 +132,36 @@ test('Provider Lab creates a keyed provider, discovers models, tests capabilitie
   expect(directProviderRequests).toEqual([])
 })
 
+test('legacy API settings can fetch models and test the selected model', async ({ page }) => {
+  await openStudio(page)
+  await page.getByTestId('tab-settings').click()
+
+  const legacySettings = page.getByTestId('legacy-api-settings')
+  await expect(legacySettings).toBeVisible()
+  await legacySettings.locator('summary').click()
+  await legacySettings.getByLabel('OpenAI-compatible Base URL', { exact: true }).fill('http://127.0.0.1:5199')
+  await legacySettings.getByLabel('API Key', { exact: true }).fill(dummySecret)
+  await legacySettings.getByRole('button', { name: /Fetch models/ }).click()
+  await expect(legacySettings.locator('#legacy-model-options option[value="gpt-4o-smoke"]')).toHaveCount(1)
+  await expect(legacySettings.locator('input[list="legacy-model-options"]')).toHaveValue('gpt-4o-smoke')
+
+  await legacySettings.getByRole('button', { name: /Test connection/ }).click()
+  await expect(page.getByTestId('legacy-api-test-result')).toContainText('Connection test passed')
+
+  await page.getByTestId('open-guide').click()
+  await expect(page.getByTestId('guide-modal')).toBeVisible()
+  await expect(page.getByText('Pixiv account risk')).toBeVisible()
+  await page.getByTestId('guide-close').click()
+  await expect(page.getByTestId('guide-modal')).toHaveCount(0)
+})
+
 test('active engine card mirrors backend route resolution', async ({ page }) => {
   await openStudio(page)
   await clearProviderProfiles(page)
 
   // No providers and no global route → explicit none-state with the setup wizard.
   await page.getByTestId('tab-settings').click()
+  await page.getByTestId('connection-mode-local').click()
   await expect(page.getByTestId('active-engine-card')).toContainText('No AI engine available')
 
   // One-click detection probes PTM_LOCAL_DETECT_URLS (the mock provider here)
@@ -117,19 +178,20 @@ test('active engine card mirrors backend route resolution', async ({ page }) => 
   expect(providerResponse.ok()).toBe(true)
   await page.reload()
   await page.getByTestId('tab-settings').click()
+  await page.getByTestId('connection-mode-local').click()
   await expect(page.getByTestId('active-engine-card')).toContainText(providerName)
   await expect(page.getByTestId('active-engine-card')).toContainText('Local')
 
   try {
-    // A configured-but-unusable global route means NO engine, even though a usable
-    // local profile exists — the backend never falls back while global is set.
+    // A stale direct route must not block a usable provider profile.
     const saveUnusable = await page.request.put('/api/settings/secrets', {
       data: { apiBaseUrl: 'https://unusable.example.test/v1', modelName: 'ghost-model' },
     })
     expect(saveUnusable.ok()).toBe(true)
     await page.reload()
     await page.getByTestId('tab-settings').click()
-    await expect(page.getByTestId('active-engine-card')).toContainText('No AI engine available')
+    await page.getByTestId('connection-mode-local').click()
+    await expect(page.getByTestId('active-engine-card')).toContainText(providerName)
   } finally {
     // Restore the empty global route so later tests keep profile-based routing.
     const restore = await page.request.put('/api/settings/secrets', { data: { apiBaseUrl: '', modelName: '' } })
@@ -153,6 +215,7 @@ test('Pixiv import form downloads mocked artwork with saved cookie and keeps sec
   await expect(page.locator('.log-list').getByText('Project created.')).toBeVisible()
 
   await page.getByTestId('tab-settings').click()
+  await page.getByTestId('connection-secondary-toggle').click()
   await page.getByLabel('Pixiv Cookie').fill(pixivCookie)
   await page.getByRole('button', { name: /Save Settings/ }).click()
   await expect(page.locator('.log-list').getByText('Settings saved to system credential store.')).toBeVisible()

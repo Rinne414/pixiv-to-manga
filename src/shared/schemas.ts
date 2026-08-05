@@ -2,6 +2,29 @@ import { z } from 'zod'
 
 export const bubbleStyleSchema = z.enum(['speech', 'soft', 'thought', 'caption', 'sfx', 'shout', 'whisper'])
 
+export const letteringDefaultsSchema = z.object({
+  fontFamily: z.string().max(300).optional(),
+  scale: z.number().min(0.5).max(2.5).default(1),
+  color: z.string().regex(/^#[0-9a-fA-F]{6}$/).default('#141414'),
+  sfxStrokeColor: z.string().regex(/^#[0-9a-fA-F]{6}$/).default('#ffffff'),
+  sfxStrokeWidth: z.number().min(0.05).max(0.6).default(0.18),
+})
+
+export const cleanupPointSchema = z.object({
+  x: z.number().min(0).max(1),
+  y: z.number().min(0).max(1),
+})
+
+export const cleanupStrokeSchema = z.object({
+  mode: z.enum(['mosaic', 'paint']),
+  points: z.array(cleanupPointSchema).min(1).max(600),
+  size: z.number().min(4).max(240),
+  intensity: z.number().min(0.1).max(1),
+  color: z.string().regex(/^#[0-9a-fA-F]{6}$/),
+})
+
+export const cleanupStrokesSchema = z.array(cleanupStrokeSchema).max(200)
+
 export const characterSchema = z.object({
   id: z.string().optional(),
   projectId: z.string().optional(),
@@ -84,11 +107,53 @@ export const pixivImportSchema = z.object({
   r18Enabled: z.boolean().default(false),
 })
 
+const pixivBatchPageSchema = z.object({
+  artworkId: z.string().regex(/^\d+$/),
+  pageIndex: z.number().int().min(0).max(199),
+  sourceUrl: z.string().url().max(2000),
+  fileName: z.string().trim().min(1).max(240),
+})
+
+export const pixivBatchPreviewSchema = z.object({
+  urls: z.array(z.string().trim().min(1).max(300)).min(1).max(50),
+  r18Enabled: z.boolean().default(false),
+  usePixivSession: z.boolean().default(false),
+  maxImages: z.number().int().min(1).max(200).default(200),
+})
+
+export const pixivBatchTaskSchema = z.object({
+  projectId: z.string().trim().min(1).optional(),
+  title: z.string().trim().min(1).max(120).optional(),
+  r18Enabled: z.boolean().default(false),
+  usePixivSession: z.boolean().default(false),
+  pages: z.array(pixivBatchPageSchema).min(1).max(200),
+  requestDelayMs: z.number().int().min(0).max(60_000).optional(),
+})
+
+export const pixivBatchTaskIdSchema = z.object({
+  id: z.string().trim().min(1).max(120),
+})
+
+export const pixivBatchTaskQuerySchema = z.object({
+  projectId: z.string().trim().min(1),
+})
+
 export const secretUpdateSchema = z.object({
   apiBaseUrl: z.string().trim().max(300).optional(),
   modelName: z.string().trim().max(120).optional(),
   apiKey: z.string().trim().max(300).optional(),
   pixivCookie: z.string().trim().max(4000).optional(),
+})
+
+export const legacyModelDiscoverySchema = z.object({
+  apiBaseUrl: z.string().trim().min(1).max(300),
+  apiKey: z.string().trim().max(2000).optional(),
+})
+
+export const legacyProviderTestSchema = z.object({
+  apiBaseUrl: z.string().trim().min(1).max(300),
+  modelName: z.string().trim().min(1).max(160),
+  apiKey: z.string().trim().max(2000).optional(),
 })
 
 export const analyzeStorySchema = z.object({
@@ -131,8 +196,17 @@ export const exportZipSchema = z.object({
 export const exportPdfSchema = exportZipSchema.omit({ format: true })
 
 export const updateProjectSchema = z.object({
-  readingDirection: z.enum(['ltr', 'rtl']),
-})
+  readingDirection: z.enum(['ltr', 'rtl']).optional(),
+  letteringDefaults: letteringDefaultsSchema.optional(),
+  applyLetteringToExisting: z.boolean().optional(),
+  colorDialoguesByCharacter: z.boolean().optional(),
+}).refine(
+  (value) =>
+    value.readingDirection !== undefined
+    || value.letteringDefaults !== undefined
+    || value.colorDialoguesByCharacter !== undefined,
+  'At least one project setting is required',
+)
 
 export const panelBoxSchema = z.object({
   x: z.number().min(0).max(1),
@@ -143,6 +217,10 @@ export const panelBoxSchema = z.object({
 
 export const updatePagePanelsSchema = z.object({
   panels: z.array(panelBoxSchema).max(12),
+})
+
+export const updatePageCleanupSchema = z.object({
+  cleanupStrokes: cleanupStrokesSchema,
 })
 
 export const exportProjectBackupSchema = z.object({
@@ -169,7 +247,11 @@ export const discoverModelsSchema = z.object({
 
 export const providerTestSchema = z.object({
   modelId: z.string().trim().min(1).max(160).optional(),
-  tests: z.array(z.enum(['text', 'vision', 'json', 'streaming'])).min(1).max(4).default(['text']),
+  tests: z
+    .array(z.enum(['text', 'vision', 'json', 'streaming']))
+    .min(1)
+    .max(4)
+    .default(['text', 'vision', 'json', 'streaming']),
   imageDataUrl: z.string().startsWith('data:image/').max(2_000_000).optional(),
 })
 

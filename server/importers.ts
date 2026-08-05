@@ -9,7 +9,7 @@ import { getAppDataDir, projectAssetDir } from './paths'
 import type { StudioDatabase } from './database'
 import type { SecretStore } from './secrets'
 import { assertPixivImageUrl, extractPixivArtworkId } from '../src/shared/pixiv'
-import { characterSchema, dialogueSchema, storyBibleSchema } from '../src/shared/schemas'
+import { characterSchema, cleanupStrokesSchema, dialogueSchema, letteringDefaultsSchema, storyBibleSchema } from '../src/shared/schemas'
 import type { Character, ProjectDetail, ProjectMode, ProjectSource, StoryBible } from '../src/shared/types'
 
 export const MAX_IMAGE_BYTES = 30 * 1024 * 1024
@@ -32,6 +32,7 @@ const backupProjectDataSchema = z.object({
     source: z.enum(['pixiv', 'local', 'mixed', 'sample']),
     // Absent in pre-v0.4 backups; restore falls back to the DB default ('rtl').
     readingDirection: z.enum(['ltr', 'rtl']).optional(),
+    letteringDefaults: letteringDefaultsSchema.optional(),
     storyBible: storyBibleSchema.optional(),
   }),
   pages: z.array(
@@ -43,6 +44,7 @@ const backupProjectDataSchema = z.object({
       status: z.enum(['ready', 'analyzing', 'generating', 'complete', 'error']),
       width: z.number().int().positive(),
       height: z.number().int().positive(),
+      cleanupStrokes: cleanupStrokesSchema.optional(),
     }),
   ),
   assets: z.array(
@@ -234,7 +236,10 @@ export async function importProjectBackup(db: StudioDatabase, file: MultipartFil
     source: data.project.source as ProjectSource,
   })
   if (data.project.readingDirection) {
-    db.updateProjectReadingDirection(restoredProject.id, data.project.readingDirection)
+    db.updateProjectSettings(restoredProject.id, { readingDirection: data.project.readingDirection })
+  }
+  if (data.project.letteringDefaults) {
+    db.updateProjectSettings(restoredProject.id, { letteringDefaults: data.project.letteringDefaults })
   }
   const assetIdMap = new Map<string, string>()
   const pageIdMap = new Map<string, string>()
@@ -296,6 +301,9 @@ export async function importProjectBackup(db: StudioDatabase, file: MultipartFil
     })
     pageIdMap.set(page.id, restoredPage.id)
     db.updatePageStatus(restoredPage.id, page.status)
+    if (page.cleanupStrokes) {
+      db.updatePageCleanup(restoredPage.id, page.cleanupStrokes)
+    }
   }
 
   for (const dialogue of data.dialogues) {

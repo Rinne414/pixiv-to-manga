@@ -7,8 +7,10 @@ import {
 } from 'react'
 import type { ReactNode } from 'react'
 import { AlertCircle, CheckCircle2, Info, X } from 'lucide-react'
+import { AnimatePresence, motion } from 'motion/react'
 import { cryptoId } from './uiUtils'
 import { useI18n } from './i18n/context'
+import { quickTransition, softSpring } from './motionTokens'
 import {
   ToastContext,
   type ConfirmOptions,
@@ -110,9 +112,11 @@ export function ToastProvider({ children }: { children: ReactNode }) {
     <ToastContext.Provider value={value}>
       {children}
       <div className="toast-stack" role="region" aria-label={t('toast.notifications')} aria-live="polite">
-        {toasts.map((toast) => (
-          <ToastCard key={toast.id} toast={toast} onDismiss={() => dismissToast(toast.id)} />
-        ))}
+        <AnimatePresence initial={false} mode="popLayout">
+          {toasts.map((toast) => (
+            <ToastCard key={toast.id} toast={toast} onDismiss={() => dismissToast(toast.id)} />
+          ))}
+        </AnimatePresence>
       </div>
       {confirmState ? (
         <ConfirmDialog
@@ -138,18 +142,29 @@ function ToastCard(props: { toast: ToastEntry; onDismiss: () => void }) {
   const { toast, onDismiss } = props
   const Icon = toast.level === 'success' ? CheckCircle2 : toast.level === 'error' ? AlertCircle : Info
   return (
-    <div className={`toast-card ${toast.level}`} role="status">
+    <motion.div
+      layout
+      className={`toast-card ${toast.level}`}
+      role="status"
+      initial={{ opacity: 0, x: 16, scale: 0.98 }}
+      animate={{ opacity: 1, x: 0, scale: 1 }}
+      exit={{ opacity: 0, x: 12, scale: 0.98 }}
+      transition={softSpring}
+    >
       <Icon size={18} />
       <span>{toast.message}</span>
-      <button
+      <motion.button
         type="button"
         className="toast-dismiss"
         aria-label={t('toast.dismiss')}
+        whileHover={{ rotate: 5, scale: 1.06 }}
+        whileTap={{ rotate: -8, scale: 0.84 }}
+        transition={quickTransition}
         onClick={onDismiss}
       >
         <X size={14} />
-      </button>
-    </div>
+      </motion.button>
+    </motion.div>
   )
 }
 

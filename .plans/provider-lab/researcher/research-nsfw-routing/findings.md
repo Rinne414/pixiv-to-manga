@@ -156,4 +156,4 @@ For v1, prefer fail-closed over convenience:
 - Local classifier runs before any external vision call.
 - `unknown` and classifier failure block external R-18/image routing.
 - External explicit image routing requires explicit user opt-in plus model/provider capability marked supported.
-- Local models are the preferred route for explicit images, but still require user confirmation and vision support.
+- Local models are the preferred route for explicit images. The implemented policy treats `isLocal` plus the project-level R-18 opt-in as sufficient adult-route confirmation; vision support remains independently required.

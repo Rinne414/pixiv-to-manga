@@ -1,6 +1,8 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 
+const serverPort = Number(process.env.PTM_SERVER_PORT || 4174)
+
 // https://vite.dev/config/
 export default defineConfig({
   plugins: [react()],
@@ -39,8 +41,8 @@ export default defineConfig({
   },
   server: {
     proxy: {
-      '/api': 'http://127.0.0.1:4174',
-      '/assets': 'http://127.0.0.1:4174',
+      '/api': `http://127.0.0.1:${serverPort}`,
+      '/assets': `http://127.0.0.1:${serverPort}`,
     },
   },
 })

@@ -1,6 +1,6 @@
 {
   "name": "pixiv-to-manga",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "description": "Privacy-first local-AI manga studio: import Pixiv or local art, generate story + dialogue with your own models, edit bubbles on a whiteboard, export ZIP/CBZ/PDF.",
   "keywords": [
     "manga",
@@ -14,6 +14,7 @@
   "license": "Apache-2.0",
   "type": "module",
   "bin": {
+    "pixiv-to-manga": "bin/studio.mjs",
     "pixiv-to-manga-studio": "bin/studio.mjs"
   },
   "files": [
@@ -34,6 +35,7 @@
     "start": "npm run build && tsx server/index.ts --open",
     "build": "tsc -b && vite build",
     "build:server": "esbuild server/index.ts --bundle --platform=node --format=esm --packages=external --outfile=dist-server/index.mjs",
+    "pack:portable": "node scripts/pack-portable.mjs",
     "prepublishOnly": "npm run build && npm run build:server",
     "lint": "eslint .",
     "test": "vitest run",
@@ -45,12 +47,13 @@
   },
   "dependencies": {
     "@fastify/multipart": "^10.1.0",
-    "@fastify/static": "^9.3.0",
+    "@fastify/static": "^10.1.2",
     "archiver": "^8.0.0",
     "fastify": "^5.10.0",
     "jszip": "^3.10.1",
     "open": "^11.0.0",
     "pdf-lib": "^1.17.1",
+    "sharp": "^0.35.3",
     "zod": "^4.4.3"
   },
   "devDependencies": {
@@ -70,6 +73,7 @@
     "globals": "^17.7.0",
     "konva": "^10.3.0",
     "lucide-react": "^1.25.0",
+    "motion": "^12.42.2",
     "react": "^19.2.7",
     "react-dom": "^19.2.7",
     "react-konva": "^19.2.5",

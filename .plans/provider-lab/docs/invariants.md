@@ -13,7 +13,8 @@
 - All LLM requests must go through the local backend.
 - Provider debug traces must redact Authorization, API keys, cookies, and image payloads.
 - Provider debug traces must also redact provider response bodies if the provider echoes request secrets or image payloads.
-- External provider base URLs must be public HTTPS; localhost/private-network HTTP endpoints require explicit local-provider mode.
+- External provider base URLs must be public HTTPS; localhost/private-network endpoints require explicit local-provider mode.
+- Local-provider mode is trusted only when the URL also resolves syntactically to loopback/private addressing; the flag alone never bypasses key or external R-18 checks.
 - Provider model discovery paths must be relative paths, not arbitrary absolute URLs.
 
 ## NSFW Routing
