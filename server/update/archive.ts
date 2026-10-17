@@ -6,6 +6,8 @@ import JSZip from 'jszip'
 export interface ExtractOptions {
   maxTotalBytes?: number
   maxEntries?: number
+  /** Packaging only: silently drop links instead of refusing the archive (the updater never sets this). */
+  skipLinks?: boolean
 }
 
 const DEFAULT_MAX_TOTAL_BYTES = 2 * 1024 * 1024 * 1024
@@ -39,7 +41,7 @@ export function sanitizeEntryPath(name: string): string {
 }
 
 export async function extractArchive(file: string, destDir: string, options: ExtractOptions = {}): Promise<void> {
-  const entries = await readEntries(file)
+  const entries = await readEntries(file, options.skipLinks ?? false)
   const safe = entries.map((entry) => ({ ...entry, name: sanitizeEntryPath(entry.name) }))
   const maxEntries = options.maxEntries ?? DEFAULT_MAX_ENTRIES
   if (safe.length > maxEntries) throw new Error('Update archive has too many entries')
@@ -77,7 +79,7 @@ function sharedTopFolder(entries: { name: string; isDirectory: boolean }[]): str
   return inside && entries.some((entry) => entry.name.includes('/')) ? first : null
 }
 
-async function readEntries(file: string): Promise<ArchiveEntry[]> {
+async function readEntries(file: string, skipLinks: boolean): Promise<ArchiveEntry[]> {
   const handle = await open(file, 'r')
   const magic = Buffer.alloc(4)
   try {
@@ -85,30 +87,33 @@ async function readEntries(file: string): Promise<ArchiveEntry[]> {
   } finally {
     await handle.close()
   }
-  if (magic[0] === 0x50 && magic[1] === 0x4b) return readZipEntries(await readFile(file))
-  if (magic[0] === 0x1f && magic[1] === 0x8b) return readTarEntries(gunzipSync(await readFile(file)))
+  if (magic[0] === 0x50 && magic[1] === 0x4b) return readZipEntries(await readFile(file), skipLinks)
+  if (magic[0] === 0x1f && magic[1] === 0x8b) return readTarEntries(gunzipSync(await readFile(file)), skipLinks)
   throw new Error('Unsupported update archive format (expected .zip or .tar.gz)')
 }
 
-async function readZipEntries(buffer: Buffer): Promise<ArchiveEntry[]> {
+async function readZipEntries(buffer: Buffer, skipLinks: boolean): Promise<ArchiveEntry[]> {
   const zip = await JSZip.loadAsync(buffer)
-  return Object.values(zip.files).map((entry) => {
+  return Object.values(zip.files).flatMap((entry) => {
     const mode = typeof entry.unixPermissions === 'number' ? entry.unixPermissions : null
     if (mode !== null && (mode & FILE_TYPE_MASK) === SYMLINK_MODE) {
+      if (skipLinks) return []
       throw new Error(`Update archive contains a symlink (${entry.name}); refusing to extract it`)
     }
-    return {
-      name: entry.name,
-      isDirectory: entry.dir,
-      mode,
-      read: () => entry.async('nodebuffer'),
-    }
+    return [
+      {
+        name: entry.name,
+        isDirectory: entry.dir,
+        mode,
+        read: () => entry.async('nodebuffer'),
+      },
+    ]
   })
 }
 
 const TAR_BLOCK = 512
 
-function readTarEntries(tar: Buffer): ArchiveEntry[] {
+function readTarEntries(tar: Buffer, skipLinks: boolean): ArchiveEntry[] {
   const entries: ArchiveEntry[] = []
   let offset = 0
   let pendingPath: string | null = null
@@ -128,6 +133,10 @@ function readTarEntries(tar: Buffer): ArchiveEntry[] {
     if (type === 'g') continue
     if (type === 'L') {
       pendingPath = cString(body)
+      continue
+    }
+    if ((type === '1' || type === '2') && skipLinks) {
+      pendingPath = null
       continue
     }
     if (type === '1' || type === '2') {

@@ -40,3 +40,6 @@ release/
 *.njsproj
 *.sln
 *.sw?
+
+# Packaging download cache (Node runtime, keytar prebuilds)
+.pack-cache/
