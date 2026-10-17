@@ -18,6 +18,7 @@ import { verifyFileSha256 } from '../../server/update/verify.ts'
 import { downloadTo } from './node-runtime.mjs'
 
 const KEYTAR_VERSION = '7.9.0'
+const MAX_KEYTAR_BYTES = 20 * 1024 * 1024
 
 /** SHA256 of each official keytar prebuild tarball (napi v3), recorded when first fetched and reviewed. */
 const KEYTAR_PREBUILDS = {
@@ -62,7 +63,7 @@ async function installKeytarPrebuild(cacheDir, target, keytarDir) {
   const archivePath = path.join(cacheDir, 'keytar', spec.file)
   if (!existsSync(archivePath)) {
     console.log(`Downloading ${spec.file}...`)
-    await downloadTo(`https://github.com/atom/node-keytar/releases/download/v${KEYTAR_VERSION}/${spec.file}`, archivePath)
+    await downloadTo(`https://github.com/atom/node-keytar/releases/download/v${KEYTAR_VERSION}/${spec.file}`, archivePath, MAX_KEYTAR_BYTES)
   }
   await verifyFileSha256(archivePath, spec.sha256).catch(async (error) => {
     await rm(archivePath, { force: true })
