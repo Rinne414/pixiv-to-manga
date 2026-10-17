@@ -28,6 +28,9 @@ import { registerFontRoutes } from './fonts'
 import { registerPageRoutes } from './pages'
 import { registerPixivBatchRoutes } from './pixivBatch'
 import { registerStudioErrorHandler } from './errorHandler'
+import { readInstallInfo } from './update/install'
+import { registerUpdateRoutes } from './update/routes'
+import { UpdateManager } from './update/service'
 import {
   analyzeStorySchema,
   createProjectSchema,
@@ -46,6 +49,11 @@ const PORT = Number(process.env.PTM_SERVER_PORT || 4174)
 const db = new StudioDatabase()
 const secrets = new SecretStore(db)
 const jobs = new JobHub(db)
+const updates = new UpdateManager({
+  settings: db,
+  install: readInstallInfo(path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')),
+  dataDir: appDataDir,
+})
 
 const server = fastify({
   logger: {
@@ -75,6 +83,7 @@ registerDialogueRoutes(server, { db })
 registerPageRoutes(server, { db })
 registerFontRoutes(server, { db })
 registerPixivBatchRoutes(server, { db, secrets })
+registerUpdateRoutes(server, { updates })
 
 server.get('/api/settings/secrets', async () => secrets.status())
 
@@ -282,6 +291,7 @@ if (hasBuiltClient) {
 
 await server.listen({ port: PORT, host: '127.0.0.1' })
 server.log.info(`Pixiv-to-Manga Studio server listening on http://127.0.0.1:${PORT}`)
+void updates.autoCheckOnStart()
 
 // `npm start` passes --open; the built client is served by this process, so open its own URL.
 if (process.argv.includes('--open') || process.env.PTM_OPEN_BROWSER === '1') {
