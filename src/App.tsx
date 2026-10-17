@@ -47,6 +47,8 @@ import { SettingsPanel } from './panels/SettingsPanel'
 import { StoryPanel } from './panels/StoryPanel'
 import { modeKeys, sourceKeys } from './panels/labels'
 import { useI18n } from './i18n/context'
+import { UpdatePanel } from './panels/UpdatePanel'
+import { useUpdates } from './useUpdates'
 import type { MessageKey } from './i18n/messages'
 import { useTheme } from './theme'
 import type { IconProps } from './uiUtils'
@@ -65,6 +67,7 @@ const tabItems: Array<{ id: InspectorTab; labelKey: MessageKey; icon: ComponentT
 
 function App() {
   const { locale, setLocale, t } = useI18n()
+  const updates = useUpdates()
   const { theme, toggleTheme } = useTheme()
   const studio = useStudio()
   const [logCollapsed, setLogCollapsed] = useState(false)
@@ -162,6 +165,21 @@ function App() {
           ) : null}
         </div>
         <div className="topbar-controls">
+          {updates.status?.latest?.available ? (
+            <button
+              type="button"
+              className="update-badge"
+              data-testid="update-badge"
+              title={t('update.badgeTitle')}
+              onClick={() => {
+                setEntryMode('studio')
+                setActiveTab('settings')
+              }}
+            >
+              <Download size={14} />
+              {t('update.badge', { version: updates.status.latest.version })}
+            </button>
+          ) : null}
           <div className="lang-switch" role="group" aria-label={t('header.language')}>
             <button type="button" className={locale === 'en' ? 'active' : ''} data-testid="lang-en" onClick={() => setLocale('en')}>
               EN
@@ -454,6 +472,7 @@ function App() {
                 mode={connectionMode}
                 hasProviderConnection={providers.some((provider) => !provider.isLocal && provider.hasApiKey)}
               />
+              <UpdatePanel updates={updates} />
               {detail ? (
                 <LetteringDefaultsPanel
                   key={detail.project.id}

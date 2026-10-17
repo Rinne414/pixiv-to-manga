@@ -2,6 +2,7 @@ import type { Locale, LocalizedText, MessageParams } from './types'
 import { commonStrings } from './strings/common'
 import { providerLabStrings } from './strings/providerLab'
 import { storyContinueStrings } from './strings/storyContinue'
+import { updateStrings } from './strings/update'
 
 export const LOCALE_STORAGE_KEY = 'ptm-locale'
 
@@ -9,6 +10,7 @@ const messages = {
   ...commonStrings,
   ...providerLabStrings,
   ...storyContinueStrings,
+  ...updateStrings,
 } satisfies Record<string, LocalizedText>
 
 export type MessageKey = keyof typeof messages

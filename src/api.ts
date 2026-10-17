@@ -640,6 +640,44 @@ export async function updateModelCapability(id: string, input: Partial<ModelCapa
   return payload.capability
 }
 
+export type UpdatePhase = 'idle' | 'checking' | 'downloading' | 'verifying' | 'extracting' | 'restarting' | 'error'
+
+export interface UpdateStatus {
+  currentVersion: string
+  packageType: 'win-x64' | 'linux-x64' | 'portable' | null
+  canInstall: boolean
+  settings: { autoCheck: boolean; lastCheckedAt: string | null }
+  latest: {
+    version: string
+    available: boolean
+    notesSummary: string
+    releaseUrl: string
+    publishedAt: string | null
+    hasPackage: boolean
+    assetName: string | null
+  } | null
+  phase: UpdatePhase
+  progress: number | null
+  error: string | null
+  lastResult: { ok: boolean; version?: string; error?: string } | null
+}
+
+export function getUpdateStatus(): Promise<UpdateStatus> {
+  return request<UpdateStatus>('/api/update/status')
+}
+
+export function checkForUpdate(): Promise<UpdateStatus> {
+  return request<UpdateStatus>('/api/update/check', { method: 'POST' })
+}
+
+export function installUpdate(): Promise<UpdateStatus> {
+  return request<UpdateStatus>('/api/update/install', { method: 'POST' })
+}
+
+export function setUpdateAutoCheck(autoCheck: boolean): Promise<UpdateStatus> {
+  return request<UpdateStatus>('/api/update/settings', { method: 'PUT', body: JSON.stringify({ autoCheck }) })
+}
+
 async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   const headers = new Headers(init.headers)
   if (init.body && !(init.body instanceof FormData) && !headers.has('Content-Type')) {
