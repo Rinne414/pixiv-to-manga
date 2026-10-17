@@ -15,3 +15,12 @@ export function isAllowedDownloadUrl(value: string): boolean {
   }
   return url.protocol === 'https:' && !url.username && !url.password && url.port === '' && ALLOWED_HOSTS.has(url.hostname)
 }
+
+const RELEASE_DOWNLOAD_PREFIX = '/rinne414/pixiv-to-manga/releases/download/'
+
+/** The first hop of an asset download must be this repository's own release download. */
+export function isReleaseDownloadUrl(value: string): boolean {
+  if (!isAllowedDownloadUrl(value)) return false
+  const url = new URL(value)
+  return url.hostname === 'github.com' && url.pathname.toLowerCase().startsWith(RELEASE_DOWNLOAD_PREFIX)
+}

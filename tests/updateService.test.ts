@@ -255,6 +255,54 @@ describe('install', () => {
   })
 })
 
+describe('install hardening', () => {
+  it('refuses an asset url that is not this repository release download', async () => {
+    const archive = await packageZip()
+    const evil = 'https://github.com/evil/other/releases/download/v0.8.0/' + PACKAGE
+    const fetchImpl = fakeFetch({
+      'https://api.github.com/repos/Rinne414/pixiv-to-manga/releases/latest': () => Response.json(releaseJson(archive, { url: evil })),
+      [evil]: () => new Response(new Uint8Array(archive)),
+    })
+    const { manager, launchHelper } = setup({ fetchImpl })
+    await manager.check()
+    manager.startInstall()
+    const status = await untilIdleOrError(manager)
+    expect(status.phase).toBe('error')
+    expect(launchHelper).not.toHaveBeenCalled()
+  })
+
+  it('lets the launcher apply the update (no detached helper) and leaves a pending file', async () => {
+    const archive = await packageZip()
+    const fetchImpl = fakeFetch({
+      'https://api.github.com/repos/Rinne414/pixiv-to-manga/releases/latest': () => Response.json(releaseJson(archive)),
+      [GOOD_URL]: () => new Response(new Uint8Array(archive)),
+    })
+    const { manager, appRoot, launchHelper, exit } = setup({ fetchImpl, launcherHandlesUpdate: true })
+    await manager.check()
+    manager.startInstall()
+    expect((await untilIdleOrError(manager)).phase).toBe('restarting')
+    expect(launchHelper).not.toHaveBeenCalled()
+    const lines = readFileSync(path.join(appRoot, '.update-pending'), 'utf8').trim().split('\n')
+    expect(lines).toHaveLength(3)
+    expect(lines[1].endsWith('apply-update.mjs')).toBe(true)
+    await vi.waitFor(() => expect(exit).toHaveBeenCalledWith(UPDATE_EXIT_CODE))
+  })
+
+  it('refuses early when the app path would break the Windows restart', async () => {
+    const archive = await packageZip()
+    const fetchImpl = fakeFetch({
+      'https://api.github.com/repos/Rinne414/pixiv-to-manga/releases/latest': () => Response.json(releaseJson(archive)),
+    })
+    const { manager } = setup({
+      fetchImpl,
+      platform: 'win32',
+      install: { appRoot: 'C:\\a&b', currentVersion: '0.7.0', packageType: 'win-x64', launcher: 'start-portable.cmd' },
+    })
+    await manager.check()
+    expect(() => manager.startInstall()).toThrow(/folder|path/i)
+  })
+})
+
 describe('update routes', () => {
   async function app() {
     const { manager } = setup({ fetchImpl: fakeFetch({}) })

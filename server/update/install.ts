@@ -26,8 +26,12 @@ export function readInstallInfo(appRoot: string, platform: string = process.plat
   const infoPath = path.join(appRoot, INSTALL_INFO_FILE)
   let packageType: PackageType | null = null
   if (existsSync(infoPath)) {
-    const parsed = installInfoSchema.safeParse(JSON.parse(readFileSync(infoPath, 'utf8')))
-    if (parsed.success) packageType = parsed.data.packageType
+    try {
+      const parsed = installInfoSchema.safeParse(JSON.parse(readFileSync(infoPath, 'utf8')))
+      if (parsed.success) packageType = parsed.data.packageType
+    } catch {
+      // A damaged marker means "not a packaged build"; never let it stop the studio from starting.
+    }
   }
   return {
     appRoot,

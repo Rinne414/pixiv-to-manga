@@ -1,9 +1,10 @@
 import { spawn } from 'node:child_process'
 import { copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, unlinkSync, writeFileSync } from 'node:fs'
-import os from 'node:os'
 import path from 'node:path'
 import { z } from 'zod'
 import { extractArchive } from './archive'
+import { assertSafeForCmdRestart } from './restart'
+import { prepareWorkDir } from './workdir'
 import { pickReleaseAsset, type PackageType, type ReleaseAsset } from './assets'
 import { downloadText, downloadToFile, type FetchLike } from './download'
 import type { InstallInfo } from './install'
@@ -17,7 +18,7 @@ import {
   type SettingsStore,
   type UpdateSettings,
 } from './settings'
-import { isAllowedDownloadUrl } from './urls'
+import { isReleaseDownloadUrl } from './urls'
 import { expectedSha256, verifyFileSha256 } from './verify'
 import { isNewerVersion, parseVersion } from './version'
 
@@ -86,7 +87,11 @@ export interface UpdateManagerOptions {
   /** Starts the apply helper; resolves once it is running. Replaceable in tests. */
   launchHelper?: (command: string, args: string[]) => Promise<void>
   exit?: (code: number) => void
+  /** Defaults to a private folder inside the data directory. */
   workDir?: string
+  /** The launcher script applies the update itself (Linux); no detached helper is started. */
+  launcherHandlesUpdate?: boolean
+  platform?: string
   now?: () => number
 }
 
@@ -102,14 +107,16 @@ export class UpdateManager {
   private cached: CachedLatest | null = null
   private readonly fetchImpl: FetchLike
   private readonly workDir: string
+  private readonly launcherHandlesUpdate: boolean
   private readonly lastResult: UpdateResultFile | null
 
   private readonly options: UpdateManagerOptions
 
   constructor(options: UpdateManagerOptions) {
     this.options = options
+    this.launcherHandlesUpdate = options.launcherHandlesUpdate ?? process.env.PTM_LAUNCHER_HANDLES_UPDATE === '1'
     this.fetchImpl = options.fetchImpl ?? ((input, init) => fetch(input, init))
-    this.workDir = options.workDir ?? path.join(os.tmpdir(), 'pixiv-to-manga-update')
+    this.workDir = options.workDir ?? path.join(options.dataDir, 'update-work')
     this.cached = parseCached(readCachedLatest(options.settings))
     this.lastResult = this.consumeResultFile()
   }
@@ -176,6 +183,7 @@ export class UpdateManager {
     }
     if (!cached || !cached.available) throw new Error('There is no newer version to install. Check for updates first.')
     if (!cached.asset) throw new Error(`Release ${cached.version} has no package for this platform (${packageType}).`)
+    assertSafeForCmdRestart(this.options.install.appRoot, this.options.install.launcher, this.options.platform)
     this.begin('downloading')
     void this.runInstall(cached, cached.asset, cached.checksumAsset).catch((error) => this.fail(error))
   }
@@ -199,11 +207,11 @@ export class UpdateManager {
   }
 
   private async runInstall(latest: CachedLatest, asset: ReleaseAsset, checksumAsset: ReleaseAsset | null): Promise<void> {
-    if (!isAllowedDownloadUrl(asset.browser_download_url)) {
+    if (!isReleaseDownloadUrl(asset.browser_download_url)) {
       throw new Error('The release points at a download location this app does not trust.')
     }
     const jobDir = path.join(this.workDir, latest.version)
-    rmSync(this.workDir, { recursive: true, force: true })
+    prepareWorkDir(this.workDir)
     mkdirSync(jobDir, { recursive: true })
     const archivePath = path.join(jobDir, 'package.bin')
     const downloadOptions = { fetchImpl: this.fetchImpl, maxBytes: MAX_PACKAGE_BYTES }
@@ -254,13 +262,27 @@ export class UpdateManager {
     const jobPath = path.join(jobDir, 'job.json')
     writeFileSync(
       jobPath,
-      JSON.stringify({ pid: process.pid, appRoot, stagedRoot, dataDir: this.options.dataDir, launcher, version }),
+      JSON.stringify({
+        pid: process.pid,
+        appRoot,
+        stagedRoot,
+        dataDir: this.options.dataDir,
+        launcher,
+        version,
+        foreground: this.launcherHandlesUpdate,
+      }),
     )
     // The staged runtime is not in use by anything, so it can run the helper while the old one is replaced.
     const stagedNode = path.join(stagedRoot, 'runtime', process.platform === 'win32' ? 'node.exe' : 'node')
     const command = existsSync(stagedNode) ? stagedNode : process.execPath
 
-    await (this.options.launchHelper ?? launchDetached)(command, [helperPath, jobPath])
+    if (this.launcherHandlesUpdate) {
+      // The launcher runs the helper in the user's own terminal once this process has exited.
+      const pending = [command, helperPath, jobPath].join(String.fromCharCode(10))
+      writeFileSync(path.join(appRoot, '.update-pending'), pending + String.fromCharCode(10))
+    } else {
+      await (this.options.launchHelper ?? launchDetached)(command, [helperPath, jobPath])
+    }
     const exit = this.options.exit ?? ((code: number) => process.exit(code))
     setTimeout(() => exit(UPDATE_EXIT_CODE), EXIT_DELAY_MS).unref()
   }

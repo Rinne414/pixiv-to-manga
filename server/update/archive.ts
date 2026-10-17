@@ -34,6 +34,8 @@ export function sanitizeEntryPath(name: string): string {
   for (const part of slashed.split('/')) {
     if (part === '' || part === '.') continue
     if (part === '..') return fail()
+    // Colons (drive letters, NTFS streams) and trailing dots/spaces mean something else on Windows.
+    if (part.includes(':') || /[. ]$/.test(part)) return fail()
     parts.push(part)
   }
   if (!parts.length) return fail()
@@ -41,16 +43,18 @@ export function sanitizeEntryPath(name: string): string {
 }
 
 export async function extractArchive(file: string, destDir: string, options: ExtractOptions = {}): Promise<void> {
-  const entries = await readEntries(file, options.skipLinks ?? false)
+  const maxTotalBytes = options.maxTotalBytes ?? DEFAULT_MAX_TOTAL_BYTES
+  const entries = await readEntries(file, options.skipLinks ?? false, maxTotalBytes)
   const safe = entries.map((entry) => ({ ...entry, name: sanitizeEntryPath(entry.name) }))
   const maxEntries = options.maxEntries ?? DEFAULT_MAX_ENTRIES
   if (safe.length > maxEntries) throw new Error('Update archive has too many entries')
+  assertNoCaseCollisions(safe.map((entry) => entry.name))
   const strip = sharedTopFolder(safe)
   const root = path.resolve(destDir)
   await mkdir(root, { recursive: true })
 
   let total = 0
-  const maxTotal = options.maxTotalBytes ?? DEFAULT_MAX_TOTAL_BYTES
+  const maxTotal = maxTotalBytes
   for (const entry of safe) {
     const relative = strip ? entry.name.slice(strip.length + 1) : entry.name
     if (!relative) continue
@@ -71,6 +75,19 @@ export async function extractArchive(file: string, destDir: string, options: Ext
   }
 }
 
+/** Two names that differ only by case would overwrite each other on Windows and macOS. */
+function assertNoCaseCollisions(names: string[]): void {
+  const seen = new Map<string, string>()
+  for (const name of names) {
+    const key = name.toLowerCase()
+    const earlier = seen.get(key)
+    if (earlier !== undefined && earlier !== name) {
+      throw new Error(`Update archive entries collide because they differ only by case: ${earlier} and ${name}`)
+    }
+    seen.set(key, name)
+  }
+}
+
 /** The common first folder, only when every entry lives inside exactly one folder. */
 function sharedTopFolder(entries: { name: string; isDirectory: boolean }[]): string | null {
   if (!entries.length) return null
@@ -79,7 +96,7 @@ function sharedTopFolder(entries: { name: string; isDirectory: boolean }[]): str
   return inside && entries.some((entry) => entry.name.includes('/')) ? first : null
 }
 
-async function readEntries(file: string, skipLinks: boolean): Promise<ArchiveEntry[]> {
+async function readEntries(file: string, skipLinks: boolean, maxTotalBytes: number): Promise<ArchiveEntry[]> {
   const handle = await open(file, 'r')
   const magic = Buffer.alloc(4)
   try {
@@ -87,13 +104,26 @@ async function readEntries(file: string, skipLinks: boolean): Promise<ArchiveEnt
   } finally {
     await handle.close()
   }
-  if (magic[0] === 0x50 && magic[1] === 0x4b) return readZipEntries(await readFile(file), skipLinks)
-  if (magic[0] === 0x1f && magic[1] === 0x8b) return readTarEntries(gunzipSync(await readFile(file)), skipLinks)
+  if (magic[0] === 0x50 && magic[1] === 0x4b) return readZipEntries(await readFile(file), skipLinks, maxTotalBytes)
+  if (magic[0] === 0x1f && magic[1] === 0x8b) return readTarEntries(inflateBounded(await readFile(file), maxTotalBytes), skipLinks)
   throw new Error('Unsupported update archive format (expected .zip or .tar.gz)')
 }
 
-async function readZipEntries(buffer: Buffer, skipLinks: boolean): Promise<ArchiveEntry[]> {
+/** Gunzips with a hard output cap (tar headers and padding allowed on top of the payload). */
+function inflateBounded(buffer: Buffer, maxTotalBytes: number): Buffer {
+  try {
+    return gunzipSync(buffer, { maxOutputLength: Math.ceil(maxTotalBytes * 1.1) + 1024 * 1024 })
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ERR_BUFFER_TOO_LARGE') throw new Error('Update archive is too large once extracted', { cause: error })
+    throw error
+  }
+}
+
+async function readZipEntries(buffer: Buffer, skipLinks: boolean, maxTotalBytes: number): Promise<ArchiveEntry[]> {
   const zip = await JSZip.loadAsync(buffer)
+  // JSZip rejects entries whose data does not match the declared size, so the declared sum is a real bound.
+  const declared = Object.values(zip.files).reduce((sum, entry) => sum + declaredSize(entry), 0)
+  if (declared > maxTotalBytes) throw new Error('Update archive is too large once extracted')
   return Object.values(zip.files).flatMap((entry) => {
     const mode = typeof entry.unixPermissions === 'number' ? entry.unixPermissions : null
     if (mode !== null && (mode & FILE_TYPE_MASK) === SYMLINK_MODE) {
@@ -109,6 +139,11 @@ async function readZipEntries(buffer: Buffer, skipLinks: boolean): Promise<Archi
       },
     ]
   })
+}
+
+function declaredSize(entry: JSZip.JSZipObject): number {
+  const size = (entry as unknown as { _data?: { uncompressedSize?: number } })._data?.uncompressedSize
+  return typeof size === 'number' ? size : 0
 }
 
 const TAR_BLOCK = 512

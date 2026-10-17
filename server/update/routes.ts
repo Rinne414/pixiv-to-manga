@@ -10,7 +10,9 @@ export function registerUpdateRoutes(server: FastifyInstance, deps: { updates: U
   // Scoped so the origin guard covers only the update endpoints.
   void server.register(async (scope) => {
     scope.addHook('onRequest', async (request, reply) => {
-      if (!isTrustedLocalRequest(request.headers)) {
+      // Anything that changes state also has to come from the page served by this very server port.
+      const strict = request.method !== 'GET'
+      if (!isTrustedLocalRequest(request.headers, { requireSamePort: strict })) {
         await reply.status(403).send({ error: 'Update requests are only accepted from this computer.' })
       }
     })

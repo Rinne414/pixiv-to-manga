@@ -1,7 +1,7 @@
 import { createWriteStream } from 'node:fs'
 import { Readable, Transform } from 'node:stream'
 import { pipeline } from 'node:stream/promises'
-import { isAllowedDownloadUrl } from './urls'
+import { isAllowedDownloadUrl, isReleaseDownloadUrl } from './urls'
 
 const MAX_REDIRECTS = 5
 
@@ -18,7 +18,8 @@ export interface DownloadOptions {
 async function fetchAllowed(url: string, options: DownloadOptions): Promise<Response> {
   let current = url
   for (let hop = 0; hop <= MAX_REDIRECTS; hop += 1) {
-    if (!isAllowedDownloadUrl(current)) throw new Error(`Refusing to download from ${redactUrl(current)}`)
+    const permitted = hop === 0 ? isReleaseDownloadUrl(current) : isAllowedDownloadUrl(current)
+    if (!permitted) throw new Error(`Refusing to download from ${redactUrl(current)}`)
     const response = await options.fetchImpl(current, {
       redirect: 'manual',
       signal: options.signal,
@@ -68,7 +69,19 @@ export async function downloadToFile(url: string, destination: string, options: 
 
 export async function downloadText(url: string, options: DownloadOptions): Promise<string> {
   const response = await fetchAllowed(url, options)
-  const text = await response.text()
-  if (text.length > options.maxBytes) throw new Error('The checksum file is larger than allowed')
-  return text
+  if (!response.body) return ''
+  const reader = response.body.getReader()
+  const chunks: Uint8Array[] = []
+  let received = 0
+  for (;;) {
+    const { done, value } = await reader.read()
+    if (done) break
+    received += value.length
+    if (received > options.maxBytes) {
+      await reader.cancel()
+      throw new Error('The checksum file is larger than allowed')
+    }
+    chunks.push(value)
+  }
+  return Buffer.concat(chunks).toString('utf8')
 }
