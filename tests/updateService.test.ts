@@ -333,6 +333,22 @@ describe('update routes', () => {
     }
   })
 
+  it('requires the Origin port to match for state changes in a packaged build only', async () => {
+    const mismatch = { host: '127.0.0.1:4174', origin: 'http://127.0.0.1:5173', 'content-type': 'application/json' }
+    const packaged = await app()
+    const blocked = await packaged.inject({ method: 'PUT', url: '/api/update/settings', headers: mismatch, payload: '{"autoCheck":false}' })
+    expect(blocked.statusCode).toBe(403)
+    const { manager } = setup({
+      fetchImpl: fakeFetch({}),
+      install: { appRoot: tempDir(), currentVersion: '0.7.0', packageType: null, launcher: 'x' },
+    })
+    const dev = fastify()
+    registerUpdateRoutes(dev, { updates: manager })
+    await dev.ready()
+    const allowed = await dev.inject({ method: 'PUT', url: '/api/update/settings', headers: mismatch, payload: '{"autoCheck":false}' })
+    expect(allowed.statusCode).toBe(200)
+  })
+
   it('persists the auto-check toggle through the API', async () => {
     const server = await app()
     const response = await server.inject({

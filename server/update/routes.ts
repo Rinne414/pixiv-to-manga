@@ -10,8 +10,9 @@ export function registerUpdateRoutes(server: FastifyInstance, deps: { updates: U
   // Scoped so the origin guard covers only the update endpoints.
   void server.register(async (scope) => {
     scope.addHook('onRequest', async (request, reply) => {
-      // Anything that changes state also has to come from the page served by this very server port.
-      const strict = request.method !== 'GET'
+      // In a packaged build anything that changes state must come from the page served by this very
+      // server port. Source and dev runs cannot install, and Vite's proxy changes ports, so they are exempt.
+      const strict = request.method !== 'GET' && updates.status().canInstall
       if (!isTrustedLocalRequest(request.headers, { requireSamePort: strict })) {
         await reply.status(403).send({ error: 'Update requests are only accepted from this computer.' })
       }
