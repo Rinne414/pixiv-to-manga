@@ -20,9 +20,9 @@ if not exist dist-server\\index.mjs (
 echo Starting Pixiv-to-Manga Studio... the app will open in your browser.
 echo Keep this window open while you work; close it to stop the studio.
 if not defined PTM_OPEN_BROWSER set PTM_OPEN_BROWSER=1
-${nodeExpr} bin\\studio.mjs
-if %errorlevel% equ 75 exit /b 0
-pause
+rem One line on purpose: cmd re-reads this file while it runs, and an update replaces it. The exit
+rem decision is parsed together with the node call so nothing after it is read from the new file.
+${nodeExpr} bin\\studio.mjs & if errorlevel 76 (pause & exit /b 1) else (if errorlevel 75 (exit /b 0) else (pause & exit /b 0))
 `
 
 const WINDOWS_BUNDLED_PRELUDE = `if not exist runtime\\node.exe (
@@ -58,7 +58,8 @@ export const windowsBundledLauncher = crlf(WINDOWS_BODY('"%~dp0runtime\\node.exe
 export const windowsPortableLauncher = crlf(WINDOWS_BODY('node', WINDOWS_PORTABLE_PRELUDE))
 
 const SH_BODY = (nodeExpr, prelude) => `#!/usr/bin/env bash
-cd "$(dirname "$0")"
+self="$(cd "$(dirname "$0")" && pwd)/$(basename "$0")"
+cd "$(dirname "$self")"
 ${prelude}
 if [ ! -f dist/index.html ] || [ ! -f dist-server/index.mjs ]; then
   echo "Missing prebuilt bundles. Re-download the package."
@@ -68,10 +69,20 @@ fi
 echo "Starting Pixiv-to-Manga Studio... the app will open in your browser."
 echo "Keep this terminal open while you work; press Ctrl+C to stop the studio."
 export PTM_OPEN_BROWSER="\${PTM_OPEN_BROWSER:-1}"
+export PTM_LAUNCHER_HANDLES_UPDATE=1
 ${nodeExpr} bin/studio.mjs
 code=$?
-# 75 = restarting for an update; the apply helper relaunches the studio itself.
-if [ "$code" -eq 75 ]; then exit 0; fi
+# 75 = an update is staged. Apply it here, in this terminal, then start the new version.
+if [ "$code" -eq 75 ]; then
+  if [ -f .update-pending ]; then
+    { read -r upd_cmd; read -r upd_helper; read -r upd_job; } < .update-pending
+    rm -f .update-pending
+    echo "Installing the update..."
+    "$upd_cmd" "$upd_helper" "$upd_job"
+  fi
+  export PTM_OPEN_BROWSER=0
+  exec "$self"
+fi
 exit "$code"
 `
 
