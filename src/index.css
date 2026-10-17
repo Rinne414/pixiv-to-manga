@@ -2338,5 +2338,7 @@ select:focus {
 }
 
 .update-auto-check input {
-  margin-top: 2px;
+  flex: 0 0 auto;
+  width: auto;
+  margin: 2px 0 0;
 }

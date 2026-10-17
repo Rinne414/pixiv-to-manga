@@ -118,7 +118,14 @@ export function useUpdates(): UpdatesState {
   }, [t])
 
   const setAutoCheck = useCallback(async (enabled: boolean) => {
-    setStatus(await api.setUpdateAutoCheck(enabled))
+    // Optimistic: the checkbox flips at once and is restored if the server refuses.
+    setStatus((current) => (current ? { ...current, settings: { ...current.settings, autoCheck: enabled } } : current))
+    try {
+      setStatus(await api.setUpdateAutoCheck(enabled))
+    } catch (error) {
+      setStatus((current) => (current ? { ...current, settings: { ...current.settings, autoCheck: !enabled } } : current))
+      setCheckError(error instanceof Error ? error.message : String(error))
+    }
   }, [])
 
   return { status, checking, installing, checkError, check, install, setAutoCheck }
