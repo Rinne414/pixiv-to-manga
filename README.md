@@ -6,17 +6,19 @@ Pixiv-to-Manga Studio imports Pixiv or local image sets, asks an AI model to cre
 
 ## Quick Start (no dev tools needed)
 
-Requires [Node.js 24 LTS or newer](https://nodejs.org/).
+Download the package for your system from [GitHub Releases](https://github.com/Rinne414/pixiv-to-manga/releases), unzip it, and double-click the launcher. **Windows and Linux packages include their own Node.js runtime, so nothing needs to be installed first.**
 
-### Option A — portable zip (recommended for non-developers)
+| Your system | Download | Start it |
+|---|---|---|
+| Windows 10/11 (64-bit) | `pixiv-to-manga-<version>-win-x64.zip` | unzip, double-click `start-portable.cmd` |
+| Linux x64 (glibc) | `pixiv-to-manga-<version>-linux-x64.tar.gz` | `tar -xzf` it, run `./start-portable.sh` |
+| macOS or anything else | `pixiv-to-manga-<version>-portable.zip` | install [Node.js 24 LTS or newer](https://nodejs.org/), then run `./start-portable.sh` |
 
-1. Download the latest `pixiv-to-manga-*-portable.zip` from [GitHub Releases](https://github.com/Rinne414/pixiv-to-manga/releases).
-2. Unzip it anywhere.
-3. Double-click `start-portable.cmd` (Windows) or run `./start-portable.sh` (macOS/Linux).
+Every release also lists `SHA256SUMS.txt` so you can verify a download by hand. The studio opens in your browser; keep the launcher window open while you work and close it to stop the studio.
 
-The first run installs production dependencies only; afterwards it starts from the prebuilt bundles.
+On Linux, saving API keys needs the system keychain library (`libsecret`); without it the studio still runs, but keys cannot be stored.
 
-### Option B — npm / npx
+### Alternative 1 — npm / npx (needs Node.js 24 LTS or newer)
 
 ```bash
 npx pixiv-to-manga
@@ -24,13 +26,25 @@ npx pixiv-to-manga
 
 That downloads the prebuilt studio, starts the local server, and opens your browser (set `PTM_OPEN_BROWSER=0` to suppress).
 
-### Option C — clone this repository
+### Alternative 2 — clone this repository
 
 1. Install [Node.js 24 LTS or newer](https://nodejs.org/).
 2. Download or clone this repository.
 3. Double-click `start-studio.cmd` (Windows) or run `./start-studio.sh` (macOS/Linux).
 
 The first run installs dependencies and builds the app; afterwards it starts in seconds and opens in your browser automatically. Everything is stored locally under your home directory (`.pixiv-to-manga-studio`). Developers can do the same with `npm start`.
+
+## Updating / 更新
+
+The studio shows its version in **Settings > Version and updates**.
+
+- **Check for updates** asks GitHub for the newest release. By default the studio also checks once when it starts (at most every 6 hours); switch that off in the same panel.
+- **Update now** downloads the package for your system, verifies its SHA256 checksum (a mismatch is refused and nothing is changed), replaces the program files, and restarts the studio. The page reloads by itself.
+- Updating only replaces program files. Your projects, settings, API keys and exports live in `~/.pixiv-to-manga-studio` (or `PTM_DATA_DIR`) and the `output/` folder and are never touched. If you moved that data folder inside the program folder, the update stops and tells you to move it out first.
+- A copy run from source, `npx`, or npm cannot update itself: use `git pull` or `npm update`.
+- Prefer to update by hand? Download the new package, unzip it next to the old one, and start it; your data is picked up automatically.
+
+應用程式內：**設定 > 版本與更新** 可檢查更新並一鍵更新。更新只會替換程式檔案，並以 SHA256 驗證下載內容；你的專案、設定與金鑰不受影響。預設會在啟動時自動檢查（最多每 6 小時一次），可在同一面板關閉。
 
 ## Current Scope
 

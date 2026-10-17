@@ -1,5 +1,13 @@
 # Agent Handoff Notes
 
+## 2026-10-17 — v0.8.0: self-contained packages + in-app update
+
+- **Packages** (`npm run pack`, `scripts/pack-portable.mjs` + `scripts/pack/`): `win-x64.zip` and `linux-x64.tar.gz` bundle the Node 24 LTS runtime (`runtime/`) and production `node_modules`; `portable.zip` still needs system Node. Node and keytar downloads are SHA256-verified and cached in `.pack-cache/` (gitignored). `SHA256SUMS.txt` covers every asset. Native deps: sharp (optional `@img/*` packages chosen by `npm ci --os --cpu --libc`) and keytar (N-API v3 prebuild fetched manually, hash pinned in `production-modules.mjs`). Linux was cross-built from Windows and boot-tested on Ubuntu (WSL); the system keychain needs `libsecret`.
+- **Update engine** (`server/update/`): `install-info.json` (written by the packer) marks a packaged build; without it the UI says "git pull". Flow: GitHub latest release -> pick asset by package type -> download (HTTPS, github hosts only, redirects checked per hop) -> SHA256 from the API `digest` or `SHA256SUMS.txt` -> safe extract (no absolute/`..`/symlinks, size caps) -> `bin/apply-update.mjs` copied to a temp folder and run by the *staged* runtime -> server exits with code 75 -> helper waits for the pid, swaps top-level entries with backup + rollback (never `output/`, refuses if the data dir sits inside a replaced folder), writes `<dataDir>/update-result.json`, restarts via the launcher. Launchers close on exit 75.
+- **Settings**: `update.autoCheck` (default on) and `update.lastCheckedAt` live in the `settings` table; auto-check runs once at server start, at most every 6 hours.
+- **Cross-site guard**: `/api/update/*` only (Host must be loopback, Origin loopback if sent, no `Sec-Fetch-Site: cross-site`). The rest of `/api` has no such guard yet.
+- Tests: `tests/update*.test.ts`, `e2e/update.spec.ts`. Not exercised: a real GitHub release round trip (no 0.8.0 release exists yet) and macOS.
+
 Last updated: 2026-07-11 (v0.3.0). Five sessions that day: a dependency refresh (see
 Known debts), a feature session (next-page vision context, batch page-range, onboarding
 checklist), a debt-clearing session (god-file splits, CJK kinsoku), an editor-power
