@@ -14,8 +14,8 @@ Windows and Linux packages now bundle Node.js: unzip and double-click. The new V
   - 設定中新增「版本與更新」：顯示目前版本、檢查更新、更新內容摘要與一鍵更新；有新版時頂端會出現提示徽章。
 - **Verified updates**: the downloaded package must match the SHA256 published with the release; a mismatch is refused and nothing is changed. Downloads only follow HTTPS links on GitHub, and archives containing unsafe paths or symlinks are rejected.
   - 更新檔會以 SHA256 驗證，不符即拒絕且不做任何變更；只會從 GitHub 的 HTTPS 連結下載，並拒絕含有危險路徑或符號連結的壓縮檔。
-- **Your data is never touched by an update**: only program files are replaced. Projects, settings, API keys, exports and `output/` stay as they are, and a failed update rolls back to the previous version.
-  - 更新只替換程式檔案；專案、設定、金鑰、匯出檔案都不受影響，更新失敗時會還原為舊版。
+- **Your data is never touched by an update**: only program files are replaced. Projects, settings, API keys, exports and `output/` stay as they are. A failed update rolls back to the previous version, and if the computer loses power in the middle, the next start puts the previous version back first.
+  - 更新只替換程式檔案；專案、設定、金鑰、匯出檔案都不受影響。更新失敗時會還原為舊版；更新到一半電腦斷電，下次啟動會先把舊版放回去。
 - **Automatic check is your choice**: by default the studio checks once when it starts (at most every 6 hours). Turn it off in the same panel; the manual button always works.
   - 預設在啟動時自動檢查更新（最多每 6 小時一次），可在同一面板關閉；手動按鈕隨時可用。
 - **SHA256SUMS.txt** is published with every release.
@@ -38,9 +38,9 @@ Windows and Linux packages now bundle Node.js: unzip and double-click. The new V
 
 ## Validation / 驗證
 
-246 unit tests (49 cover version compare, asset pick, SHA256 verification, safe extraction, data protection, rollback and the cross-site guard), 3 new E2E tests, lint and type check all pass. The Windows package was unzipped and started from its launcher on a fresh folder, and the update swap (replacing the running Node runtime, then restarting) was run end to end. The Linux package was booted on Ubuntu.
+276 unit tests (79 cover the updater and packaging: version compare, asset pick, SHA256 verification, safe extraction, data protection, recovery after an interrupted update, rollback, the cross-site guard and the re-check of a cached Node runtime), 3 E2E tests, lint and type check all pass. A security review found nothing critical; its three medium and nine low findings were fixed before this build. The Windows package was unzipped into a fresh folder and started from `start-portable.cmd` with its bundled Node; its update check reached GitHub, and update requests from other sites or ports were refused. The update itself (replacing the running Node runtime, then restarting) was run end to end on Windows. The Linux package booted on Ubuntu, and a Linux update continues in the same terminal. Not yet tested: macOS, and saving API keys on a Linux desktop.
 
-246 個單元測試（其中 49 個涵蓋版本比較、安裝包挑選、SHA256 驗證、安全解壓、資料保護、還原與跨站防護）、3 個新的 E2E 測試、lint 與型別檢查皆通過；Windows 安裝包已在全新資料夾中以啟動檔實測，更新（替換執行中的 Node 並重啟）也完整跑過；Linux 安裝包已在 Ubuntu 上啟動驗證。
+276 個單元測試（其中 79 個涵蓋更新與打包：版本比較、安裝包挑選、SHA256 驗證、安全解壓、資料保護、更新中斷後的復原、還原、跨站防護，以及重新核對快取的 Node）、3 個 E2E 測試、lint 與型別檢查皆通過。資安審查沒有發現嚴重問題，指出的 3 個中度與 9 個輕度問題都已在這次打包前修正。Windows 安裝包已解壓到全新資料夾、以 `start-portable.cmd` 用內建的 Node 啟動；更新檢查能連到 GitHub，來自其他網站或其他埠的更新請求都被拒絕；更新本身（替換執行中的 Node 再重啟）在 Windows 上完整跑過。Linux 安裝包已在 Ubuntu 上啟動，Linux 的更新會在同一個終端機裡接著執行。尚未實測：macOS，以及在 Linux 桌面上儲存 API 金鑰。
 
 ---
 
