@@ -28,6 +28,7 @@ import { registerFontRoutes } from './fonts'
 import { registerPageRoutes } from './pages'
 import { registerPixivBatchRoutes } from './pixivBatch'
 import { registerStudioErrorHandler } from './errorHandler'
+import { registerLocalOriginGuard } from './localOriginGuard'
 import { readInstallInfo } from './update/install'
 import { registerUpdateRoutes } from './update/routes'
 import { UpdateManager } from './update/service'
@@ -49,11 +50,8 @@ const PORT = Number(process.env.PTM_SERVER_PORT || 4174)
 const db = new StudioDatabase()
 const secrets = new SecretStore(db)
 const jobs = new JobHub(db)
-const updates = new UpdateManager({
-  settings: db,
-  install: readInstallInfo(path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')),
-  dataDir: appDataDir,
-})
+const install = readInstallInfo(path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..'))
+const updates = new UpdateManager({ settings: db, install, dataDir: appDataDir })
 
 const server = fastify({
   logger: {
@@ -61,6 +59,10 @@ const server = fastify({
   },
   bodyLimit: 40 * 1024 * 1024,
 })
+
+// Before any route or plugin, so every API route and the /assets/ mount inherit it.
+// Source and dev runs are exempt from the same-port rule because Vite's proxy changes ports.
+registerLocalOriginGuard(server, { strictWrites: install.packageType !== null })
 
 await server.register(multipart, {
   limits: {
