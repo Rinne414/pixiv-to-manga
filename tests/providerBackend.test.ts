@@ -707,6 +707,22 @@ describe('Provider Lab backend', () => {
     expect(body.capability.capabilitySources.supportsStreaming).not.toBe('user')
     expect(body.capability.capabilitySources.allowsAdultGeneration).not.toBe('user')
   })
+
+  it('changes only the provider fields a patch sends', async () => {
+    db = createDb()
+    const local = db.createProvider({ name: 'Ollama', baseUrl: 'http://127.0.0.1:11434/v1', defaultModel: 'qwen3-vl:8b', isLocal: true })
+    const remote = db.createProvider({ name: 'Remote', baseUrl: 'https://api.example.test/v1', defaultModel: 'gpt-4o', isLocal: false })
+    const server = fastify()
+    registerProviderLabRoutes(server, { db, secrets: new TestSecretStore(db, new MemoryKeytar()) })
+
+    const renamed = await server.inject({ method: 'PATCH', url: `/api/providers/${local.id}`, payload: { name: 'Ollama (desk)' } })
+    expect(renamed.statusCode).toBe(200)
+    expect(db.getProvider(local.id)).toMatchObject({ name: 'Ollama (desk)', defaultModel: 'qwen3-vl:8b', isLocal: true })
+
+    const moved = await server.inject({ method: 'PATCH', url: `/api/providers/${remote.id}`, payload: { baseUrl: 'https://api.other.test/v1/' } })
+    expect(moved.statusCode).toBe(200)
+    expect(db.getProvider(remote.id)).toMatchObject({ name: 'Remote', baseUrl: 'https://api.other.test/v1', defaultModel: 'gpt-4o' })
+  })
 })
 
 describe('SecretStore keytar module normalization', () => {

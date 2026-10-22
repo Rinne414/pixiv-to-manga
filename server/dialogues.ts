@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import type { FastifyInstance } from 'fastify'
-import { dialogueCreateSchema, dialogueRestoreSchema, dialogueSchema, letteringDefaultsSchema } from '../src/shared/schemas'
+import { dialogueCreateSchema, dialoguePatchSchema, dialogueRestoreSchema, letteringDefaultsSchema } from '../src/shared/schemas'
 import type { StudioDatabase } from './database'
 import { findDialogueCharacter } from '../src/shared/characters'
 
@@ -31,7 +31,7 @@ export function registerDialogueRoutes(server: FastifyInstance, context: Dialogu
 
   server.patch('/api/dialogues/:id', async (request) => {
     const { id } = request.params as { id: string }
-    const patch = dialogueSchema.partial().parse(request.body)
+    const patch = dialoguePatchSchema.parse(request.body)
     return db.updateDialogue(id, patch)
   })
 
@@ -45,7 +45,7 @@ export function registerDialogueRoutes(server: FastifyInstance, context: Dialogu
     const { pageId } = request.params as { pageId: string }
     const items = (request.body as { dialogues?: unknown[] }).dialogues || []
     const updated = items.map((item) => {
-      const parsed = dialogueSchema.partial().required({ id: true }).parse(item)
+      const parsed = dialoguePatchSchema.required({ id: true }).parse(item)
       return db.updateDialogue(parsed.id, parsed)
     })
     return { pageId, dialogues: updated }

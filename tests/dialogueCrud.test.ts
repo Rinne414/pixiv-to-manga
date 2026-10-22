@@ -156,4 +156,26 @@ describe('dialogue CRUD routes', () => {
       y: 0.62,
     })
   })
+
+  it('changes only the fields a patch sends and keeps every other bubble setting', async () => {
+    const db = createDb()
+    const { project, page } = createPageFixture(db)
+    const server = createServer(db)
+    const styled = { x: 0.2, y: 0.8, scale: 1.5, rotation: 12, bubbleStyle: 'thought', color: '#aa2233', locked: true }
+    const created = await server.inject({ method: 'POST', url: `/api/pages/${page.id}/dialogues`, payload: { text: '原文', ...styled } })
+    const dialogueId = (created.json() as { id: string }).id
+
+    // The editor sends one field per edit: text on blur, the tail on drag end, a single layout value.
+    await server.inject({ method: 'PATCH', url: `/api/dialogues/${dialogueId}`, payload: { text: '改過的台詞' } })
+    await server.inject({ method: 'PATCH', url: `/api/dialogues/${dialogueId}`, payload: { tailX: 0.3, tailY: 0.9 } })
+    await server.inject({ method: 'PATCH', url: `/api/pages/${page.id}/layout`, payload: { dialogues: [{ id: dialogueId, y: 0.7 }] } })
+
+    expect(db.getProjectDetail(project.id).dialogues[0]).toMatchObject({
+      ...styled,
+      y: 0.7,
+      text: '改過的台詞',
+      tailX: 0.3,
+      tailY: 0.9,
+    })
+  })
 })

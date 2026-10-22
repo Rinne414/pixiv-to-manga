@@ -271,24 +271,21 @@ export class ProviderLabService {
     providerId: string,
     patch: Partial<{ name: string; baseUrl: string; defaultModel: string; isLocal: boolean; apiKey: string }>,
   ): Promise<ProviderProfile> {
+    // Looked up and validated before the key is stored, so a bad patch changes nothing.
+    const current = this.db.getProvider(providerId)
     const providerPatch = {
       ...(patch.name !== undefined ? { name: patch.name.trim() } : {}),
       ...(patch.defaultModel !== undefined ? { defaultModel: patch.defaultModel.trim() } : {}),
       ...(patch.isLocal !== undefined ? { isLocal: patch.isLocal } : {}),
+      ...(patch.baseUrl !== undefined || patch.isLocal !== undefined
+        ? { baseUrl: normalizeProviderBaseUrl(patch.baseUrl ?? current.baseUrl, patch.isLocal ?? current.isLocal) }
+        : {}),
     }
     if (patch.apiKey) {
       await this.secrets.setProviderApiKey(providerId, patch.apiKey)
     }
     if (Object.keys(providerPatch).length > 0) {
-      const current = this.db.getProvider(providerId)
-      this.db.updateProvider(providerId, {
-        ...providerPatch,
-        ...(patch.baseUrl !== undefined || patch.isLocal !== undefined
-          ? { baseUrl: normalizeProviderBaseUrl(patch.baseUrl ?? current.baseUrl, patch.isLocal ?? current.isLocal) }
-          : {}),
-      })
-    } else {
-      this.db.getProvider(providerId)
+      this.db.updateProvider(providerId, providerPatch)
     }
     const updated = this.db.getProvider(providerId)
     if (updated.defaultModel) {

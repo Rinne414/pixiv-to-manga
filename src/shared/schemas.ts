@@ -72,6 +72,22 @@ export const dialogueSchema = z.object({
   tailY: z.number().min(0).max(1).optional(),
 })
 
+/**
+ * Edits send only the fields they change. `.partial()` keeps `.default()`, which would reset every
+ * omitted field (position, size, style, colour, lock) on each edit, so the defaults are unwrapped.
+ */
+export const dialoguePatchSchema = dialogueSchema
+  .extend({
+    x: dialogueSchema.shape.x.unwrap(),
+    y: dialogueSchema.shape.y.unwrap(),
+    scale: dialogueSchema.shape.scale.unwrap(),
+    rotation: dialogueSchema.shape.rotation.unwrap(),
+    bubbleStyle: dialogueSchema.shape.bubbleStyle.unwrap(),
+    color: dialogueSchema.shape.color.unwrap(),
+    locked: dialogueSchema.shape.locked.unwrap(),
+  })
+  .partial()
+
 export const pageStatusSchema = z.enum(['ready', 'analyzing', 'generating', 'complete', 'error'])
 
 /** Undo/redo restore payload: full dialogue list for one page plus the page status to restore. */
@@ -235,7 +251,13 @@ export const providerProfileCreateSchema = z.object({
   apiKey: z.string().trim().max(2000).optional(),
 })
 
-export const providerProfilePatchSchema = providerProfileCreateSchema.partial()
+// Defaults unwrapped for the same reason as dialoguePatchSchema: an omitted field keeps its stored value.
+export const providerProfilePatchSchema = providerProfileCreateSchema
+  .extend({
+    defaultModel: providerProfileCreateSchema.shape.defaultModel.unwrap(),
+    isLocal: providerProfileCreateSchema.shape.isLocal.unwrap(),
+  })
+  .partial()
 
 export const providerIdParamSchema = z.object({
   id: z.string().min(1).max(120),

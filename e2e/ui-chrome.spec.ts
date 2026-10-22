@@ -616,6 +616,60 @@ test('dragging the tail handle sets the tail without moving the bubble', async (
   await expect(page.getByLabel('Y', { exact: true })).toHaveValue('0.5')
 })
 
+test('editing one bubble setting keeps the position, size and style already set', async ({ page }) => {
+  await openStudio(page)
+  await page.getByLabel('Project title').fill(`Bubble Edit ${Date.now()}`)
+  await page.getByRole('button', { name: /^Create$/ }).click()
+  await expect(page.locator('.log-list').getByText('Project created.')).toBeVisible()
+
+  const localImportResponse = page.waitForResponse(
+    (response) => response.url().includes('/api/import/local') && response.status() === 200,
+  )
+  await page.getByTestId('local-image-input').setInputFiles({
+    name: 'edit-page.svg',
+    mimeType: 'image/svg+xml',
+    buffer: Buffer.from(whiteboardSvg()),
+  })
+  await localImportResponse
+  await expect(page.locator('.canvas-meta')).toContainText('Page 1')
+
+  await page.getByTestId('tab-dialogue').click()
+  await page.getByTestId('dialogue-add').click()
+  await expect(page.getByTestId('dialogue-chip')).toHaveCount(1)
+
+  const dialogueSaved = () =>
+    page.waitForResponse(
+      (response) => response.url().includes('/api/dialogues/') && response.request().method() === 'PATCH' && response.status() === 200,
+    )
+
+  // Each edit saves one field, as the panels do.
+  await page.getByTestId('tab-layout').click()
+  for (const [label, value] of [['X', '0.2'], ['Scale', '1.5']] as const) {
+    const saved = dialogueSaved()
+    const field = page.getByLabel(label, { exact: true })
+    await field.fill(value)
+    await field.blur()
+    await saved
+  }
+  await page.getByTestId('tab-dialogue').click()
+  let saved = dialogueSaved()
+  await page.locator('.right-rail').getByLabel('Bubble').selectOption('thought')
+  await saved
+
+  saved = dialogueSaved()
+  const text = page.getByRole('textbox', { name: 'Text', exact: true })
+  await text.fill('改過的台詞')
+  await text.blur()
+  await saved
+
+  // The panels show what the server saved, so a reset would show up here.
+  await expect(page.locator('.right-rail').getByLabel('Bubble')).toHaveValue('thought')
+  await expect(page.getByTestId('dialogue-chip')).toHaveText('改過的台詞')
+  await page.getByTestId('tab-layout').click()
+  await expect(page.getByLabel('X', { exact: true })).toHaveValue('0.2')
+  await expect(page.getByLabel('Scale', { exact: true })).toHaveValue('1.5')
+})
+
 test('custom fonts upload into every font picker and delete cleanly', async ({ page }) => {
   await clearAiRoutes(page)
   await openStudio(page)
