@@ -24,8 +24,7 @@ export default defineConfig({
   outputDir: '.playwright-results',
   webServer: [
     {
-      command:
-        'node .plans/provider-lab/e2e-tester/test-provider-lab-main-thread/mock-provider.cjs',
+      command: 'node e2e/support/mock-provider.cjs',
       url: 'http://127.0.0.1:5199/models',
       reuseExistingServer: false,
       timeout: 30_000,

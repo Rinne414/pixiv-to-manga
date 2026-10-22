@@ -18,9 +18,6 @@ output/
 .tmp-run
 .playwright-results
 playwright-report
-.plans/**/.chrome-profile*/
-.plans/**/artifacts/
-.plans/**/browser-smoke-result*.json
 
 # Local scratch / smoke artifacts (never ship)
 tmp/
@@ -29,6 +26,11 @@ release/
 
 # Assistant/tooling scratch directories
 .zcode/
+
+# Agent instructions, handoffs and team plans stay local (never published)
+AGENTS.md
+HANDOFF.md
+.plans/
 
 # Editor directories and files
 .vscode/*
