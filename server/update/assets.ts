@@ -21,6 +21,11 @@ export function detectPackageType(platform: string, arch: string, hasBundledRunt
   return 'portable'
 }
 
+/** File name of the Node binary in a bundled-runtime package's `runtime/` folder (the portable zip has none). */
+export function runtimeBinaryName(type: PackageType): string {
+  return type === 'win-x64' ? 'node.exe' : 'node'
+}
+
 export function assetNameFor(version: string, type: PackageType): string {
   const extension = type === 'linux-x64' ? 'tar.gz' : 'zip'
   return `pixiv-to-manga-${version}-${type}.${extension}`

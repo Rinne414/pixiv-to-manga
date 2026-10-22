@@ -5,7 +5,7 @@ import { z } from 'zod'
 import { extractArchive } from './archive'
 import { assertSafeForCmdRestart } from './restart'
 import { prepareWorkDir } from './workdir'
-import { pickReleaseAsset, type PackageType, type ReleaseAsset } from './assets'
+import { pickReleaseAsset, runtimeBinaryName, type PackageType, type ReleaseAsset } from './assets'
 import { downloadText, downloadToFile, type FetchLike } from './download'
 import type { InstallInfo } from './install'
 import { summarizeReleaseNotes } from './notes'
@@ -185,7 +185,7 @@ export class UpdateManager {
     if (!cached.asset) throw new Error(`Release ${cached.version} has no package for this platform (${packageType}).`)
     assertSafeForCmdRestart(this.options.install.appRoot, this.options.install.launcher, this.options.platform)
     this.begin('downloading')
-    void this.runInstall(cached, cached.asset, cached.checksumAsset).catch((error) => this.fail(error))
+    void this.runInstall(packageType, cached, cached.asset, cached.checksumAsset).catch((error) => this.fail(error))
   }
 
   private fromRelease(release: z.infer<typeof releaseSchema>): CachedLatest {
@@ -206,7 +206,12 @@ export class UpdateManager {
     }
   }
 
-  private async runInstall(latest: CachedLatest, asset: ReleaseAsset, checksumAsset: ReleaseAsset | null): Promise<void> {
+  private async runInstall(
+    packageType: PackageType,
+    latest: CachedLatest,
+    asset: ReleaseAsset,
+    checksumAsset: ReleaseAsset | null,
+  ): Promise<void> {
     if (!isReleaseDownloadUrl(asset.browser_download_url)) {
       throw new Error('The release points at a download location this app does not trust.')
     }
@@ -241,7 +246,7 @@ export class UpdateManager {
     rmSync(archivePath, { force: true })
 
     this.setPhase('restarting')
-    await this.handOff(jobDir, stagedRoot, latest.version)
+    await this.handOff(jobDir, stagedRoot, latest.version, packageType)
   }
 
   private assertStagedPackage(stagedRoot: string, version: string): void {
@@ -255,7 +260,7 @@ export class UpdateManager {
     }
   }
 
-  private async handOff(jobDir: string, stagedRoot: string, version: string): Promise<void> {
+  private async handOff(jobDir: string, stagedRoot: string, version: string, packageType: PackageType): Promise<void> {
     const { appRoot, launcher } = this.options.install
     const helperPath = path.join(jobDir, 'apply-update.mjs')
     copyFileSync(path.join(appRoot, 'bin', 'apply-update.mjs'), helperPath)
@@ -273,7 +278,8 @@ export class UpdateManager {
       }),
     )
     // The staged runtime is not in use by anything, so it can run the helper while the old one is replaced.
-    const stagedNode = path.join(stagedRoot, 'runtime', process.platform === 'win32' ? 'node.exe' : 'node')
+    // Its file name follows the package being installed, not the system the check happens to run on.
+    const stagedNode = path.join(stagedRoot, 'runtime', runtimeBinaryName(packageType))
     const command = existsSync(stagedNode) ? stagedNode : process.execPath
 
     if (this.launcherHandlesUpdate) {

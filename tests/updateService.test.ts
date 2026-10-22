@@ -2,15 +2,19 @@ import { createHash } from 'node:crypto'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import { TarArchive } from 'archiver'
 import fastify from 'fastify'
 import JSZip from 'jszip'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import type { PackageType } from '../server/update/assets'
 import { registerUpdateRoutes } from '../server/update/routes'
 import { UpdateManager, UPDATE_EXIT_CODE, type UpdateManagerOptions, type UpdateStatus } from '../server/update/service'
 import type { SettingsStore } from '../server/update/settings'
 
 const PACKAGE = 'pixiv-to-manga-0.8.0-win-x64.zip'
 const GOOD_URL = `https://github.com/Rinne414/pixiv-to-manga/releases/download/v0.8.0/${PACKAGE}`
+const LINUX_PACKAGE = 'pixiv-to-manga-0.8.0-linux-x64.tar.gz'
+const LINUX_URL = `https://github.com/Rinne414/pixiv-to-manga/releases/download/v0.8.0/${LINUX_PACKAGE}`
 const dirs: string[] = []
 
 afterEach(() => {
@@ -37,6 +41,22 @@ async function packageZip(version = '0.8.0'): Promise<Buffer> {
   zip.file('pkg/dist-server/index.mjs', '// server')
   zip.file('pkg/runtime/node.exe', 'fake node')
   return zip.generateAsync({ type: 'nodebuffer' })
+}
+
+async function linuxPackageTarGz(version = '0.8.0'): Promise<Buffer> {
+  const archive = new TarArchive({ gzip: true })
+  const chunks: Buffer[] = []
+  archive.on('data', (chunk: Buffer) => chunks.push(chunk))
+  const done = new Promise<void>((resolve, reject) => {
+    archive.on('end', resolve)
+    archive.on('error', reject)
+  })
+  archive.append(JSON.stringify({ version }), { name: 'pkg/package.json' })
+  archive.append('// server', { name: 'pkg/dist-server/index.mjs' })
+  archive.append('fake node', { name: 'pkg/runtime/node', mode: 0o755 })
+  await archive.finalize()
+  await done
+  return Buffer.concat(chunks)
 }
 
 const sha = (buffer: Buffer) => createHash('sha256').update(buffer).digest('hex')
@@ -66,7 +86,7 @@ function fakeFetch(routes: Record<string, () => Response>) {
   })
 }
 
-function setup(overrides: Partial<UpdateManagerOptions> = {}) {
+function setup(overrides: Partial<UpdateManagerOptions> = {}, packageType: PackageType = 'win-x64') {
   const appRoot = tempDir()
   mkdirSync(path.join(appRoot, 'bin'))
   writeFileSync(path.join(appRoot, 'bin', 'apply-update.mjs'), '// helper')
@@ -76,7 +96,12 @@ function setup(overrides: Partial<UpdateManagerOptions> = {}) {
   const exit = vi.fn()
   const manager = new UpdateManager({
     settings: memoryStore(),
-    install: { appRoot, currentVersion: '0.7.0', packageType: 'win-x64', launcher: 'start-portable.cmd' },
+    install: {
+      appRoot,
+      currentVersion: '0.7.0',
+      packageType,
+      launcher: packageType === 'win-x64' ? 'start-portable.cmd' : 'start-portable.sh',
+    },
     dataDir,
     workDir: path.join(tempDir(), 'work'),
     launchHelper,
@@ -157,6 +182,23 @@ describe('install', () => {
     expect(existsSync(path.join(job.stagedRoot, 'dist-server', 'index.mjs'))).toBe(true)
     expect(readFileSync(path.join(dataDir, 'studio.sqlite'), 'utf8')).toBe('precious')
     await vi.waitFor(() => expect(exit).toHaveBeenCalledWith(UPDATE_EXIT_CODE))
+  })
+
+  it('runs the helper on the runtime inside the package it installs, whatever system runs the tests', async () => {
+    const archive = await linuxPackageTarGz()
+    const release = releaseJson(archive, { url: LINUX_URL })
+    release.assets[0].name = LINUX_PACKAGE
+    const fetchImpl = fakeFetch({
+      'https://api.github.com/repos/Rinne414/pixiv-to-manga/releases/latest': () => Response.json(release),
+      [LINUX_URL]: () => new Response(new Uint8Array(archive)),
+    })
+    const { manager, launchHelper } = setup({ fetchImpl }, 'linux-x64')
+    await manager.check()
+    manager.startInstall()
+    expect((await untilIdleOrError(manager)).phase).toBe('restarting')
+    const [command, args] = launchHelper.mock.calls[0] as unknown as [string, string[]]
+    const job = JSON.parse(readFileSync(args[1], 'utf8'))
+    expect(command).toBe(path.join(job.stagedRoot, 'runtime', 'node'))
   })
 
   it('refuses a download whose SHA256 does not match and never starts the helper', async () => {
