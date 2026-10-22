@@ -1,6 +1,6 @@
 {
   "name": "pixiv-to-manga",
-  "version": "0.8.0",
+  "version": "0.8.1",
   "description": "Privacy-first local-AI manga studio: import Pixiv or local art, generate story + dialogue with your own models, edit bubbles on a whiteboard, export ZIP/CBZ/PDF.",
   "keywords": [
     "manga",
