@@ -1,6 +1,7 @@
 import { mkdirSync } from 'node:fs'
 import path from 'node:path'
 import { expect, test } from '@playwright/test'
+import { clearAiRoutes } from './support/aiRoutes'
 
 const OUTPUT_DIR = path.join('.tmp-run', 'ui-preview')
 
@@ -8,6 +9,7 @@ const OUTPUT_DIR = path.join('.tmp-run', 'ui-preview')
 // (light/dark, en/zh, whiteboard, Story Continue, Provider Lab) for visual review.
 test('captures UI preview screenshots for light/dark and en/zh chrome states', async ({ page }) => {
   mkdirSync(OUTPUT_DIR, { recursive: true })
+  await clearAiRoutes(page)
   await page.addInitScript(() => {
     window.open = () => null
   })

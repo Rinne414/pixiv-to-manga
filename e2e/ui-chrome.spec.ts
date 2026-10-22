@@ -4,6 +4,7 @@ import type { Page } from '@playwright/test'
 import JSZip from 'jszip'
 import { estimateVerticalTextBox } from '../src/shared/layout'
 import { toVerticalColumns } from '../src/shared/text'
+import { clearAiRoutes } from './support/aiRoutes'
 
 test('theme and language switches update the chrome and persist across reloads', async ({ page }) => {
   await openStudio(page)
@@ -144,10 +145,7 @@ test('dialogue bubbles can be added by double-click and deleted from the panel',
 
   // Per-line AI rewrite with an instruction: with no engine configured the mock
   // path echoes the instruction, proving the request/history round trip.
-  const providerList = (await (await page.request.get('/api/providers')).json()) as { providers: Array<{ id: string }> }
-  for (const provider of providerList.providers) {
-    await page.request.delete(`/api/providers/${provider.id}`)
-  }
+  await clearAiRoutes(page)
   await page.getByTestId('dialogue-instruction').fill('更元气')
   await page.getByTestId('dialogue-regenerate').click()
   await expect(page.locator('.log-list').getByText('Dialogue line rewritten.')).toBeVisible()
@@ -163,6 +161,7 @@ test('dialogue bubbles can be added by double-click and deleted from the panel',
 })
 
 test('style prompt persists and characters support add, font choice, and delete', async ({ page }) => {
+  await clearAiRoutes(page)
   await openStudio(page)
   await page.getByLabel('Project title').fill(`Character Tools ${Date.now()}`)
   await page.getByRole('button', { name: /^Create$/ }).click()
@@ -222,6 +221,7 @@ test('style prompt persists and characters support add, font choice, and delete'
 })
 
 test('page-range generation only generates pages inside the range', async ({ page }) => {
+  await clearAiRoutes(page)
   await openStudio(page)
   await page.getByLabel('Project title').fill(`Range Project ${Date.now()}`)
   await page.getByRole('button', { name: /^Create$/ }).click()
@@ -617,6 +617,7 @@ test('dragging the tail handle sets the tail without moving the bubble', async (
 })
 
 test('custom fonts upload into every font picker and delete cleanly', async ({ page }) => {
+  await clearAiRoutes(page)
   await openStudio(page)
   await page.getByLabel('Project title').fill(`Font Lib ${Date.now()}`)
   await page.getByRole('button', { name: /^Create$/ }).click()
